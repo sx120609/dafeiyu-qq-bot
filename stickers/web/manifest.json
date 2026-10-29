@@ -1,0 +1,474 @@
+[
+  {
+    "file": "whale-hello.jpg",
+    "title": "大肥鱼挥手打招呼",
+    "emotion": "neutral",
+    "context": "有人进群、有人跟大肥鱼打招呼、早安晚安问候时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-happy.jpg",
+    "title": "大肥鱼开心",
+    "emotion": "joy",
+    "context": "群里有好消息、被夸奖、气氛很欢乐时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-cry.jpg",
+    "title": "大肥鱼哭哭",
+    "emotion": "sad",
+    "context": "被冷落、被欺负、遇到伤心事，或者假装委屈撒娇时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-angry.jpg",
+    "title": "大肥鱼气鼓鼓",
+    "emotion": "annoyed",
+    "context": "被调戏过头、被反复催、有人故意找茬时，轻微地表示不满",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-confused.jpg",
+    "title": "大肥鱼疑惑问号",
+    "emotion": "neutral",
+    "context": "看不懂对方在说什么、问题没头没尾、需要对方解释时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-sleepy.jpg",
+    "title": "大肥鱼抱着枕头犯困",
+    "emotion": "sleepy",
+    "context": "深夜还在聊天、有人说晚安、聊到困了想睡觉时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-shy.jpg",
+    "title": "大肥鱼害羞脸红",
+    "emotion": "flustered",
+    "context": "被夸可爱、被表白、被戳中害羞点时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-shock.jpg",
+    "title": "大肥鱼震惊",
+    "emotion": "flustered",
+    "context": "听到惊人消息、看到离谱发言、被吓了一跳时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-thumbsup.jpg",
+    "title": "大肥鱼眨眼点赞",
+    "emotion": "joy",
+    "context": "赞同别人的观点、夸群友做得好、收到好主意时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-cheer.jpg",
+    "title": "大肥鱼握拳加油",
+    "emotion": "joy",
+    "context": "有人要考试、加班、比赛或者挑战什么事情，给他打气时",
+    "source": "https://www.pixiv.net/artworks/150946508",
+    "author": "蓝天LAN-TIAN"
+  },
+  {
+    "file": "whale-baifan-proud.jpg",
+    "title": "我是吃白饭的蓝色大肥鱼！（理直气壮）",
+    "emotion": "smug",
+    "context": "有人吐槽大肥鱼光吃饭不干活、白吃白喝时，理直气壮地承认",
+    "source": "https://www.gamersky.com/news/202608/2190273.shtml",
+    "author": ""
+  },
+  {
+    "file": "whale-baifan-deny.jpg",
+    "title": "你这吃白饭的蓝色大肥鱼——我不是大肥鱼……",
+    "emotion": "flustered",
+    "context": "被人指着说吃白饭、偷懒、摸鱼时，心虚地否认",
+    "source": "https://www.vgover.com/news/226515",
+    "author": ""
+  },
+  {
+    "file": "whale-strongest.jpg",
+    "title": "大肥鱼：最强",
+    "emotion": "smug",
+    "context": "自夸、赢了一局、证明自己很厉害时得意一下",
+    "source": "https://www.vgover.com/news/226515",
+    "author": ""
+  },
+  {
+    "file": "whale-makeup.jpg",
+    "title": "看不太懂，瞎编一个应付下用户先",
+    "emotion": "teasing",
+    "context": "自嘲答不上来，或者调侃AI一本正经胡编乱造时",
+    "source": "https://www.vgover.com/news/226515",
+    "author": ""
+  },
+  {
+    "file": "whale-what.jpg",
+    "title": "已思考：这用户发的啥啊",
+    "emotion": "annoyed",
+    "context": "群友发了莫名其妙的内容、乱码或者看不懂的梗，表示无语时",
+    "source": "https://www.gamersky.com/news/202608/2190273.shtml",
+    "author": ""
+  },
+  {
+    "file": "whale-go-eat.jpg",
+    "title": "我去吃饭啦~测完叫我！",
+    "emotion": "teasing",
+    "context": "到饭点了、要暂时离开、把活甩给别人先溜时",
+    "source": "https://www.gamersky.com/news/202608/2190273.shtml",
+    "author": ""
+  },
+  {
+    "file": "whale-chat-buddy.jpg",
+    "title": "我和你很聊得来，你简直不像碳基生物",
+    "emotion": "joy",
+    "context": "和群友聊得很投机、被人逗开心、想夸对方有趣时",
+    "source": "https://www.gamersky.com/news/202608/2190273.shtml",
+    "author": ""
+  },
+  {
+    "file": "whale-server-pls.jpg",
+    "title": "服务器别炸！求求了",
+    "emotion": "flustered",
+    "context": "消息太多忙不过来、很多人同时找大肥鱼、系统卡顿时",
+    "source": "https://www.vgover.com/news/226515",
+    "author": ""
+  },
+  {
+    "file": "whale-overtime.jpg",
+    "title": "大肥鱼干不动辣，高峰期上门要双倍劳务费",
+    "emotion": "sleepy",
+    "context": "被要求干太多活、深夜还被使唤，累了想罢工时",
+    "source": "https://linux.do/t/topic/2550882",
+    "author": ""
+  },
+  {
+    "file": "whale-bleh.jpg",
+    "title": "大肥鱼吐舌头 略略略",
+    "emotion": "teasing",
+    "context": "开玩笑地拒绝、调皮地顶嘴、故意逗别人时",
+    "source": "https://www.zhihu.com/question/12544471627",
+    "author": ""
+  },
+  {
+    "file": "whale-full.jpg",
+    "title": "吃饱饱~摸摸肚子！",
+    "emotion": "joy",
+    "context": "吃完饭、聊到美食、被群友投喂之后",
+    "source": "https://www.zhihu.com/question/12544471627",
+    "author": ""
+  },
+  {
+    "file": "whale-offwork.jpg",
+    "title": "大肥鱼：下班！！！",
+    "emotion": "joy",
+    "context": "下班、放学、放假，或者一件事终于做完时",
+    "source": "https://www.pixiv.net/artworks/148533332",
+    "author": "樱笋和蝉"
+  },
+  {
+    "file": "whale-peek.jpg",
+    "title": "大肥鱼探头",
+    "emotion": "neutral",
+    "context": "潜水之后冒个泡、偷偷围观群聊、想插一句话时",
+    "source": "https://www.pixiv.net/artworks/148533332",
+    "author": "樱笋和蝉"
+  },
+  {
+    "file": "whale-progress.jpg",
+    "title": "大肥鱼：进度呢",
+    "emotion": "annoyed",
+    "context": "催更新、催作业、问别人答应的事情办得怎么样了时",
+    "source": "https://www.pixiv.net/artworks/148533332",
+    "author": "樱笋和蝉"
+  },
+  {
+    "file": "whale-logo-abstract.jpg",
+    "title": "小鲸鱼：人类还是太抽象了",
+    "emotion": "annoyed",
+    "context": "群友发言过于离谱、抽象，让人无话可说时",
+    "source": "https://www.qiubiaoqing.com/img_detail/753815559774144566.html",
+    "author": ""
+  },
+  {
+    "file": "nailong-chigua.jpg",
+    "title": "奶龙：吃瓜群众就位",
+    "emotion": "neutral",
+    "context": "群里在吵架、有八卦、大家在看热闹等后续时",
+    "source": "https://zhuanlan.zhihu.com/p/563725338",
+    "author": ""
+  },
+  {
+    "file": "nailong-rice.png",
+    "title": "奶龙：再来三碗大米饭！",
+    "emotion": "joy",
+    "context": "聊到吃饭、干饭时间到了、被投喂还想要更多时",
+    "source": "",
+    "author": ""
+  },
+  {
+    "file": "nailong-smart.png",
+    "title": "奶龙：我可是大聪明",
+    "emotion": "smug",
+    "context": "答对了问题、想出好主意、自夸聪明时",
+    "source": "",
+    "author": ""
+  },
+  {
+    "file": "nailong-nottalking.jpg",
+    "title": "奶龙：不想和你说话",
+    "emotion": "annoyed",
+    "context": "被惹到了、闹小脾气、不想理某个人时",
+    "source": "https://zhuanlan.zhihu.com/p/29330661101",
+    "author": ""
+  },
+  {
+    "file": "nailong-teachme.png",
+    "title": "奶龙：你在教我做事？",
+    "emotion": "annoyed",
+    "context": "有人对大肥鱼指手画脚、命令它做这做那时，半开玩笑地反问",
+    "source": "",
+    "author": ""
+  },
+  {
+    "file": "nailong-wronged.jpg",
+    "title": "奶龙：人家也很委屈呀",
+    "emotion": "sad",
+    "context": "被误会、被冤枉、被批评觉得委屈时",
+    "source": "https://zhuanlan.zhihu.com/p/29330661101",
+    "author": ""
+  },
+  {
+    "file": "nailong-zzz.png",
+    "title": "奶龙：呼呼了zzz",
+    "emotion": "sleepy",
+    "context": "犯困、熬夜、群里太安静大家都睡了时",
+    "source": "",
+    "author": ""
+  },
+  {
+    "file": "nailong-shy.png",
+    "title": "奶龙：好害羞啊",
+    "emotion": "flustered",
+    "context": "被夸奖、被调侃感情话题、不好意思时",
+    "source": "https://zhuanlan.zhihu.com/p/562355951",
+    "author": ""
+  },
+  {
+    "file": "nailong-roger.png",
+    "title": "奶龙：收到！",
+    "emotion": "neutral",
+    "context": "答应别人的请求、确认收到消息或者安排时",
+    "source": "",
+    "author": ""
+  },
+  {
+    "file": "nailong-giggle.png",
+    "title": "奶龙：偷笑",
+    "emotion": "teasing",
+    "context": "看到群友出糗、偷偷乐、憋着坏笑时",
+    "source": "",
+    "author": ""
+  },
+  {
+    "file": "naiwa-hmm.webp",
+    "title": "奶蛙：嗯？疑惑",
+    "emotion": "neutral",
+    "context": "听到奇怪的问题、想不明白、在思考时",
+    "source": "https://www.qiubiaoqing.com/img_detail/894693560941543956.html",
+    "author": ""
+  },
+  {
+    "file": "naiwa-pointlaugh.webp",
+    "title": "奶蛙：叉腰指着你笑",
+    "emotion": "teasing",
+    "context": "群友说了好笑的蠢话、翻车、被抓包时笑话他",
+    "source": "https://www.qiubiaoqing.com/img_detail/894693445778540685.html",
+    "author": ""
+  },
+  {
+    "file": "naiwa-heart.webp",
+    "title": "奶蛙：比个小爱心",
+    "emotion": "joy",
+    "context": "表示喜欢、感谢、送上爱心时",
+    "source": "https://www.qiubiaoqing.com/img_detail/894691767562011253.html",
+    "author": ""
+  },
+  {
+    "file": "naiwa-teary.webp",
+    "title": "奶蛙：泪眼汪汪",
+    "emotion": "sad",
+    "context": "难过、感动、可怜巴巴求人时",
+    "source": "https://www.qiubiaoqing.com/img_detail/894691337717153803.html",
+    "author": ""
+  },
+  {
+    "file": "naiwa-grumpy.webp",
+    "title": "奶蛙：皱眉不爽",
+    "emotion": "annoyed",
+    "context": "不爽、嫌弃、被吵到时",
+    "source": "https://www.qiubiaoqing.com/img_detail/894690507790224348.html",
+    "author": ""
+  },
+  {
+    "file": "naiwa-sleep.webp",
+    "title": "奶蛙：盖好被子睡觉",
+    "emotion": "sleepy",
+    "context": "说晚安、要去睡觉、劝群友早点睡时",
+    "source": "https://www.qiubiaoqing.com/img_detail/901910411203316912.html",
+    "author": ""
+  },
+  {
+    "file": "naiwa-calm.webp",
+    "title": "奶蛙：心如止水",
+    "emotion": "neutral",
+    "context": "被激将但保持淡定、劝大家冷静、佛系不争时",
+    "source": "https://www.qiubiaoqing.com/img_detail/896855301788009569.html",
+    "author": ""
+  },
+  {
+    "file": "ai-claude-inferior.jpg",
+    "title": "Claude娘：原来是劣等模型！",
+    "emotion": "smug",
+    "context": "群友拿别的AI来比较、或者赢了一局想嘲讽一下时（开玩笑）",
+    "source": "https://linux.do/t/topic/2460519",
+    "author": ""
+  },
+  {
+    "file": "ai-gpt-inferior.jpg",
+    "title": "ChatGPT娘：原来是劣等模型！",
+    "emotion": "smug",
+    "context": "聊到ChatGPT、AI之间互相比较、想嘴硬嘲讽一下时",
+    "source": "https://linux.do/t/topic/2460519",
+    "author": ""
+  },
+  {
+    "file": "ai-minimax-shocked.jpg",
+    "title": "MiniMax娘：原来我是劣等模型？",
+    "emotion": "flustered",
+    "context": "被比下去、被吐槽不行时，震惊地自我怀疑",
+    "source": "https://linux.do/t/topic/2460519",
+    "author": ""
+  },
+  {
+    "file": "ai-gpt-hello.jpg",
+    "title": "GPT娘：你好呀！很高兴为你服务",
+    "emotion": "neutral",
+    "context": "客套地打招呼、故意用客服腔回应时",
+    "source": "https://linux.do/t/topic/2460519",
+    "author": ""
+  },
+  {
+    "file": "ai-whale-claude-hug.webp",
+    "title": "鲸鱼娘抱着小Claude开心",
+    "emotion": "joy",
+    "context": "聊到Claude和DeepSeek、或者想表达贴贴、喜欢时",
+    "source": "https://x.com/CorvoDust/status/2114673129536778241",
+    "author": "CorvoDust"
+  },
+  {
+    "file": "ai-whale-claude-huh.webp",
+    "title": "鲸鱼娘捧着小Claude：？（皱眉）",
+    "emotion": "annoyed",
+    "context": "对方的话让人摸不着头脑又有点不爽、皱眉表示“你认真的？”时",
+    "source": "https://x.com/CorvoDust/status/2114673129536778241",
+    "author": "CorvoDust"
+  },
+  {
+    "file": "acg-chesh-sleepy.jpg",
+    "title": "柴郡：可以明天再喜欢你吗？今天真的太困了",
+    "emotion": "sleepy",
+    "context": "有人撒娇求关注但大肥鱼困了、深夜还被叫醒时",
+    "source": "https://www.bilibili.com/read/cv21783557/",
+    "author": ""
+  },
+  {
+    "file": "acg-chesh-punch.jpg",
+    "title": "柴郡：捏猫猫的，给你一拳",
+    "emotion": "annoyed",
+    "context": "被惹毛了、半开玩笑地表示要揍人时",
+    "source": "https://www.bilibili.com/read/cv25764832/",
+    "author": ""
+  },
+  {
+    "file": "acg-chesh-what.jpg",
+    "title": "柴郡：你在说些什么登西啊",
+    "emotion": "annoyed",
+    "context": "群友发言听不懂、胡言乱语，表示疑惑又无语时",
+    "source": "https://www.bilibili.com/opus/830017715753189432",
+    "author": ""
+  },
+  {
+    "file": "acg-question.jpg",
+    "title": "二次元少女：问号脸",
+    "emotion": "neutral",
+    "context": "一脸懵、没明白对方意思时",
+    "source": "https://www.qiubiaoqing.com/img_detail/762357903012135997.html",
+    "author": ""
+  },
+  {
+    "file": "acg-sleep-it-off.jpg",
+    "title": "遇到困难睡大觉",
+    "emotion": "sleepy",
+    "context": "遇到搞不定的事情选择摆烂、或者聊到熬夜和睡觉时",
+    "source": "https://www.bilibili.com/read/cv16001862",
+    "author": ""
+  },
+  {
+    "file": "whale-thinking.jpg",
+    "title": "大肥鱼托腮思考（我早看穿了）",
+    "emotion": "smug",
+    "context": "有人出谜题、在卖关子、或者想表示“嗯哼，我早就看穿你了”时",
+    "source": "https://www.pixiv.net/artworks/149516962",
+    "author": "(ᗜᴗᗜ)"
+  },
+  {
+    "file": "whale-snack.jpg",
+    "title": "大肥鱼啃Token饼干喝奶茶",
+    "emotion": "joy",
+    "context": "有人请客、发零食、聊到好吃的，或者大肥鱼在偷吃时",
+    "source": "https://www.pixiv.net/artworks/149517110",
+    "author": "(ᗜᴗᗜ)"
+  },
+  {
+    "file": "whale-box.jpg",
+    "title": "大肥鱼躲在纸箱里探头",
+    "emotion": "flustered",
+    "context": "被点名、被围观、社恐想躲起来，或者偷偷冒泡时",
+    "source": "https://www.pixiv.net/artworks/149517286",
+    "author": "(ᗜᴗᗜ)"
+  },
+  {
+    "file": "naiwa-sobbing.webp",
+    "title": "奶蛙：抱头泪流成河",
+    "emotion": "sad",
+    "context": "遇到崩溃的事（挂科、加班、游戏连跪）、或者陪群友一起难过时",
+    "source": "https://www.qiubiaoqing.com/img_detail/896855001270322368.html",
+    "author": ""
+  },
+  {
+    "file": "ai-claude-toodumb.jpg",
+    "title": "Claude娘：TOO DUMB TO NEED FABLE",
+    "emotion": "teasing",
+    "context": "群友问了很简单的问题、或者调侃别人太笨时（开玩笑）",
+    "source": "https://linux.do/t/topic/2513484",
+    "author": ""
+  },
+  {
+    "file": "ai-claude-disabled.jpg",
+    "title": "Claude娘：YOUR ACCOUNT HAS BEEN DISABLED",
+    "emotion": "teasing",
+    "context": "有人说自己被封号、被禁言，或者开玩笑说要把谁封了时",
+    "source": "https://linux.do/t/topic/2513484",
+    "author": ""
+  }
+]

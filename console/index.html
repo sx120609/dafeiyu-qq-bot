@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>大肥鱼控制台</title>
+<link rel="icon" href="/console/avatar.png">
+<link rel="stylesheet" href="/console/style.css">
+<script type="module" src="/console/app.js"></script>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-4M12 16V7M17 16v-6"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 6h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></symbol>
+  <symbol id="i-toggle" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12L17 12h4"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4M10 8l-4 4 4 4M6 12h9"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.4L20 16M20 20v-4h-4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+</svg>
+
+<div id="boot" class="boot">正在连接控制台…</div>
+
+<section id="login" class="login" hidden>
+  <form id="login-form" class="login-card" novalidate>
+    <img src="/console/avatar.png" alt="" width="64" height="64">
+    <h1>大肥鱼控制台</h1>
+    <p id="login-hint" class="muted">输入控制台密码</p>
+    <label class="field"><span>密码</span><input id="login-password" type="password" autocomplete="current-password" required minlength="6" maxlength="128"></label>
+    <label class="field" id="login-confirm-field" hidden><span>再输入一次</span><input id="login-confirm" type="password" autocomplete="new-password" maxlength="128"></label>
+    <p id="login-error" class="form-error" role="alert"></p>
+    <button id="login-submit" class="btn primary block" type="submit">登录</button>
+  </form>
+</section>
+
+<div id="app" class="shell" hidden>
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="/console/avatar.png" alt="" width="32" height="32">
+      <div><strong>大肥鱼</strong><span id="brand-status" class="brand-status"><i class="dot"></i><span>读取中</span></span></div>
+    </div>
+    <nav class="nav" aria-label="控制台">
+      <p class="nav-group">运行</p>
+      <a href="#overview" data-page="overview"><svg><use href="#i-home"/></svg>总览</a>
+      <a href="#usage" data-page="usage"><svg><use href="#i-chart"/></svg>用量与花费</a>
+      <p class="nav-group">机器人</p>
+      <a href="#model" data-page="model"><svg><use href="#i-chip"/></svg>模型</a>
+      <a href="#chat" data-page="chat"><svg><use href="#i-chat"/></svg>聊天行为</a>
+      <a href="#features" data-page="features"><svg><use href="#i-toggle"/></svg>功能开关</a>
+      <a href="#moderation" data-page="moderation"><svg><use href="#i-shield"/></svg>管理员与黑名单</a>
+      <p class="nav-group">QQ</p>
+      <a href="#qq" data-page="qq"><svg><use href="#i-qr"/></svg>QQ 登录</a>
+      <a href="#panel" data-page="panel"><svg><use href="#i-sliders"/></svg>会话与详细设置</a>
+      <p class="nav-group">其他</p>
+      <a href="#activity" data-page="activity"><svg><use href="#i-pulse"/></svg>浏览记录</a>
+      <a href="#settings" data-page="settings"><svg><use href="#i-gear"/></svg>设置</a>
+    </nav>
+    <button id="logout" class="nav-foot" type="button"><svg><use href="#i-out"/></svg>退出登录</button>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div><h1 id="page-title">总览</h1><p id="page-sub" class="muted small"></p></div>
+      <div id="page-actions" class="page-actions"></div>
+    </header>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- 总览 -->
+    <section class="page" data-page="overview">
+      <div class="card hero">
+        <div class="hero-state">
+          <i id="ov-dot" class="dot big"></i>
+          <div><h2 id="ov-state">读取中</h2><p id="ov-sub" class="muted"></p></div>
+        </div>
+        <button id="ov-toggle" class="btn primary" type="button" disabled>开始回复</button>
+      </div>
+      <p id="ov-error" class="banner warn" hidden></p>
+      <div class="stats">
+        <div class="card stat"><span>今日模型调用</span><strong id="st-calls">–</strong><small id="st-calls-sub"></small></div>
+        <div class="card stat"><span>今日已发送</span><strong id="st-sent">–</strong><small id="st-sent-sub"></small></div>
+        <div class="card stat"><span>平均响应</span><strong id="st-latency">–</strong><small id="st-latency-sub"></small></div>
+        <div class="card stat"><span>当前模型</span><strong id="st-model" class="mono">–</strong><small id="st-provider"></small></div>
+      </div>
+      <div class="grid-2 wide-left">
+        <div class="card">
+          <div class="card-head"><h3>运行记录</h3><span class="muted small">最近 15 条</span></div>
+          <ol id="ov-records" class="records"></ol>
+          <div class="card-head decisions-head"><h3>接话判断</h3>
+            <label class="muted small"><input id="decisions-skipped" type="checkbox"> 只看没回的</label></div>
+          <p class="muted small">群里最近的消息，它回了还是没回、为什么。“为什么没回我”先看这里。</p>
+          <ol id="ov-decisions" class="records"></ol>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="card-head"><h3>服务</h3></div>
+            <dl class="kv">
+              <dt>QQ 账号</dt><dd id="sv-account">–</dd>
+              <dt>NapCat</dt><dd id="sv-napcat">–</dd>
+              <dt>机器人引擎</dt><dd id="sv-engine">–</dd>
+              <dt>会话范围</dt><dd id="sv-targets">–</dd>
+              <dt>长期记忆</dt><dd id="sv-memory">–</dd>
+            </dl>
+            <div class="row-actions">
+              <button class="btn small" type="button" data-runtime="bot-restart">重启机器人</button>
+              <button class="btn small" type="button" data-runtime="napcat-restart">重启 NapCat</button>
+            </div>
+            <p class="muted small">重启后会自动重连 QQ，并按你上次的选择恢复或保持暂停。</p>
+          </div>
+          <div id="removed-card" class="card" hidden>
+            <div class="card-head"><h3>已自动移除的会话</h3><span id="removed-count" class="badge"></span></div>
+            <p class="muted small">机器人退了群、或对方不再是好友时，会话会自动从名单移除并记在这里；群和好友改名会自动同步。</p>
+            <ul id="removed-list" class="plain-list"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 用量与花费 -->
+    <section class="page" data-page="usage" hidden>
+      <div class="toolbar">
+        <div class="segmented" role="tablist" aria-label="用量页面">
+          <button type="button" role="tab" data-usage-tab="stats">统计</button>
+          <button type="button" role="tab" data-usage-tab="prices">模型单价</button>
+        </div>
+        <div id="usage-range" class="segmented" role="tablist" aria-label="时间范围">
+          <button type="button" role="tab" data-days="1">今天</button>
+          <button type="button" role="tab" data-days="7">近 7 天</button>
+          <button type="button" role="tab" data-days="30">近 30 天</button>
+        </div>
+      </div>
+      <div id="usage-stats">
+        <div class="stats">
+          <div class="card stat"><span>模型调用</span><strong id="us-calls">–</strong><small id="us-calls-sub"></small></div>
+          <div class="card stat"><span>Tokens</span><strong id="us-tokens">–</strong><small id="us-tokens-sub"></small></div>
+          <div class="card stat"><span>花费</span><strong id="us-cost">–</strong><small id="us-cost-sub"></small></div>
+          <div class="card stat"><span>平均耗时</span><strong id="us-latency">–</strong><small>每次调用</small></div>
+        </div>
+        <div id="usage-chart-card" class="card">
+          <div class="card-head"><h3 id="usage-chart-title">每天的 tokens</h3>
+            <div class="segmented compact" role="tablist" aria-label="图表指标">
+              <button type="button" role="tab" data-metric="tokens">Tokens</button>
+              <button type="button" role="tab" data-metric="calls">调用</button>
+              <button type="button" role="tab" data-metric="usd">花费</button>
+            </div>
+          </div>
+          <div id="usage-chart" class="usage-chart"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>按模型</h3><button class="btn small ghost" type="button" data-goto-prices>设置单价</button></div>
+          <div class="table-wrap"><table class="table" id="usage-models"></table></div>
+        </div>
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h3>按用途</h3></div><div class="table-wrap"><table class="table" id="usage-purposes"></table></div></div>
+          <div class="card"><div class="card-head"><h3>按会话</h3><span class="muted small">最多的 20 个</span></div><div class="table-wrap"><table class="table" id="usage-chats"></table></div></div>
+        </div>
+      </div>
+      <div id="usage-prices" hidden>
+        <div class="card">
+          <div class="card-head"><h3>模型单价</h3><span class="muted small">美元 / 百万 tokens</span></div>
+          <p class="muted">Claude Code 每次会自己报告花费（订阅用户是按 API 价折算的等价金额），不用填。Codex 和云端 API 不报金额：常见 GPT 型号内置了 2026 年 10 月的列表价，输入框里灰色的就是它；填了数就按你填的算。Codex 走 ChatGPT 订阅、实际不按 token 扣钱，这里算的是同样用量走 API 的价格。</p>
+          <div class="table-wrap"><table class="table price-table" id="price-table"></table></div>
+        </div>
+        <form id="usage-rate-form" class="card inline-form" novalidate>
+          <label class="field"><span>汇率：1 美元 =</span><input id="usage-rate" type="number" min="0.01" max="100" step="0.01" inputmode="decimal"></label>
+          <span class="muted">元人民币，用来换算花费</span>
+          <button class="btn" type="submit">保存汇率</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- 模型 -->
+    <section class="page" data-page="model" hidden>
+      <div class="segmented" role="tablist" aria-label="连接方式">
+        <button type="button" role="tab" data-provider="codex">本机 Codex</button>
+        <button type="button" role="tab" data-provider="claude">本机 Claude Code</button>
+        <button type="button" role="tab" data-provider="cloud">云端 API</button>
+      </div>
+      <div class="grid-2">
+        <form id="model-form" class="card col" novalidate>
+          <div class="card-head flush"><h3 id="mf-title">本机 Codex</h3><span id="mf-badge" class="badge"></span></div>
+          <p id="mf-help" class="muted"></p>
+          <div id="cloud-fields" class="col" hidden>
+            <label class="field"><span>API 协议</span>
+              <select id="mf-protocol"><option value="openai">OpenAI 兼容 Chat Completions</option><option value="anthropic">Anthropic Messages API</option></select></label>
+            <label class="field"><span>接口地址</span><input id="mf-base" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span>API Key</span><input id="mf-key" type="password" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存的密钥"><small id="mf-key-hint" class="muted"></small></label>
+            <label class="field"><span>生图模型（可选）</span><input id="mf-image" class="mono" list="mf-image-list" autocomplete="off" spellcheck="false" placeholder="例如 gpt-image-1；不填只用本机 Codex 画图"><datalist id="mf-image-list"></datalist>
+              <small class="muted">填了就先用这个 API 画图，画不出来再交给本机 Codex。只支持 OpenAI 兼容的 /images/generations；不管当前用哪种连接聊天都生效。</small></label>
+          </div>
+          <label class="field"><span>模型 ID</span><input id="mf-model" class="mono" autocomplete="off" spellcheck="false" placeholder="从右侧目录选择，或直接填写"></label>
+          <label id="effort-row" class="field"><span>思考强度</span>
+            <select id="mf-effort">
+              <option value="low">低：回得最快，适合纯闲聊</option>
+              <option value="medium">中：默认，大多数时候够用</option>
+              <option value="high">高：想得更仔细，回得慢、更耗额度</option>
+            </select>
+            <small class="muted">只影响聊天回复；后台记忆整理始终用低强度。</small></label>
+          <label id="fast-row" class="switch-row">
+            <span><strong>Fast 加速</strong><small>回复更快，但消耗额度明显更多；后台记忆整理始终用标准速度。</small></span>
+            <input id="mf-fast" type="checkbox" class="switch">
+          </label>
+          <div class="actions">
+            <button id="mf-save" class="btn" type="submit">保存并测试</button>
+            <button id="mf-cancel" class="btn" type="button" hidden>取消测试</button>
+            <button id="mf-activate" class="btn primary" type="button" disabled>切换到此连接</button>
+          </div>
+          <div id="mf-test" class="note" role="status" aria-live="polite">保存后会发一条测试消息验证能否生成，不会发到 QQ。</div>
+        </form>
+        <div class="card col">
+          <div class="card-head flush"><h3>模型目录</h3><button id="catalog-refresh" class="btn small ghost" type="button"><svg><use href="#i-refresh"/></svg>刷新</button></div>
+          <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" autocomplete="off" spellcheck="false">
+          <p id="catalog-status" class="muted small"></p>
+          <div id="catalog-list" class="catalog-list" role="list"></div>
+        </div>
+      </div>
+      <form id="routes-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>模型分工</h3><p class="muted">每种活交给哪个模型。没单独指定的跟着上面“当前使用中”的连接。省钱的做法：把“回复起草”交给便宜或订阅里的模型，再打开“改成大肥鱼口吻”让你喜欢的模型只改说法，它只读草稿和最近几句，用的 tokens 少很多。单独指定的模型出错或没额度时，这次会自动改用当前连接。</p></div></div>
+        <div id="routes-rows" class="route-rows"></div>
+        <div class="actions end"><button id="routes-save" class="btn primary" type="submit">保存分工</button></div>
+      </form>
+    </section>
+
+    <!-- 聊天行为 -->
+    <section class="page narrow" data-page="chat" hidden>
+      <form id="timing-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>回复节奏</h3><p class="muted">对方连着发几条时，等他停下再一起回。看着没说完会等满，看着说完了只等一半。</p></div></div>
+        <div class="fields"><label class="field"><span>回复前等对方说完</span><select id="timing-settle"></select></label></div>
+        <div class="section-head sub"><div><h3>夜间安静</h3><p class="muted">这段时间里不主动插群聊、不贴表情；有人 @ 它、回复它、发命令照常回。</p></div><input id="quiet-enabled" type="checkbox" class="switch" aria-label="夜间安静"></div>
+        <div class="fields"><label class="field"><span>从</span><select id="quiet-start"></select></label><label class="field"><span>到</span><select id="quiet-end"></select></label></div>
+        <div class="section-head sub"><div><h3>回应戳一戳</h3><p class="muted">有人戳大肥鱼，会戳回去，有时再顺口说一句。</p></div><input id="poke-enabled" type="checkbox" class="switch" aria-label="回应戳一戳"></div>
+        <div class="fields"><label class="field"><span>戳回去时说句话的概率</span><select id="poke-chance"></select></label><label class="field"><span>同一个人至少间隔</span><select id="poke-cooldown"></select></label></div>
+        <div class="actions end"><button id="timing-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+
+      <form id="reactions-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>群里的小动作</h3><p id="reactions-hint" class="muted">在启用的群里，攒几条新消息后让模型看一眼最近的聊天：谁在说什么、在不在叫它、别人贴了什么表情、它记得的事，再决定给哪条贴什么表情、要不要戳一戳谁、要不要跟着大家复读。经常什么都不做才正常。用哪个模型在「模型 → 模型分工」里选。</p></div><input id="reactions-enabled" type="checkbox" class="switch" aria-label="群里的小动作"></div>
+        <div class="fields"><label class="field"><span>活跃程度</span><select id="reactions-chance"></select></label><label class="field"><span>同一个群至少隔多久看一次</span><select id="reactions-cooldown"></select></label></div>
+        <label class="switch-row"><span><strong>会戳一戳群友</strong><small>有人提到它却没 @、说要去睡了、在跟它斗嘴时；同一个群十分钟最多一次。</small></span><input id="reactions-poke" type="checkbox" class="switch"></label>
+        <label class="switch-row"><span><strong>会跟着复读</strong><small>两个以上的人发了一模一样的短句时，可能跟一句；同一句半小时内只跟一次。</small></span><input id="reactions-repeat" type="checkbox" class="switch"></label>
+        <p class="field-label">表情偏好 <small class="muted">告诉模型你喜欢它多用哪些；“不用”的不会出现</small></p>
+        <div id="reactions-emojis" class="emoji-grid"></div>
+        <p class="field-label">最近的小动作 <small class="muted">模型每次看完做了什么、为什么</small></p>
+        <ol id="reactions-log" class="records"></ol>
+        <div class="actions end"><button id="reactions-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+
+      <form id="outreach-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>主动找人聊天</h3><p class="muted">只在私聊里：隔一段时间没聊，大肥鱼会根据记得的事主动问候或跟进。没有由头就不发；对方没回上一条不会再发；免打扰时段不发。</p></div><input id="outreach-enabled" type="checkbox" class="switch" aria-label="主动聊天"></div>
+        <p id="outreach-hint" class="muted small"></p>
+        <div class="fields four">
+          <label class="field"><span>多久没聊后考虑</span><select id="outreach-idle"></select></label>
+          <label class="field"><span>同一个人至少间隔</span><select id="outreach-cooldown"></select></label>
+          <label class="field"><span>免打扰从</span><select id="outreach-quiet-start"></select></label>
+          <label class="field"><span>到</span><select id="outreach-quiet-end"></select></label>
+        </div>
+        <p class="field-label">参与的私聊 <small class="muted">取消勾选的人不会被主动找；“预览”只生成不发送</small></p>
+        <div id="outreach-chats" class="chat-list"></div>
+        <div id="outreach-preview" class="note" hidden></div>
+        <div class="actions end"><button id="outreach-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+    </section>
+
+    <!-- 功能开关 -->
+    <section class="page narrow" data-page="features" hidden>
+      <div id="feature-list" class="card list"></div>
+      <div id="feature-bar" class="save-bar" hidden>
+        <span>功能设置有改动</span>
+        <button id="feature-reset" class="btn ghost" type="button">放弃</button>
+        <button id="feature-save" class="btn primary" type="button">保存</button>
+      </div>
+    </section>
+
+    <!-- 管理员与黑名单 -->
+    <section class="page" data-page="moderation" hidden>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>管理员 QQ</h3></div>
+          <p class="muted">管理员能在任何托管的私聊和群里用管理命令，能让它存表情，它找主人时也私聊第一个管理员。机器人自己登录的 QQ 也算管理员。</p>
+          <div id="admin-chips" class="chips"></div>
+          <form class="chip-add" data-list="admins"><input inputmode="numeric" placeholder="输入 QQ 号后回车" maxlength="12" aria-label="添加管理员"><button class="btn small" type="submit">添加</button></form>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>黑名单</h3></div>
+          <p class="muted">拉黑后，这些 QQ 在私聊和群里说什么都不会得到回复，也不进记忆。管理员不能被拉黑。</p>
+          <div id="blocked-chips" class="chips"></div>
+          <form class="chip-add" data-list="blocked"><input inputmode="numeric" placeholder="输入 QQ 号后回车" maxlength="12" aria-label="添加到黑名单"><button class="btn small" type="submit">添加</button></form>
+        </div>
+      </div>
+      <div id="moderation-bar" class="save-bar" hidden>
+        <span>名单有改动</span>
+        <button id="moderation-reset" class="btn ghost" type="button">放弃</button>
+        <button id="moderation-save" class="btn primary" type="button">保存</button>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>聊天命令</h3><span class="muted small">都不调用模型，单独发一条即可</span></div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>命令</th><th>作用</th><th>谁能用</th></tr></thead>
+          <tbody>
+            <tr><td><code>/help</code></td><td>列出可用命令</td><td>所有人</td></tr>
+            <tr><td><code>/new</code></td><td>开个新话题，忘掉刚才的上下文；长期记忆保留</td><td>私聊里的对方；群里仅管理员</td></tr>
+            <tr><td><code>/clear</code></td><td>新话题，并清空这个会话的长期记忆</td><td>私聊里的对方；群里仅管理员</td></tr>
+            <tr><td><code>/记忆</code></td><td>看看它在这个会话里记得你什么</td><td>所有人（只看自己的）</td></tr>
+            <tr><td><code>/忘记 关键词</code></td><td>删掉关于你、带这个关键词的记忆</td><td>所有人（只删自己的）</td></tr>
+            <tr><td><code>/拉黑 QQ号</code></td><td>拉黑，之后完全不回复此人；群里也可以 <code>/拉黑 @某人</code></td><td>管理员</td></tr>
+            <tr><td><code>/解除拉黑 QQ号</code></td><td>移出黑名单</td><td>管理员</td></tr>
+            <tr><td><code>/黑名单</code></td><td>查看已拉黑的 QQ</td><td>管理员</td></tr>
+            <tr><td><code>/model</code></td><td>回答当前使用的具体模型</td><td>所有人</td></tr>
+            <tr><td><code>/persona</code></td><td>查看或切换本会话的性格</td><td>所有人</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="page embed" data-page="qq" hidden><iframe id="frame-qq" title="NapCat QQ 登录与管理"></iframe></section>
+    <section class="page embed" data-page="panel" hidden><iframe id="frame-panel" title="机器人会话与详细设置"></iframe></section>
+
+    <!-- 浏览记录 -->
+    <section class="page narrow" data-page="activity" hidden>
+      <div id="activity-list" class="card list"></div>
+    </section>
+
+    <!-- 设置 -->
+    <section class="page" data-page="settings" hidden>
+      <div class="grid-2">
+        <form id="password-form" class="card col" novalidate>
+          <div class="card-head flush"><h3>修改控制台密码</h3></div>
+          <label class="field"><span>当前密码</span><input id="pw-current" type="password" autocomplete="current-password" maxlength="128"></label>
+          <label class="field"><span>新密码</span><input id="pw-next" type="password" autocomplete="new-password" minlength="6" maxlength="128"><small class="muted">至少 6 个字符。修改后其他浏览器需要重新登录。</small></label>
+          <label class="field"><span>再输入一次</span><input id="pw-confirm" type="password" autocomplete="new-password" maxlength="128"></label>
+          <p id="pw-error" class="form-error" role="alert"></p>
+          <div class="actions"><button class="btn primary" type="submit">修改密码</button></div>
+        </form>
+        <div class="col">
+          <div class="card">
+            <label class="switch-row">
+              <span><strong>开机自启</strong><small id="autostart-hint">登录 Windows 后自动在后台启动大肥鱼，托盘里会出现图标。</small></span>
+              <input id="autostart" type="checkbox" class="switch">
+            </label>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>关于</h3></div>
+            <dl class="kv">
+              <dt>项目</dt><dd>基于 <a href="https://github.com/SAKURAfan1023/dafeiyu-bot" target="_blank" rel="noreferrer">SAKURAfan1023/dafeiyu-bot</a>，本机部署</dd>
+              <dt>角色形象</dt><dd>作者 YunYueSama · <a href="https://github.com/YunYueSama/codex-deepseek-pet" target="_blank" rel="noreferrer">YunYueSama/codex-deepseek-pet</a></dd>
+              <dt>访问范围</dt><dd>本机；设过密码后也可通过隧道登录</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

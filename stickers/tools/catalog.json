@@ -1,0 +1,112 @@
+{
+  "characters": {
+    "dfy": {
+      "author": "YunYueSama 原设计，Codex 生成",
+      "anchor": "03",
+      "text": "大肥鱼, an adult blue whale-girl drawn as a super-deformed chibi. Long, voluminous, softly wavy hair in deep royal blue that fades to a lighter sky blue toward the ends, with one curled ahoge strand on top; a white frilly maid headband; a small bright-blue ribbon bow on each side of her head; and on each side of her head a small whale-fluke-shaped hair ornament (dark blue on top, white underneath) that sticks out sideways like little fins. Big round glossy blue eyes, pale skin, soft pink cheeks. She wears a navy-blue long-sleeved maid dress with white frilled collar and white frilled cuffs with a thin gold line, a large navy bow at the collar fastened with a round blue gem brooch, small gold buttons down the bodice, and a white frilly apron with one small cute blue whale embroidered on it. A fat, chubby, rounded blue whale tail (blue on top, white on the underside, ending in a wide fluke) comes out from behind her skirt. Short white socks and simple dark shoes."
+    },
+    "cld": {
+      "author": "原创，Codex 生成",
+      "anchor": "14",
+      "text": "an original friendly young-woman mascot girl drawn as a super-deformed chibi. A soft, rounded bob haircut with a gentle wave, in warm chestnut-auburn brown, with soft side-swept bangs; gentle warm amber eyes; pale skin with soft warm cheeks. She wears a cozy, loose, chunky-knit cardigan in warm terracotta orange (slightly long sleeves) over a cream-coloured blouse with a small rounded collar, a cream pleated knee-length skirt, cream socks and warm brown shoes. On one side of her bob she wears one small hair pin shaped like a simple rounded starburst with soft short rays, in terracotta orange. Overall colour palette: warm terracotta, soft orange and cream. Personality: thoughtful, kind, calm and warm."
+    },
+    "gpt": {
+      "author": "原创，Codex 生成",
+      "anchor": "18",
+      "text": "an original smart, composed young-woman mascot girl drawn as a super-deformed chibi. Short, sleek, perfectly straight dark hair (near black with a subtle cool teal sheen) cut chin-length with neat straight bangs; round thin-rimmed dark glasses; calm, intelligent dark teal-grey eyes; pale skin. She wears a sleek monochrome outfit: a crisp white collared blouse, a fitted black jacket with thin soft-teal piping on the lapels and cuffs, a small soft-teal ribbon tie at the collar, a black pleated skirt, black tights and neat black shoes. On one side of her hair she wears one small hair ornament shaped like a simple rounded loop knot, in white and soft teal. Overall colour palette: black, white and soft teal. Personality: precise, clever, a little dry-humoured."
+    }
+  },
+  "stickers": [
+    {
+      "id": "01", "slug": "chigua", "who": "dfy", "title": "吃瓜看戏", "emotion": "teasing",
+      "context": "群里有人吵架、聊八卦或剧情反转时，表示自己在旁边吃瓜围观看热闹",
+      "pose": "sitting with her fat whale tail curled around beside her, holding a big wedge of watermelon (green rind, red flesh with a few black seeds) in both hands, with one small bite taken out of it and her cheeks slightly full from chewing; her eyes glance sideways with a sly, amused, entertained look, like she is happily watching some drama unfold."
+    },
+    {
+      "id": "02", "slug": "touxiao", "who": "dfy", "title": "捂嘴偷笑", "emotion": "joy",
+      "context": "看到好笑的事、有人出糗或在玩梗时，忍不住捂着嘴偷偷笑出来",
+      "pose": "giggling behind one hand that covers her mouth, eyes squeezed into happy upturned crescents, shoulders hunched up with suppressed laughter, a tiny happy tear at the corner of one eye, her whale tail wagging; two or three small sparkle shapes around her."
+    },
+    {
+      "id": "03", "slug": "deyi", "who": "dfy", "title": "叉腰得意", "emotion": "smug",
+      "context": "被夸奖、答对问题、事情办成或想炫耀一下成果时，表示得意和小骄傲",
+      "pose": "standing proudly with both hands on her hips, chest puffed out and chin raised, eyes closed in a very smug, satisfied little smile, her fat whale tail raised proudly behind her so it is clearly visible; two or three small sparkle shapes around her head. Full body, front three-quarter view, so her outfit, the whale on her apron and her tail are all clearly visible."
+    },
+    {
+      "id": "04", "slug": "shengqi", "who": "dfy", "title": "鼓腮生气", "emotion": "annoyed",
+      "context": "被调侃、被冷落或对方说了气人的话时，鼓着腮帮子假装生气，半开玩笑地表示不满",
+      "pose": "mock-angry: cheeks puffed up round like a balloon, a small pouting mouth, eyebrows furrowed, both small fists clenched and held down at her sides, stamping one foot, her tail stiffly raised; one small cartoon anger-vein mark beside her head. Cute and harmless, clearly only pretending to be mad."
+    },
+    {
+      "id": "05", "slug": "leiyan", "who": "dfy", "title": "泪眼汪汪", "emotion": "sad",
+      "context": "受了委屈、被欺负、请求被拒或听到难过的事时，表示委屈巴巴快要哭了",
+      "pose": "aggrieved and about to cry: big eyes brimming with wobbly shining tears, two small tear drops running down her cheeks, a trembling wavy frown, both hands clutching the hem of her apron, shoulders drawn in, her whale tail drooping limply on the ground."
+    },
+    {
+      "id": "06", "slug": "dahaqian", "who": "dfy", "title": "抱着鲸鱼抱枕打哈欠", "emotion": "sleepy",
+      "context": "道晚安、熬夜犯困、聊累了或表示自己要去睡觉时",
+      "pose": "sleepy: hugging a big soft plush pillow shaped like a chubby round blue whale (light blue plush with a white belly and a simple cute face) in one arm, the other hand covering a big wide yawn, eyes squeezed shut with a small sleepy tear at the corner of one eye, slightly slumped posture, tail resting on the ground; two or three small round floating bubbles near her head (no letters, no Z shapes)."
+    },
+    {
+      "id": "07", "slug": "lianhong", "who": "dfy", "title": "脸红捂脸", "emotion": "flustered",
+      "context": "被夸得不好意思、被说中心事或场面有点尴尬时，表示害羞脸红",
+      "pose": "flustered and embarrassed: both hands pressed against her bright red blushing cheeks, eyes squeezed shut in shy embarrassment, a small wobbly mouth, a few little puffs of white steam rising from the top of her head, her whale tail curled shyly around in front of her feet."
+    },
+    {
+      "id": "08", "slug": "wenhao", "who": "dfy", "title": "歪头冒问号", "emotion": "neutral",
+      "context": "没看懂对方的意思、话题跳得太快或遇到奇怪的问题时，表示疑惑不解",
+      "pose": "confused: head tilted strongly to one side, one finger touching her cheek, blank round puzzled eyes, a tiny open mouth, a small sweat drop at her temple; one single big bright-blue floating question-mark shape (with a white sticker border) hovers above her head on the side she tilts toward. The question mark is the only symbol in the picture.",
+      "allowQuestionMark": true
+    },
+    {
+      "id": "09", "slug": "bixin", "who": "dfy", "title": "双手比心", "emotion": "joy",
+      "context": "感谢别人帮忙、表达喜欢和支持，或回应别人的好意时",
+      "pose": "making a heart shape with both hands held up in front of her chest (the curled fingers of both hands touch at the top and the thumbs touch at the bottom to form a heart outline), a warm happy smile with closed happy eyes and blushing cheeks, her tail swaying happily; three small light-blue heart shapes floating around her."
+    },
+    {
+      "id": "10", "slug": "jingli", "who": "dfy", "title": "敬礼收到", "emotion": "neutral",
+      "context": "收到指令、确认任务或答应别人的请求时，表示明白了、马上去办",
+      "pose": "giving a crisp, cheerful salute with her right hand at her brow, standing up straight with heels together and her left arm straight at her side, a bright determined smile with one eye winking, her whale tail standing upright behind her."
+    },
+    {
+      "id": "11", "slug": "tupaopao", "who": "dfy", "title": "吐泡泡发呆", "emotion": "neutral",
+      "context": "无聊、发呆、走神、不知道该说什么或者冷场的时候",
+      "pose": "spacing out: sitting with her tail curled in front of her, blank dreamy half-lidded empty eyes gazing at nothing, mouth a small round 'o' blowing a little chain of four or five round bubbles of different sizes that float upward. Draw the bubbles as opaque pale-blue circles with a white shine spot and a thin blue outline (not transparent)."
+    },
+    {
+      "id": "12", "slug": "jiayou", "who": "dfy", "title": "握拳加油", "emotion": "joy",
+      "context": "别人要考试、比赛、加班或遇到困难时，为对方打气加油",
+      "pose": "cheering someone on: both fists clenched and pumped up in front of her chest, leaning forward energetically with one foot stepping forward, sparkling determined eyes, a big open-mouthed encouraging smile, her whale tail flicked up with energy; a few small sparkle and burst shapes around her."
+    },
+    {
+      "id": "13", "slug": "claude-sikao", "who": "cld", "title": "Claude娘 托腮思考", "emotion": "neutral",
+      "context": "需要认真想一想、分析问题或回答之前斟酌一下时，表示正在思考",
+      "pose": "thinking: her chin resting on one hand, the other arm folded across her body supporting that elbow, eyes looking up and to one side, a small thoughtful pursed mouth, head slightly tilted; three small round dots floating beside her head like a quiet thought."
+    },
+    {
+      "id": "14", "slug": "claude-zan", "who": "cld", "title": "Claude娘 竖大拇指", "emotion": "joy",
+      "context": "认可别人的想法、方案或者做得好的地方时，表示点赞和赞同",
+      "pose": "giving an enthusiastic thumbs-up toward the viewer with one hand, the other hand on her hip, winking with a bright, warm, confident smile, standing full body; two or three small sparkle shapes around her."
+    },
+    {
+      "id": "15", "slug": "claude-hecha", "who": "cld", "title": "Claude娘 捧茶微笑", "emotion": "neutral",
+      "context": "轻松闲聊、慢慢聊天或想缓和气氛时，表示心平气和地陪着聊",
+      "pose": "holding a warm cream-coloured ceramic mug of tea with both hands in front of her chest, her sleeves slightly covering her hands, a calm gentle smile with softly closed eyes, relaxed and cozy; two small curly wisps of steam rising from the mug, drawn as opaque white curls with a thin outline (not transparent)."
+    },
+    {
+      "id": "16", "slug": "gpt-tuiyanjing", "who": "gpt", "title": "ChatGPT娘 推眼镜认真", "emotion": "smug",
+      "context": "一本正经地讲解知识、纠正说法或者摆事实讲道理的时候",
+      "pose": "explaining seriously: pushing her glasses up the bridge of her nose with one finger so a bright white glint flashes across the lenses, a slightly smug, knowing little smile, the other hand raised with the index finger up as if making a precise point, standing straight."
+    },
+    {
+      "id": "17", "slug": "gpt-tanshou", "who": "gpt", "title": "ChatGPT娘 摊手无奈", "emotion": "annoyed",
+      "context": "遇到无解的问题、对方怎么说都不听或者事情无可奈何时，表示无奈摊手",
+      "pose": "a helpless shrug: both arms spread out to the sides with palms turned up, shoulders raised, eyes half-closed in resignation, a flat wry little smile, a big sweat drop at her temple, glasses slightly askew."
+    },
+    {
+      "id": "18", "slug": "gpt-huishou", "who": "gpt", "title": "ChatGPT娘 挥手打招呼", "emotion": "joy",
+      "context": "打招呼、欢迎新人进群、早上问好或者好久不见的时候",
+      "pose": "waving hello cheerfully with one hand raised high, the other hand relaxed at her side, a friendly open-mouthed smile, one foot lifted playfully behind her, standing full body, front three-quarter view so her outfit and hair ornament are clearly visible."
+    }
+  ]
+}

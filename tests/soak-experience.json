@@ -1,0 +1,10 @@
+[
+  {"text": "我最近压力好大，下周要答辩，PPT 还没做完，导师又一直催"},
+  {"text": "你觉得我先改哪部分比较好？说详细点"},
+  {"text": "最近有什么新出的国产单机游戏值得玩"},
+  {"group": true, "text": "我觉得大肥鱼刚才说得挺有道理"},
+  {"group": true, "text": "那你再展开说说"},
+  {"text": "这是谁画的？", "image": "https://gchat.qpic.cn/gchatpic_new/0/0-0-SYNTHETIC/0"},
+  {"text": "/new", "contains": "翻篇"},
+  {"text": "我刚才跟你说我下周要干嘛来着"}
+]

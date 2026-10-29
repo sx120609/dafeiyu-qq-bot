@@ -1,0 +1,128 @@
+[
+  {
+    "file": "01-chigua.png",
+    "title": "吃瓜看戏",
+    "emotion": "teasing",
+    "context": "群里有人吵架、聊八卦或剧情反转时，表示自己在旁边吃瓜围观看热闹",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "02-touxiao.png",
+    "title": "捂嘴偷笑",
+    "emotion": "joy",
+    "context": "看到好笑的事、有人出糗或在玩梗时，忍不住捂着嘴偷偷笑出来",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "03-deyi.png",
+    "title": "叉腰得意",
+    "emotion": "smug",
+    "context": "被夸奖、答对问题、事情办成或想炫耀一下成果时，表示得意和小骄傲",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "04-shengqi.png",
+    "title": "鼓腮生气",
+    "emotion": "annoyed",
+    "context": "被调侃、被冷落或对方说了气人的话时，鼓着腮帮子假装生气，半开玩笑地表示不满",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "05-leiyan.png",
+    "title": "泪眼汪汪",
+    "emotion": "sad",
+    "context": "受了委屈、被欺负、请求被拒或听到难过的事时，表示委屈巴巴快要哭了",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "06-dahaqian.png",
+    "title": "抱着鲸鱼抱枕打哈欠",
+    "emotion": "sleepy",
+    "context": "道晚安、熬夜犯困、聊累了或表示自己要去睡觉时",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "07-lianhong.png",
+    "title": "脸红捂脸",
+    "emotion": "flustered",
+    "context": "被夸得不好意思、被说中心事或场面有点尴尬时，表示害羞脸红",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "08-wenhao.png",
+    "title": "歪头冒问号",
+    "emotion": "neutral",
+    "context": "没看懂对方的意思、话题跳得太快或遇到奇怪的问题时，表示疑惑不解",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "09-bixin.png",
+    "title": "双手比心",
+    "emotion": "joy",
+    "context": "感谢别人帮忙、表达喜欢和支持，或回应别人的好意时",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "10-jingli.png",
+    "title": "敬礼收到",
+    "emotion": "neutral",
+    "context": "收到指令、确认任务或答应别人的请求时，表示明白了、马上去办",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "11-tupaopao.png",
+    "title": "吐泡泡发呆",
+    "emotion": "neutral",
+    "context": "无聊、发呆、走神、不知道该说什么或者冷场的时候",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "12-jiayou.png",
+    "title": "握拳加油",
+    "emotion": "joy",
+    "context": "别人要考试、比赛、加班或遇到困难时，为对方打气加油",
+    "author": "YunYueSama 原设计，Codex 生成"
+  },
+  {
+    "file": "13-claude-sikao.png",
+    "title": "Claude娘 托腮思考",
+    "emotion": "neutral",
+    "context": "需要认真想一想、分析问题或回答之前斟酌一下时，表示正在思考",
+    "author": "原创，Codex 生成"
+  },
+  {
+    "file": "14-claude-zan.png",
+    "title": "Claude娘 竖大拇指",
+    "emotion": "joy",
+    "context": "认可别人的想法、方案或者做得好的地方时，表示点赞和赞同",
+    "author": "原创，Codex 生成"
+  },
+  {
+    "file": "15-claude-hecha.png",
+    "title": "Claude娘 捧茶微笑",
+    "emotion": "neutral",
+    "context": "轻松闲聊、慢慢聊天或想缓和气氛时，表示心平气和地陪着聊",
+    "author": "原创，Codex 生成"
+  },
+  {
+    "file": "16-gpt-tuiyanjing.png",
+    "title": "ChatGPT娘 推眼镜认真",
+    "emotion": "smug",
+    "context": "一本正经地讲解知识、纠正说法或者摆事实讲道理的时候",
+    "author": "原创，Codex 生成"
+  },
+  {
+    "file": "17-gpt-tanshou.png",
+    "title": "ChatGPT娘 摊手无奈",
+    "emotion": "annoyed",
+    "context": "遇到无解的问题、对方怎么说都不听或者事情无可奈何时，表示无奈摊手",
+    "author": "原创，Codex 生成"
+  },
+  {
+    "file": "18-gpt-huishou.png",
+    "title": "ChatGPT娘 挥手打招呼",
+    "emotion": "joy",
+    "context": "打招呼、欢迎新人进群、早上问好或者好久不见的时候",
+    "author": "原创，Codex 生成"
+  }
+]

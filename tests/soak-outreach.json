@@ -1,0 +1,8 @@
+[
+  {"group": true, "text": "今天的作业谁写完了？", "expectReply": false},
+  {"group": true, "text": "哈哈哈笑死我了", "expectReply": false},
+  {"text": "我下周三要考驾照科目二，好紧张，倒车入库老是压线"},
+  {"idle": 150, "unprompted": true},
+  {"idle": 120, "unprompted": false},
+  {"text": "哈哈还行，今天又练了两把，感觉好点了"}
+]

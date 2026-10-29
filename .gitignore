@@ -1,0 +1,19 @@
+# Runtime data: API keys, console tokens, QQ login, chat history, usage. Never committed.
+.runtime/
+*.log
+__pycache__/
+*.pyc
+node_modules/
+upstream/.build/
+upstream/.swiftpm/
+upstream/dist/
+# The original engine repository's own git data, kept locally for pulling its updates.
+.upstream-git/
+# Built from launcher/ with launcher/build.ps1.
+Dafeiyu.exe
+# Image generation scratch runs (logs and session IDs); the results are in stickers/generated/.
+stickers/work/
+.env
+.env.*
+*.key
+*.pem

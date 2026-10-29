@@ -1,0 +1,12 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {runClaude} from '../bridge/providers.mjs';
+const config=JSON.parse(await fs.readFile(new URL('../.runtime/bridge.json',import.meta.url),'utf8'));
+const image=await fs.readFile(new URL('../.runtime/synthetic-vision.png',import.meta.url));
+const visual=await runClaude({model:'dafeiyu-active',messages:[{role:'user',content:[{type:'text',text:'图片正中间是什么颜色的什么形状？简短回答。'},{type:'image_url',image_url:{url:'data:image/png;base64,'+image.toString('base64')}}]}]},config,{model:'sonnet'});
+assert.match(visual.choices[0].message.content,/红/);assert.match(visual.choices[0].message.content,/正方形|方块|方形/);
+console.log(JSON.stringify({provider:'official-claude',test:'vision',reply:visual.choices[0].message.content}));
+const tools=[{type:'function',function:{name:'search_web',description:'搜索实时信息',parameters:{type:'object',properties:{query:{type:'string'}},required:['query']}}}];
+const selection=await runClaude({model:'dafeiyu-active',tools,messages:[{role:'system',content:'实时问题必须调用 search_web 函数，不得猜测。'},{role:'user',content:'查一下新加坡此刻天气。'}]},config,{model:'sonnet'});
+assert.equal(selection.choices[0].finish_reason,'tool_calls');assert.equal(selection.choices[0].message.tool_calls[0].function.name,'search_web');
+console.log(JSON.stringify({provider:'official-claude',test:'function_selection',ok:true}));

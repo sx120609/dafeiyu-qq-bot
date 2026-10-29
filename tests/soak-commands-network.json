@@ -1,0 +1,15 @@
+[
+  {"text": "/help", "contains": "/new"},
+  {"text": "看看这张图", "image": "https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=synthetic-1"},
+  {"text": "大肥鱼你看这个表情", "image": "https://gchat.qpic.cn/gchatpic_new/0/0-0-SYNTHETIC/0"},
+  {"text": "帮我找几张柴犬的图片"},
+  {"text": "今天北京天气怎么样？"},
+  {"text": "/拉黑 22222", "contains": "已拉黑"},
+  {"group": true, "sender": 22222, "text": "大肥鱼，在吗", "expectReply": false},
+  {"group": true, "text": "/黑名单", "contains": "22222"},
+  {"group": true, "text": "/解除拉黑 22222", "contains": "移出"},
+  {"group": true, "sender": 22222, "text": "大肥鱼，现在呢"},
+  {"text": "/new", "contains": "翻篇"},
+  {"text": "再看一张", "image": "https://c2cpicdw.qpic.cn/offpic_new/0/SYNTHETIC/0"},
+  {"text": "这张呢", "image": "https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=synthetic-2"}
+]

@@ -1,0 +1,14 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {runCodex,model} from '../bridge/server.mjs';
+const config=JSON.parse(await fs.readFile(new URL('../.runtime/bridge.json',import.meta.url),'utf8'));
+const image=await fs.readFile(new URL('../.runtime/synthetic-vision.png',import.meta.url));
+const vision=await runCodex({model,messages:[{role:'user',content:[{type:'text',text:'图片正中间的几何图形是什么颜色、什么形状？只简短回答。'},{type:'image_url',image_url:{url:'data:image/png;base64,'+image.toString('base64')}}]}]},config);
+assert.match(vision.choices[0].message.content,/红/);assert.match(vision.choices[0].message.content,/正方形|方块|方形/);
+console.log(JSON.stringify({test:'vision',reply:vision.choices[0].message.content}));
+const tool=await runCodex({model,messages:[{role:'system',content:'遇到实时天气问题必须调用 search_web 函数，禁止猜测。'},{role:'user',content:'查询新加坡现在的天气。'}],tools:[{type:'function',function:{name:'search_web',description:'搜索实时网页资料',parameters:{type:'object',properties:{query:{type:'string'}},required:['query']}}}]},config);
+assert.equal(tool.choices[0].finish_reason,'tool_calls');assert.equal(tool.choices[0].message.tool_calls[0].function.name,'search_web');
+console.log(JSON.stringify({test:'tool_selection',ok:true}));
+const controller=new AbortController();setTimeout(()=>controller.abort(),2000);
+await assert.rejects(runCodex({model,messages:[{role:'user',content:'详细分析 999983 是否为质数。'}]},config,controller.signal),/cancelled/);
+console.log(JSON.stringify({test:'cancellation',ok:true}));

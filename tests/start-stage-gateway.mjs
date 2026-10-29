@@ -1,0 +1,11 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {startGateway,defaults} from '../bridge/gateway.mjs';
+const root=path.resolve(import.meta.dirname,'..'),directory=path.join(root,'.runtime','stage-gateway');
+await fs.mkdir(directory,{recursive:true});
+const config=JSON.parse(await fs.readFile(path.join(root,'.runtime/bridge.json'),'utf8'));config.port=18192;
+const settings=defaults();settings.active=process.env.DAFEIYU_TEST_PROVIDER||'codex';settings.profiles.codex.model=process.env.DAFEIYU_TEST_MODEL||'gpt-6-astra';settings.profiles.codex.serviceTier=process.env.DAFEIYU_TEST_TIER||'default';
+await fs.writeFile(path.join(directory,'bridge.json'),JSON.stringify(config),{mode:0o600});
+await fs.writeFile(path.join(directory,'providers.json'),JSON.stringify(settings),{mode:0o600});
+await fs.writeFile(path.join(directory,'public-activity.json'),JSON.stringify({items:[],options:{explorationEnabled:false}}),{mode:0o600});
+await startGateway(config,path.join(directory,'bridge.json'));
