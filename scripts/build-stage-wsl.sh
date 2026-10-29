@@ -14,7 +14,7 @@ swift build -c release --jobs 2 >../build-stage.log 2>&1
 STAGE="$HOME/dafeiyu-gpt/staging/dafeiyu-linux"
 mkdir -p "$STAGE/Resources"
 cp "$(swift build -c release --show-bin-path)/WeChatAIBot" "$STAGE/dafeiyu"
-cp -R Resources/QQControl Resources/QQStickers Resources/Linux Resources/SocialControl Resources/Xiaohongshu "$STAGE/Resources/"
+cp -R Resources/QQControl Resources/QQStickers Resources/Linux Resources/SocialControl Resources/SocialBrowser "$STAGE/Resources/"
 python3 scripts/test-control-panel.py "$STAGE/dafeiyu" >../panel-stage.log 2>&1
 python3 scripts/test-onebot-transport.py "$STAGE/dafeiyu" >../onebot-stage.log 2>&1
 echo 'Staging build and protocol checks passed.'
