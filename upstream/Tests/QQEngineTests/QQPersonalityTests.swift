@@ -9,8 +9,10 @@ import BotCore
 private final class PersonalityModelProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private static var prompts: [String] = []
-    static func reset() { lock.lock(); prompts = []; lock.unlock() }
+    private static var requests: [(prompt: String, input: String)] = []
+    static func reset() { lock.lock(); prompts = []; requests = []; lock.unlock() }
     static var captured: [String] { lock.lock(); defer { lock.unlock() }; return prompts }
+    static var scoped: [(prompt: String, input: String)] { lock.lock(); defer { lock.unlock() }; return requests }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -22,7 +24,8 @@ private final class PersonalityModelProtocol: URLProtocol, @unchecked Sendable {
         }
         let object = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         let messages = object["messages"] as! [[String: Any]], prompt = messages[0]["content"] as! String
-        Self.lock.lock(); Self.prompts.append(prompt); Self.lock.unlock()
+        let input = messages.dropFirst().compactMap { $0["content"] as? String }.joined(separator: "\n")
+        Self.lock.lock(); Self.prompts.append(prompt); Self.requests.append((prompt: prompt, input: input)); Self.lock.unlock()
         let style = QQPersonality.allCases.first { prompt.contains("当前会话唯一生效性格：" + $0.name) }
         #expect(style != nil)
         var answer: [String: Any] = ["text": "合成回复：" + (style?.name ?? "未识别"), "emotion": "neutral", "intensity": 0]
@@ -135,6 +138,7 @@ private final class PersonalityModelProtocol: URLProtocol, @unchecked Sendable {
             #expect(engine.sends.attempts == 0); #expect(engine.config.persona(for: key).effectiveStyle == .teasing)
         } else {
             #expect(engine.config.persona(for: key).effectiveStyle == (["reset", "invalid", "list", "customMissing"].contains(mode) ? .teasing : style))
+            // The fixture drops the connection mid-send: not retried, and the disconnect stops the bot.
             if mode == "unknown" { #expect(!engine.running); #expect(engine.sends.uncertain == 1) }
             else { #expect(engine.sends.confirmed == (pipeline ? 3 : 1)); #expect(engine.sends.uncertain == 0) }
         }
@@ -142,12 +146,17 @@ private final class PersonalityModelProtocol: URLProtocol, @unchecked Sendable {
         if mode != "private" { #expect(engine.config.persona(for: "private:54321").effectiveStyle == .teasing) }
         if pipeline {
             #expect(PersonalityModelProtocol.captured.count == 4)
+            // Different groups may now generate concurrently. Check isolation by
+            // the synthetic conversation marker; same-conversation FIFO stays required.
+            let firstConversation = mode == "order" ? Array(PersonalityModelProtocol.captured.prefix(2)) : PersonalityModelProtocol.scoped.filter { $0.input.contains("今天聊天测试") }.map(\.prompt)
+            let otherConversation = mode == "order" ? Array(PersonalityModelProtocol.captured.suffix(2)) : PersonalityModelProtocol.scoped.filter { $0.input.contains("另一个群测试") }.map(\.prompt)
+            #expect(firstConversation.count == 2 && otherConversation.count == 2)
             if mode == "custom" {
-                #expect(PersonalityModelProtocol.captured.prefix(2).allSatisfy { $0.contains("SYNTHETIC_CUSTOM_STYLE") })
-                #expect(PersonalityModelProtocol.captured.suffix(2).allSatisfy { !$0.contains("SYNTHETIC_CUSTOM_STYLE") })
+                #expect(firstConversation.allSatisfy { $0.contains("SYNTHETIC_CUSTOM_STYLE") })
+                #expect(otherConversation.allSatisfy { !$0.contains("SYNTHETIC_CUSTOM_STYLE") })
             }
-            #expect(PersonalityModelProtocol.captured.prefix(2).allSatisfy { $0.contains("当前会话唯一生效性格：" + (mode == "order" ? QQPersonality.teasing.name : style.name)) })
-            #expect(PersonalityModelProtocol.captured.suffix(2).allSatisfy { $0.contains("当前会话唯一生效性格：" + (mode == "order" ? style.name : QQPersonality.teasing.name)) })
+            #expect(firstConversation.allSatisfy { $0.contains("当前会话唯一生效性格：" + (mode == "order" ? QQPersonality.teasing.name : style.name)) })
+            #expect(otherConversation.allSatisfy { $0.contains("当前会话唯一生效性格：" + (mode == "order" ? style.name : QQPersonality.teasing.name)) })
             #expect(PersonalityModelProtocol.captured.contains { $0.contains("发送前的语义校对") })
         } else {
             #expect(engine.usage.calls == 0); #expect(PersonalityModelProtocol.captured.isEmpty)

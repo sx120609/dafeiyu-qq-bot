@@ -77,7 +77,8 @@ private final class DelayedModelProtocol: URLProtocol, @unchecked Sendable {
                 var answer: [String: Any] = ["text": "好耶，给本鱼加饭！", "emotion": "joy", "intensity": intensity]
                 if item.capturedBody.contains("[QQ_PARTICIPATION]"), let participate { answer["participate"] = participate }
                 if let request = try? JSONSerialization.jsonObject(with: Data(item.capturedBody.utf8)) as? [String: Any],
-                   let messages = request["messages"] as? [[String: Any]], let prompt = messages.first?["content"] as? String,
+                   let messages = request["messages"] as? [[String: Any]],
+                   let prompt = messages.compactMap({ $0["content"] as? String }).first(where: { $0.contains("本轮可选表情 JSON：\n") }),
                    let raw = prompt.components(separatedBy: "本轮可选表情 JSON：\n").dropFirst().first,
                    let options = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: String]] {
                     answer["sticker_id"] = options.first?["id"]
@@ -247,6 +248,62 @@ private final class DelayedModelProtocol: URLProtocol, @unchecked Sendable {
         #expect(engine.running); #expect(engine.queuedCount == 0)
         #expect(engine.groupMessageCounts["group:99999"] == (mode == "direct" ? 1 : 0))
         if mode != "direct" { #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("payload").path)) }
+    }
+
+    /// A poke answer is the bot talking: it joins the timeline as BOT (not as the owner typing), and the
+    /// person it answered can carry on without @ — "你吵死了" right after it got no reply before.
+    @Test func pokeAnswerJoinsTheTimelineAndInvitesAFollowup() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("group".utf8).write(to: directory.appendingPathComponent("message-shape"))
+        try Data().write(to: directory.appendingPathComponent("self-echo"))
+        let server = Process(), output = Pipe()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        server.arguments = [URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("onebot_fixture.py").path, directory.path]
+        server.standardOutput = output; try server.run()
+        defer { if server.isRunning { server.terminate(); server.waitUntilExit() } }
+        let port = try #require(Int(String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+        DelayedModelProtocol.reset()
+        let cfg = URLSessionConfiguration.ephemeral; cfg.protocolClasses = [DelayedModelProtocol.self]
+        let session = URLSession(configuration: cfg)
+        defer { session.invalidateAndCancel(); DelayedModelProtocol.reset() }
+        let engine = QQEngine(allowAuthenticationUI: false, storageDirectory: directory, modelClient: DeepSeekClient(session: session))
+        defer { engine.disconnect() }
+        engine.config.endpoint = "ws://127.0.0.1:\(port)"; engine.config.expectedSelfID = "12345"
+        engine.config.memoryEnabled = true; engine.config.effectiveVisionEnabled = false
+        engine.config.naturalRepliesEnabled = true; engine.config.effectivePersona.stickersEnabled = false
+        engine.config.ai.cooldownSeconds = 1; engine.config.ai.effectiveSendLimits.globalIntervalSeconds = 1
+        var poke = engine.config.effectivePoke; poke.enabled = true; poke.replyChance = 100; engine.config.effectivePoke = poke
+        #expect(engine.useTemporaryCredentials(token: "synthetic-test-token", key: "synthetic-key"))
+        await engine.connect(); try #require(engine.connected, "\(engine.error ?? engine.status)")
+        engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
+        engine.config.targets[0].enabled = true; engine.start()
+        func batch(_ rows: [[String: Any]]) throws {
+            try JSONSerialization.data(withJSONObject: rows).write(to: directory.appendingPathComponent("event-batch"), options: .atomic)
+        }
+        let chatter: [String: Any] = ["post_type": "message", "self_id": 12345, "user_id": 54322, "sender": ["user_id": 54322], "message_type": "group",
+                                      "sub_type": "normal", "group_id": 99999, "message_id": 1, "message": [["type": "text", "data": ["text": "随便聊聊"]]]]
+        let poked: [String: Any] = ["post_type": "notice", "notice_type": "notify", "sub_type": "poke", "self_id": 12345, "user_id": 54321, "target_id": 12345, "group_id": 99999]
+        try batch([chatter, poked])
+        let pokeDeadline = Date().addingTimeInterval(6)
+        while engine.sends.confirmed < 1 && Date() < pokeDeadline { DelayedModelProtocol.completePending(intensity: 1); try await Task.sleep(nanoseconds: 20_000_000) }
+        try #require(engine.sends.confirmed == 1)
+        try await Task.sleep(nanoseconds: 300_000_000) // the fixture's self-echo of the answer arrives after the send
+        let recent = try #require(engine.memoryBooks["12345:group:99999"]?.recent)
+        #expect(recent.contains { $0.subject == "BOT" && $0.text.contains("好耶") })
+        #expect(!recent.contains { $0.subject == "OWNER" && $0.text.contains("BOT_AUTO_ECHO") }) // its own echo is not the owner typing
+        let started = DelayedModelProtocol.counts.started
+        let followup: [String: Any] = ["post_type": "message", "self_id": 12345, "user_id": 54321, "sender": ["user_id": 54321], "message_type": "group",
+                                       "sub_type": "normal", "group_id": 99999, "message_id": 3, "message": [["type": "text", "data": ["text": "你吵死了"]]]]
+        try batch([followup])
+        let replyDeadline = Date().addingTimeInterval(4)
+        while DelayedModelProtocol.counts.started == started && Date() < replyDeadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        #expect(DelayedModelProtocol.counts.started > started) // answered without being @-mentioned
+        // Each group message leaves a reason behind: the first was not for the bot, the follow-up was.
+        #expect(engine.decisions.contains { $0.text == "随便聊聊" && $0.outcome.hasPrefix("不回：没 @它") })
+        #expect(engine.decisions.contains { $0.text == "你吵死了" && $0.outcome.contains("接着跟它聊") })
+        engine.pause()
     }
 
     @Test func groupTimelineIncludesBotAcrossMembersAndSkipsMediaOnlyParticipation() async throws {

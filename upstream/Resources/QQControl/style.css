@@ -61,3 +61,24 @@ input:not([type=checkbox]):not([type=file]),select{min-height:44px}
 #replyPanel>textarea{margin-bottom:5px}
 @media(max-width:900px){.form-grid{grid-template-columns:1fr}}
 @media(max-width:700px){.number-control button{flex-basis:44px}}
+
+/* Dark mode follows the system, in the same palette as the console that frames this panel. */
+@media (prefers-color-scheme:dark){
+:root{--paper:#0e1014;--surface:#161920;--ink:#e6e8ec;--muted:#9aa2ae;--line:#262b35;--mint:#c4ec84;--blue:#8494ff;--danger:#f26464;color-scheme:dark}
+button{background:var(--surface)}button:hover{background:#232833;border-color:#3a4150}
+.primary{background:#4b59d6;border-color:#4b59d6;color:#fff}.primary:hover{background:#5a68e6;border-color:#5a68e6}
+.sidebar{background:#12151b;border-right:1px solid var(--line)}
+.nav-children button[aria-current=page],.nav-children button[aria-current=page] span,.save-bar .primary{color:#14181f}
+.status-card{background:#1b1f27;border-color:var(--line)}.save-bar{background:#1b1f27f5;border-color:var(--line);box-shadow:none}
+.metric,.card,.guide-steps{background:var(--surface)}.metric{color:var(--muted)}.metric:first-child{background:#1c2740;border-color:#2a3a5e}.metric[data-alert=true]{background:#2c2213;border-color:#5a4220}
+.workflow button{border-color:var(--line)}.workflow b{background:#232833;color:var(--muted)}.workflow button[data-complete=true] b,.guide-steps li:before{background:#24361a;color:#a7d77a}.workflow i{color:var(--muted)}
+.card h2,.target,details:not(.nav-group),.runtime-list li,footer{border-color:var(--line)}
+.sub,small,summary,.runtime-meta,#syncStatus,footer,.guide-steps p,.guide-faq p{color:var(--muted)}#syncStatus[data-stale=true]{color:#f0a43a}
+.help-button{border-color:var(--line);color:var(--muted)}.help-button:hover{background:#232833}
+.tool-tabs{background:#1d212a}.tool-tabs button[aria-current=page]{background:#2a303b;box-shadow:none}
+.draft-status,#configurationChecks{background:#221d14;border-color:#5a4220;color:#f0c27a}.draft-status button{border-color:#5a4220;color:#f0c27a}
+#error,.action-error{color:#f2a0a0;background:#301818;border-color:#5a2a2a}
+.runtime-state{background:#1d212a;color:#a9b8a0}.runtime-state[data-state=failed],.runtime-state[data-state=uncertain]{background:#2c2213;color:#f0a43a}.runtime-state[data-state=confirmed]{background:#14281c;color:#6fd18f}
+.wechat-features span{background:#1d212a;color:#a9b8a0}
+#personaPicker{background:var(--paper);border-color:var(--line)}#personaOptions{background:var(--surface);box-shadow:none}#personaOptions [aria-selected=true]{background:#24361a;color:#a7d77a}
+}

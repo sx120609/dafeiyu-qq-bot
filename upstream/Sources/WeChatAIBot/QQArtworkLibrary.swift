@@ -23,6 +23,15 @@ struct QQArtworkPrepared: Sendable {
     var sourceRequests = 0
     var preparationSeconds: TimeInterval = 0
     var hash: String? { image.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } }
+    /// One line of attribution for a picture the model chose to share in conversation:
+    /// title, artist and source, without the command menu used by the /hot and /search commands.
+    static func credit(from caption: String) -> String {
+        let lines = caption.components(separatedBy: "\n")
+        let title = lines.first { $0.hasPrefix("《") }
+        let artist = lines.first { $0.hasPrefix("画师：") }
+        let source = lines.first { $0.hasPrefix("原帖：") }.map { String($0.dropFirst(3)) }
+        return [title, artist, source].compactMap { $0 }.joined(separator: " · ")
+    }
 }
 
 // Public website JSON is an unofficial integration. No login cookies or paid-content fallback.
@@ -328,6 +337,8 @@ struct QQArtworkPrepared: Sendable {
               let title = body["illustTitle"] as? String, !curated || Self.illustrationTitle(title), let author = body["userName"] as? String,
               let artist = QQPolicy.identifier(body["userId"]), let urls = body["urls"] as? [String: Any] else { return nil }
         let tags = ((body["tags"] as? [String: Any])?["tags"] as? [[String: Any]] ?? []).compactMap { $0["tag"] as? String }
+        // Every mode, including a requested work ID, skips sexual or borderline works, not only R-18.
+        guard !Self.suggestive(tags + [title]) else { return nil }
         guard !curated || (!Self.excludedTags(tags) && Self.animeGirl(tags: tags, artist: artist, id: id)) else { return nil }
         var imageURLs: [String] = []
         for key in ["original", "regular"] {
@@ -388,6 +399,9 @@ struct QQArtworkPrepared: Sendable {
     }
     static func illustrationTitle(_ title: String) -> Bool {
         title.range(of: "(?i)(お品書き|新刊|宣伝|サンプル|通販|委託|sample|告知)", options: .regularExpression) == nil
+    }
+    static func suggestive(_ tags: [String]) -> Bool {
+        tags.contains { $0.range(of: #"(?i)(r-?1[58]|nsfw|裸|エロ|えっち|露出|乳首|下着|パンツ|ぱんつ|水着|ビキニ|おっぱい|巨乳|爆乳|谷間|お尻|尻|ふともも|太もも|セクシー|ロリ|ショタ|性器|sexy|ecchi|lingerie|bikini|swimsuit|underwear|panties|cleavage|breasts|fanservice|涩图|色图|擦边|福利)"#, options: .regularExpression) != nil }
     }
     static func excludedTags(_ tags: [String]) -> Bool {
         tags.contains { $0.range(of: #"(?i)(r-?18|nsfw|裸|エロ|露出|乳首|下着|パンツ|水着|ロリ|ショタ|ビキニ|おっぱい|男の子|男性|boy|gore|guro|リョナ|性器)"#, options: .regularExpression) != nil }

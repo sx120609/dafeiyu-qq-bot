@@ -117,9 +117,11 @@ public struct QQMemoryBook: Codable, Equatable, Sendable {
     public mutating func apply(_ delta: QQMemoryDelta, batch: [QQMemoryEvent], candidateIDs: Set<String>, now: Date = Date()) throws {
         let sources = Dictionary(uniqueKeysWithValues: batch.map { ($0.id, $0) })
         guard !batch.isEmpty, Set(sources.keys).isSubset(of: Set(pending.map(\.id))) else { throw CoreError.invalid("记忆批次已变化") }
-        let allowedKinds = ["preference", "fact", "task", "event"]
-        let changes = delta.changes
-        for item in changes {
+        let allowedKinds = ["preference", "fact", "task", "event", "cue"]
+        // Each change is checked on its own: one that cites the wrong evidence or person is dropped, the
+        // rest still count. Rejecting the whole batch for one slip lost memories whenever a model phrased
+        // things a little differently, and retried the same batch forever.
+        let changes = delta.changes.filter { item in
             guard ["upsert", "forget"].contains(item.operation), allowedKinds.contains(item.kind),
                   let source = sources[item.sourceID], source.subject == item.subject,
                   !item.evidence.isEmpty, item.evidence.count <= 200, source.text.contains(item.evidence),
@@ -127,11 +129,10 @@ public struct QQMemoryBook: Codable, Equatable, Sendable {
                   item.replaces.allSatisfy({ id in items.contains { $0.id == id && $0.subject == item.subject && $0.current(now) } }),
                   item.text.count <= 180, item.keywords.count <= 6, item.keywords.allSatisfy({ !$0.isEmpty && $0.count <= 20 }),
                   (1...3).contains(item.importance), (1...365).contains(item.days),
-                  (item.operation == "forget" ? !item.replaces.isEmpty && item.text.isEmpty : !item.text.isEmpty) else {
-                throw CoreError.invalid("记忆证据、归属或更新范围未通过校验")
-            }
+                  (item.operation == "forget" ? !item.replaces.isEmpty && item.text.isEmpty : !item.text.isEmpty) else { return false }
+            return true
         }
-        // The whole delta has passed; old versions remain marked as historical.
+        // Old versions remain marked as historical.
         for change in changes {
             let obsoleteSources = Set(items.filter { change.replaces.contains($0.id) }.flatMap(\.sourceIDs))
             for i in items.indices where change.replaces.contains(items[i].id) || (items[i].kind == "episode" && !obsoleteSources.isDisjoint(with: items[i].sourceIDs)) { items[i].invalidatedAt = now }
@@ -149,6 +150,34 @@ public struct QQMemoryBook: Codable, Equatable, Sendable {
         let episodes = items.filter { $0.kind == "episode" && $0.current(now) }.suffix(64)
         items = Array(active) + historical + episodes
         pending.removeAll { sources[$0.id] != nil }; lastCompactedAt = now
+    }
+    /// Catchphrases the chat taught the bot ("有人说「老王开播了」就接「真的假的」") whose trigger, one of the
+    /// item's keywords of three characters or more, appears in `text`, ignoring spaces and punctuation.
+    public func cues(matching text: String, now: Date = Date()) -> [QQMemoryItem] {
+        let said = Self.squeezed(text)
+        guard !said.isEmpty else { return [] }
+        return items.filter { item in
+            item.kind == "cue" && item.current(now) && item.keywords.contains { let trigger = Self.squeezed($0); return trigger.count >= 3 && said.contains(trigger) }
+        }
+    }
+    static func squeezed(_ text: String) -> String {
+        let dropped = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
+        return String(String.UnicodeScalarView(text.lowercased().unicodeScalars.filter { !dropped.contains($0) }))
+    }
+    /// What is currently remembered about one person, newest first (for "/记忆").
+    public func remembered(about subject: String, now: Date = Date()) -> [QQMemoryItem] {
+        items.filter { $0.subject == subject && $0.kind != "episode" && $0.current(now) }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+    /// "/忘记 关键词": the person's current memories mentioning the keyword stop counting (kept as history
+    /// only until they age out, like any corrected memory). Returns the forgotten texts.
+    public mutating func forget(about subject: String, containing keyword: String, now: Date = Date()) -> [String] {
+        let needle = keyword.lowercased()
+        var forgotten: [String] = []
+        for i in items.indices where items[i].subject == subject && items[i].kind != "episode" && items[i].current(now)
+            && (items[i].text.lowercased().contains(needle) || items[i].keywords.contains { $0.lowercased().contains(needle) }) {
+            items[i].invalidatedAt = now; forgotten.append(items[i].text)
+        }
+        return forgotten
     }
     public mutating func importLegacy(text: String, subject: String, at: Date) {
         let characters = Array(Self.redact(text).prefix(2000))
@@ -192,8 +221,10 @@ public struct QQMemoryIndex: Sendable {
             let weight = log(1 + Double(records.count + 1) / Double(matches.count + 1))
             for id in matches { scores[id, default: 0] += weight }
         }
-        // Small persistent context: current speaker's profile and open tasks, even without word overlap.
-        for item in records.values where item.subject == subject && ["preference", "task", "legacy"].contains(item.kind) { scores[item.id, default: 0] += 1 }
+        // Small persistent context even without word overlap: what is known about the current speaker,
+        // and the latest conversation summaries, so "还记得我吗" or a new model still finds its footing.
+        for item in records.values where item.subject == subject && ["preference", "task", "fact", "legacy"].contains(item.kind) { scores[item.id, default: 0] += 1 }
+        for item in records.values.filter({ $0.kind == "episode" && $0.current(now) }).sorted(by: { $0.updatedAt > $1.updatedAt }).prefix(2) { scores[item.id, default: 0] += 0.8 }
         return scores.compactMap { id, score -> (QQMemoryItem, Double)? in
             guard let item = records[id], item.current(now) || (history && now.timeIntervalSince(item.invalidatedAt ?? item.expiresAt) < 90 * 86400) else { return nil }
             let freshness = 1 / (1 + max(0, now.timeIntervalSince(item.updatedAt)) / 86400)

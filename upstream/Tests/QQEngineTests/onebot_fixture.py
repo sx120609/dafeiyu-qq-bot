@@ -95,11 +95,11 @@ with socket.socket() as server:
             elif action == 'get_friend_msg_history':
                 params = request['params']
                 assert params['user_id'] == '54321'
-                if params['count'] == 20:
+                if params['count'] >= 20:
                     if 'message_seq' in params:
                         assert params['reverse_order'] is True
                         anchor = next(i for i, row in enumerate(history_rows) if str(row['message_id']) == params['message_seq'])
-                        data = {'messages': history_rows[max(0, anchor - 19):anchor + 1]}
+                        data = {'messages': history_rows[max(0, anchor - params['count'] + 1):anchor + 1]}
                     else:
                         if shape == 'privateOwnerIntervenes':
                             history_rows.append({'message_id': -202, 'message_type': 'private', 'sub_type': 'friend', 'self_id': 12345,
@@ -113,6 +113,24 @@ with socket.socket() as server:
                                  'user_id': author, 'sender': {'user_id': author},
                                  'message': [{'type': 'text', 'data': {'text': 'verified private quote'}}]}
                     data = {'messages': [] if shape == 'privateQuotedMissing' else [reference]}
+            elif action == 'get_group_member_info':
+                member, group = str(request['params']['user_id']), str(request['params']['group_id'])
+                if member == '12345':
+                    data = {'user_id': 12345, 'shut_up_timestamp': int(time.time()) + 600}
+                elif member == '77777' and group == '70005':
+                    data = {'user_id': 77777, 'group_id': 70005, 'role': 'member'}
+                else:
+                    # NapCat's answer for someone who is not in the group.
+                    send(conn, {'status': 'failed', 'retcode': 200, 'data': None, 'message': 'not a member', 'echo': request['echo']})
+                    continue
+            elif action in ('group_poke', 'friend_poke', 'send_poke'):
+                data = None
+            elif action == 'set_group_add_request':
+                with (directory / 'invite-approvals').open('a') as out:
+                    out.write(json.dumps(request['params']) + '\n')
+                data = None
+            elif action == 'get_group_info':
+                data = {'group_id': int(request['params']['group_id']), 'group_name': 'invited group'}
             elif action == 'get_msg':
                 data = {'message_id': -12, 'message_type': 'group', 'group_id': 99999, 'sender': {'user_id': 12345},
                         'message': [{'type': 'text', 'data': {'text': 'synthetic quoted text'}}]}
@@ -122,6 +140,10 @@ with socket.socket() as server:
                     out.write(json.dumps(request['params']) + '\n')
                 if (directory / 'drop-send').exists():
                     break
+                if (directory / 'reject-send').exists():
+                    # What NapCat answers when the bot is muted in the group: a definite refusal.
+                    send(conn, {'status': 'failed', 'retcode': 1200, 'data': None, 'message': 'muted', 'wording': '禁言中', 'echo': request['echo']})
+                    continue
                 data = {'message_id': 99}
                 if action == 'send_group_msg' and (directory / 'self-echo').exists():
                     echo_event = {'post_type': 'message_sent', 'time': time.time(), 'self_id': 12345,

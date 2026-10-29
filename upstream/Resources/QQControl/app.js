@@ -112,7 +112,7 @@ function renderDraftControls() {
   const replyDirty=dirtyForms.has('reply'), page=document.body.dataset.page;
   $('draftBanner').hidden=['wechat','guide'].includes(page)||dirtyForms.size===0;
   $('replySaveBar').hidden=!replyDirty||!['reply','memory'].includes(page);
-  $('save').disabled=!replyDirty||!state||state.running||state.busy||pending;
+  $('save').disabled=!replyDirty||!state||state.busy||pending;
 }
 
 $('restoreDefaults').addEventListener('click',()=>{
@@ -183,7 +183,7 @@ function syncForms() {
     targetDraft.clear(); targetSignature='';
   }
   renderArtwork(shouldSync('artwork'));
-  for(const id of ['workStart','workEnd']) $(id).disabled=state.running||state.busy||pending||!$('workHoursEnabled').checked;
+  for(const id of ['workStart','workEnd']) $(id).disabled=state.busy||pending||!$('workHoursEnabled').checked;
   const conflicts=[...dirtyForms].filter(([group,draft])=>draft.base!==formSnapshot(group)).map(([group])=>formNames[group]);
   text('draftStatus', conflicts.length ? `配置冲突：${conflicts.join('、')}已在别处修改，草稿保留，请重新载入。` : dirtyForms.size ? `未保存：${[...dirtyForms.keys()].map(k=>formNames[k]).join('、')}` : '设置已同步');
   $('discardDrafts').hidden=dirtyForms.size===0;
@@ -201,7 +201,7 @@ function closePersonaPicker() {
   $('personaOptions').hidden=true; $('personaPicker').setAttribute('aria-expanded','false');
 }
 function renderPersonaPicker() {
-  const busy=!state||state.running||state.busy||pending;
+  const busy=!state||state.busy||pending;
   $('personaPicker').disabled=busy; $('editCustomPersona').disabled=busy||!state?.personalities.some(item=>item.id==='custom'); $('customPersonaApply').disabled=busy;
   const style=state?.personalities.find(item=>item.id===$('personaStyle').value);
   $('personaPicker').textContent=(style?.name??'雌小鬼')+(style?.id==='custom'&&$('customPersonaName').value ? ' · '+$('customPersonaName').value : '')+' ⌄';
@@ -237,7 +237,7 @@ $('customPersonaApply').addEventListener('click',()=>{
   const name=$('customNameInput').value.trim(),prompt=$('customPromptInput').value.trim();
   if(!prompt||prompt.length>4000||name.length>40) {text('customPersonaError','请填写性格 prompt（最多 4000 字），名称最多 40 字。');return;}
   if(!$('customMaxInput').checkValidity()){$('customMaxInput').reportValidity();return;}
-  if(!state||state.running||state.busy||pending){text('customPersonaError','请先暂停并等待当前操作完成。');return;}
+  if(!state||state.busy||pending){text('customPersonaError','请等待当前操作完成。');return;}
   if(customPersonaBase!==formSnapshot('reply')){text('customPersonaError','配置已在其他窗口修改，输入已保留；请先核对最新设置。');return;}
   $('customPersonaName').value=name;$('customPersonaPrompt').value=prompt;$('personaStyle').value='custom';
   $('maxCharacters').value=$('customMaxInput').value;$('stickersEnabled').checked=$('customStickersInput').checked;
@@ -378,15 +378,15 @@ function render() {
   $('start').disabled = !state.connected || state.running || state.busy || pending;
   $('once').disabled = $('start').disabled;
   for(const id of ['endpoint','account','token','key','saveConnection']) $(id).disabled = state.connected || state.busy || pending;
-  for(const id of ['model','prompt','daily','cooldown','sendDaily','chatDaily','globalInterval','duration','personaStyle','maxCharacters','banter','stickersEnabled','stickerIntervalSeconds','stickerEveryReplies','onlineEnabled','visionEnabled','memoryEnabled','memoryMessages','memoryCharacters','memoryMinutes','memoryBudget','groupParticipationEnabled','groupParticipationEvery','workHoursEnabled','workStart','workEnd','save']) $(id).disabled = state.running || state.busy || pending;
+  for(const id of ['model','prompt','daily','cooldown','sendDaily','chatDaily','globalInterval','duration','personaStyle','maxCharacters','banter','stickersEnabled','stickerIntervalSeconds','stickerEveryReplies','onlineEnabled','visionEnabled','memoryEnabled','memoryMessages','memoryCharacters','memoryMinutes','memoryBudget','groupParticipationEnabled','groupParticipationEvery','workHoursEnabled','workStart','workEnd','save']) $(id).disabled = state.busy || pending;
   text('imageGenCredentials', `本次已载入：智谱 ${state.imageCredentials?.zhipu ? '有凭证' : '未载入'}；Cloudflare ${state.imageCredentials?.cloudflare ? '有凭证' : '未载入'}`);
   text('groupParticipationCounts', state.config.groupParticipationEnabled ? state.config.targets.filter(t=>t.enabled && t.group).map(t=>`${t.name}：${state.groupMessageCounts?.['group:'+t.number] ?? 0} / ${state.config.groupParticipationEvery ?? 10} 条`).join('；') || '尚未启用群聊' : '');
   text('memoryStatus', state.memoryStatus==='记忆等待新消息' ? '' : state.memoryStatus);
   text('imageGenStatus', state.imageGenerationStatus==='尚未调用生图' ? '' : state.imageGenerationStatus);
-  for(const id of ['imageGenEnabled','imageGenPrimary','imageGenFallback','imageGenZhipuKey','imageGenAccount','imageGenCloudflareToken','imageGenPersist','imageGenSave']) $(id).disabled = state.running || state.busy || pending;
+  for(const id of ['imageGenEnabled','imageGenPrimary','imageGenFallback','imageGenZhipuKey','imageGenAccount','imageGenCloudflareToken','imageGenPersist','imageGenSave']) $(id).disabled = state.busy || pending;
   text('visualCredentials', `Google 凭证：${state.googleVisionCredential ? '已载入' : '未载入'}`);
   text('visualStatus',state.visualStatus==='尚未调用外置识图或搜图' ? '' : state.visualStatus);
-  for(const id of ['visionProvider','googleWebEnabled','googleVisionKey','visualPersist','visualSave']) $(id).disabled = state.running || state.busy || pending;
+  for(const id of ['visionProvider','googleWebEnabled','googleVisionKey','visualPersist','visualSave']) $(id).disabled = state.busy || pending;
   if (state.supportsKeychain === false) {
     for (const id of ['imageGenPersist', 'visualPersist']) { $(id).checked = false; $(id).disabled = true; }
   }
@@ -403,7 +403,7 @@ function render() {
   }
   const catalogSignature=JSON.stringify(state.stickers.map(item=>[item.id,item.title,item.source,item.context,item.emotion,item.author,item.license,item.local,item.publicSharing]));
   if(catalogSignature!==stickerSignature) {stickerSignature=catalogSignature;text('stickerCount',state.stickers.length);if($('stickerGallery').open)renderStickers(state.stickers);}
-  for(const id of ['stickerTrigger','stickerEmotions','stickerKeywords','stickerRepeatHours','stickerFiles','importEmotion','importContext','importAuthor','importLicense','importSource','importPublic','importStickers']) $(id).disabled=state.running||state.busy||pending||importingStickers;
+  for(const id of ['stickerTrigger','stickerEmotions','stickerKeywords','stickerRepeatHours','stickerFiles','importEmotion','importContext','importAuthor','importLicense','importSource','importPublic','importStickers']) $(id).disabled=state.busy||pending||importingStickers;
   syncForms();
   const signature = JSON.stringify(state.config.targets.map(t => [t.id,t.name,t.number,t.group,t.enabled,t.personaStyle]));
   if(signature !== targetSignature) {
@@ -428,11 +428,11 @@ function render() {
   for(const memory of state.memories ?? []) { const p=document.createElement('p');p.textContent=`${memory.key} · ${memory.items ?? 0} 项重点 / ${memory.pending ?? 0} 条待整理 / 容量丢弃 ${memory.dropped ?? 0} 条 · ${new Date(memory.updatedAt*1000).toLocaleString('zh-CN')}：${memory.summary}`;$('memories').append(p); }
   if(!state.memories?.length) text('memories','尚无会话记忆');
   document.querySelector('.grid').inert=false;
-  $('restoreDefaults').disabled=state.running||state.busy||pending;
+  $('restoreDefaults').disabled=state.busy||pending;
   syncNumberControls(); renderFreshness();
 }
 function renderScopeActions() {
-  const busy=state.running||state.busy||pending, hasDraft=dirtyForms.has('reply');
+  const busy=state.busy||pending, hasDraft=dirtyForms.has('reply');
   for(const checkbox of $('targets').querySelectorAll('input')) checkbox.disabled=busy;
   for(const select of $('targets').querySelectorAll('select')) {
     select.disabled=busy||hasDraft;
@@ -462,7 +462,7 @@ function renderContacts() {
   if(!state) return;
   const search=$('search').value.trim().toLowerCase();
   const contacts=state.contacts.filter(c => !state.config.targets.some(t => `${t.group?'group':'private'}:${t.number}`===c.key) && (!search || c.number.includes(search) || c.name.toLowerCase().includes(search))).slice(0,10);
-  const editingBlocked=state.running||state.busy||pending||dirtyForms.has('reply');
+  const editingBlocked=state.busy||pending||dirtyForms.has('reply');
   const signature=JSON.stringify([contacts,editingBlocked]);
   if(signature===contactSignature)return;
   contactSignature=signature; $('contacts').replaceChildren();
@@ -551,7 +551,7 @@ $('loadMoreStickers').addEventListener('click',()=>{if(state)renderStickers(stat
 $('importStickers').addEventListener('click',async()=>{
   const files=[...$('stickerFiles').files];
   if(!files.length||files.length>50){text('stickerImportStatus','每次选择 1–50 张图片。');return;}
-  if(!state||state.running||state.busy||pending||importingStickers){text('stickerImportStatus','请先暂停并等待当前操作完成。');return;}
+  if(!state||state.busy||pending||importingStickers){text('stickerImportStatus','请等待当前操作完成。');return;}
   const metadata={emotion:$('importEmotion').value,context:$('importContext').value.trim(),author:$('importAuthor').value.trim(),license:$('importLicense').value.trim(),source:$('importSource').value.trim(),publicSharing:$('importPublic').checked};
   importingStickers=true;render();let imported=0;const failures=[];
   try {
@@ -611,7 +611,7 @@ function renderArtwork(first) {
       label.append(check,document.createTextNode(`${target.name} (${target.number})${target.enabled?'':' · 会话未启用，不会发送'}`));$('artTargets').append(label);
     }
   }
-  for(const item of $('artworkPanel').querySelectorAll('input,select,textarea,button:not(.help-button)')) item.disabled=state.running||state.busy||pending;
+  for(const item of $('artworkPanel').querySelectorAll('input,select,textarea,button:not(.help-button)')) item.disabled=state.busy||pending;
   $('artHour').disabled=$('artHour').disabled||$('artFrequency').value==='hourly';
   const hasDraft=dirtyForms.has('artwork');
   $('artArtistAdd').disabled=$('artArtistAdd').disabled||hasDraft;

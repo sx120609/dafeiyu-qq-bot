@@ -35,7 +35,8 @@ private final class OnlineFixtureProtocol: URLProtocol, @unchecked Sendable {
             let messages = object["messages"] as! [[String: Any]]
             if let prompt = messages.first?["content"] as? String, prompt.contains("sticker-fixture:") {
                 var answer: [String: Any] = ["text": "晚安，睡个好觉。", "emotion": "sleepy", "intensity": 3]
-                if prompt.contains("本轮可选表情 JSON") {
+                // The candidate list rides with the message, not the (cacheable) system prompt.
+                if messages.compactMap({ $0["content"] as? String }).contains(where: { $0.contains("本轮可选表情 JSON") }) {
                     if prompt.contains("sticker-fixture:none") { answer["sticker_id"] = NSNull() }
                     else if prompt.contains("sticker-fixture:unknown") { answer["sticker_id"] = "../../secret.png" }
                     else { answer["sticker_id"] = "fixture-sleep" }

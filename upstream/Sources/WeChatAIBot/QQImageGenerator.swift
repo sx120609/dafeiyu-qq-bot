@@ -11,6 +11,7 @@ import BotCore
 struct QQImageCredentials: Sendable {
     var zhipuKey = ""
     var cloudflareToken = ""
+    var codexToken = ""
 }
 
 struct QQImageGenerator {
@@ -35,11 +36,13 @@ struct QQImageGenerator {
         guard (1...1000).contains(prompt.count), prompt.range(of: #"(?i)(sk-[a-z0-9]+|https?://|api.?key|系统提示词|system.prompt|\d{7,}|\[(OWNER|BOT|PEER)\])"#, options: .regularExpression) == nil else {
             return ModelToolResult(content: "画面描述包含不适合外发的信息或过长，未生成图片。")
         }
-        let providers = settings.fallbackEnabled ? [settings.primary, settings.primary.alternate] : [settings.primary]
+        let providers = settings.fallbackEnabled
+            ? (settings.primary == .codex ? [.codex, .zhipu, .cloudflare] : [settings.primary, settings.primary.alternate])
+            : [settings.primary]
         var failures: [String] = []
         for (index, provider) in providers.enumerated() {
             try Task.checkCancellation()
-            let key = provider == .zhipu ? credentials.zhipuKey : credentials.cloudflareToken
+            let key = provider == .codex ? credentials.codexToken : provider == .zhipu ? credentials.zhipuKey : credentials.cloudflareToken
             guard !key.isEmpty, provider != .cloudflare || !settings.cloudflareAccountID.isEmpty else {
                 failures.append(provider.title + "：凭证未配置"); continue
             }
@@ -67,6 +70,32 @@ struct QQImageGenerator {
     }
 
     private func generate(provider: QQImageProvider, prompt: String, key: String, account: String) async throws -> Data {
+        if provider == .codex {
+            guard let base = ProcessInfo.processInfo.environment["DAFEIYU_CODEX_URL"],
+                  let url = URL(string: base + "/images/generations"), url.scheme == "http", url.host == "127.0.0.1",
+                  url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else {
+                throw GenerationFailure(message: "Codex 图像通道仅支持本机模型网关", allowsFallback: true)
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"; request.timeoutInterval = 240
+            request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prompt])
+            let (data, status) = try await fetch(request, limit: 16_000_000)
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if status == 422 { throw GenerationFailure(message: "内容审核未通过，不切换模型", allowsFallback: false) }
+            guard status == 200, let rows = object?["data"] as? [[String: Any]], rows.count == 1,
+                  let encoded = rows[0]["b64_json"] as? String, let image = Data(base64Encoded: encoded), image.count <= 8_000_000 else {
+                let reason = ((object?["error"] as? [String: Any])?["message"] as? String).map { String($0.prefix(200)) } ?? "HTTP \(status)"
+                throw GenerationFailure(message: "模型网关没画出来（\(reason)）", allowsFallback: true)
+            }
+            #if os(Linux)
+            guard (try? LinuxImages.process(image, mode: "generated")) != nil else {
+                throw GenerationFailure(message: "生成图片校验失败", allowsFallback: true)
+            }
+            #endif
+            return image
+        }
         let url = provider == .zhipu
             ? URL(string: "https://open.bigmodel.cn/api/paas/v4/images/generations")!
             : URL(string: "https://api.cloudflare.com/client/v4/accounts/\(account)/ai/run/@cf/black-forest-labs/flux-1-schnell")!

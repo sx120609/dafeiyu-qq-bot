@@ -5,6 +5,14 @@ import FoundationNetworking
 
 /// One local, authenticated connection. A broken connection cancels all outstanding actions;
 /// sends are never retried because a missing acknowledgement is an unknown outcome.
+/// NapCat answered and refused the action (muted, removed from the group, risk control…), so nothing was
+/// sent. Unlike a timeout or a dropped connection, the outcome is known.
+struct OneBotRejection: LocalizedError {
+    let retcode: Int
+    let detail: String
+    var errorDescription: String? { "QQ 拒绝了这次操作（返回码 \(retcode)\(detail.isEmpty ? "" : "：" + detail)）" }
+}
+
 @MainActor final class OneBotConnection {
     #if os(Linux)
     private var socket: LinuxOneBotTransport?
@@ -62,7 +70,10 @@ import FoundationNetworking
             if object["status"] as? String == "ok", (object["retcode"] as? Int) == 0 {
                 // Lists and objects retain their original shape inside the data field.
                 continuation.resume(returning: object)
-            } else { continuation.resume(throwing: AppFailure.message("OneBot 操作失败，返回码 \(object["retcode"] as? Int ?? -1)")) }
+            } else {
+                let detail = (object["wording"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? object["message"] as? String ?? ""
+                continuation.resume(throwing: OneBotRejection(retcode: object["retcode"] as? Int ?? -1, detail: String(detail.prefix(120))))
+            }
         } else { event?(object) }
     }
     func action(_ name: String, params: [String: Any] = [:]) async throws -> [String: Any] {

@@ -471,13 +471,14 @@ final class ArtworkFixtureProtocol: URLProtocol, @unchecked Sendable {
         #expect(!QQArtworkLibrary.animeGirl(tags: ["男性", "原神"], artist: "17429", id: "999"))
         #expect(throws: (any Error).self) { try QQArtworkLibrary.normalized(Data("bad image".utf8), config: settings) }
     }
-    @Test(arguments: ["command", "qualitySearch", "fallbackSearch", "idSearch", "idURL", "compactHot", "hotPrompt", "artistPrompt", "nextHot", "nextFeatured", "nextPrompt", "noResultPrompt", "private", "owner", "foreign", "unknownSend", "agent", "agentWithoutLicense", "agentBadImage", "commandBadImage", "commandWithoutLicense", "artistWithoutLicense", "hotWithoutLicense", "schedule", "hourlySchedule", "scheduleNoImage", "scheduleFallback", "scheduleQueued", "paused", "quota", "downloadPause"])
+    @Test(arguments: ["command", "qualitySearch", "fallbackSearch", "idSearch", "idURL", "compactHot", "hotPrompt", "artistPrompt", "nextHot", "nextFeatured", "nextPrompt", "noResultPrompt", "private", "owner", "foreign", "unknownSend", "mutedSend", "agent", "agentWithoutLicense", "agentBadImage", "commandBadImage", "commandWithoutLicense", "artistWithoutLicense", "hotWithoutLicense", "schedule", "hourlySchedule", "scheduleNoImage", "scheduleFallback", "scheduleQueued", "paused", "quota", "downloadPause"])
     func engineRoutingAndSendGuards(_ mode: String) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try Data("groupParticipation".utf8).write(to: directory.appendingPathComponent("message-shape"))
         if mode == "unknownSend" { try Data().write(to: directory.appendingPathComponent("drop-send")) }
+        if mode == "mutedSend" { try Data().write(to: directory.appendingPathComponent("reject-send")) }
         let server = Process(), output = Pipe()
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         server.arguments = [URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("onebot_fixture.py").path, directory.path]
@@ -516,10 +517,11 @@ final class ArtworkFixtureProtocol: URLProtocol, @unchecked Sendable {
         if mode == "fallbackSearch" { engine.config.effectiveArtwork.effectiveSearchMinBookmarks = 5000 }
         engine.start()
         if mode == "command" {
+            // Adding an artist no longer waits for replies to pause; put the list back for the rest of the run.
             let previous = engine.config.effectiveArtwork
             await engine.addArtworkArtist("999111")
-            #expect(engine.config.effectiveArtwork == previous); #expect(engine.error?.contains("暂停") == true)
-            #expect(ArtworkFixtureProtocol.calls.isEmpty); engine.error = nil
+            #expect(engine.error?.contains("暂停") != true); #expect(engine.running)
+            engine.saveArtwork(previous); #expect(engine.config.effectiveArtwork == previous); engine.error = nil
         }
         if mode == "paused" { engine.pause() }
         let scheduled = ["schedule", "hourlySchedule", "scheduleNoImage", "scheduleFallback"].contains(mode)
@@ -559,7 +561,9 @@ final class ArtworkFixtureProtocol: URLProtocol, @unchecked Sendable {
             engine.pause(); #expect(engine.queuedCount == 0)
         }
         let deadline = Date().addingTimeInterval(["foreign", "paused", "downloadPause", "scheduleNoImage", "scheduleQueued"].contains(mode) ? 0.5 : 5)
-        while Date() < deadline && engine.sends.confirmed == 0 && engine.sends.uncertain == 0 { try await Task.sleep(nanoseconds: 20_000_000) }
+        while Date() < deadline && engine.sends.confirmed == 0 && engine.sends.uncertain == 0 && !engine.logs.contains(where: { $0.detail.contains("被禁言") }) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
         if ["foreign", "paused"].contains(mode) {
             #expect(engine.sends.attempts == 0); #expect(ArtworkFixtureProtocol.calls.isEmpty)
         } else if mode == "scheduleNoImage" {
@@ -580,8 +584,13 @@ final class ArtworkFixtureProtocol: URLProtocol, @unchecked Sendable {
             let messages = decoded["message"] as! [[String: Any]]
             #expect(messages.contains { (($0["data"] as? [String: String])?["text"] ?? "").contains("已退役") })
             #expect(!payload.contains("base64:"))
+        } else if mode == "mutedSend" {
+            // QQ refused it: a plain failure, the bot keeps running and stays quiet in that group only.
+            #expect(engine.running); #expect(engine.sends.attempts == 1); #expect(engine.sends.uncertain == 0)
+            #expect(engine.logs.contains { $0.detail.contains("没发出去") })
+            #expect(engine.logs.contains { $0.detail.contains("被禁言") })
         } else if mode == "unknownSend" {
-            #expect(engine.sends.uncertain == 1); #expect(!engine.running)
+            #expect(engine.sends.uncertain == 1); #expect(!engine.running) // the fixture dropped the connection
             #expect(engine.artworkLedger.deliveries.first?.state == "unknown")
         } else {
             #expect(engine.sends.confirmed == 1)
@@ -589,7 +598,13 @@ final class ArtworkFixtureProtocol: URLProtocol, @unchecked Sendable {
             let payload = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("payload"))) as! [String: Any]
             let segments = payload["message"] as! [[String: Any]]
             #expect(segments.contains { $0["type"] as? String == "image" })
-            #expect(segments.contains { (($0["data"] as? [String: String])?["text"] ?? "").contains("/next") })
+            if ["agent", "agentWithoutLicense", "agentBadImage"].contains(mode) {
+                // Shared in conversation: a one-line credit, not the command menu.
+                #expect(segments.contains { (($0["data"] as? [String: String])?["text"] ?? "").contains("画师：") })
+                #expect(!segments.contains { (($0["data"] as? [String: String])?["text"] ?? "").contains("/next") })
+            } else {
+                #expect(segments.contains { (($0["data"] as? [String: String])?["text"] ?? "").contains("/next") })
+            }
             if mode == "qualitySearch" {
                 #expect(segments.contains { (($0["data"] as? [String: String])?["text"] ?? "").contains("收藏 2500") })
                 #expect(engine.artworkLedger.continuation["12345:group:99999"]?.mode == "search")

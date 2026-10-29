@@ -1,8 +1,10 @@
 import Foundation
 
 public enum QQImageProvider: String, Codable, CaseIterable, Sendable {
-    case zhipu, cloudflare
-    public var title: String { self == .zhipu ? "智谱 CogView-3-Flash" : "Cloudflare FLUX.1 schnell" }
+    case zhipu, cloudflare, codex
+    public var title: String {
+        switch self { case .zhipu: return "智谱 CogView-3-Flash"; case .cloudflare: return "Cloudflare FLUX.1 schnell"; case .codex: return "模型网关生图（云端 API 或本机 Codex）" }
+    }
     public var alternate: QQImageProvider { self == .zhipu ? .cloudflare : .zhipu }
 }
 

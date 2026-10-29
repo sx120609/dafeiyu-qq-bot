@@ -8,6 +8,19 @@ struct QQMemoryBookTests {
         let data = try JSONSerialization.data(withJSONObject: ["summary": "", "changes": [["operation": operation, "replaces": replaces, "subject": subject ?? source.subject, "kind": "preference", "text": text, "keywords": ["晚饭", "饮食", "口味"], "importance": 3, "sourceID": source.id, "evidence": evidence ?? source.text, "days": 365]]])
         return try QQMemoryDelta.decode(String(decoding: data, as: UTF8.self))
     }
+    @Test func taughtCatchphrasesAreKeptAndMatchTheTriggerPhrase() throws {
+        var book = QQMemoryBook()
+        let taught = QQMemoryEvent(id: "t", subject: "MEMBER_a", text: "我教你一个，以后别人说老王开播了，你就接“真的假的”或者“zdjd”", at: now)
+        book.append(taught)
+        let data = try JSONSerialization.data(withJSONObject: ["summary": "", "changes": [["operation": "upsert", "replaces": [], "subject": "MEMBER_a", "kind": "cue",
+            "text": "有人说「老王开播了」时接「真的假的」或「zdjd」（MEMBER_a 教的）", "keywords": ["老王开播了", "老王"], "importance": 3, "sourceID": "t",
+            "evidence": "以后别人说老王开播了", "days": 365]]])
+        try book.apply(try QQMemoryDelta.decode(String(decoding: data, as: UTF8.self)), batch: [taught], candidateIDs: [], now: now)
+        #expect(book.cues(matching: "老王 开播了！", now: now).count == 1)
+        #expect(book.cues(matching: "@某人 老王开播了", now: now).count == 1)
+        #expect(book.cues(matching: "老王今天没播", now: now).isEmpty) // a two-character name alone is no trigger
+        #expect(book.cues(matching: "老王开播了", now: now.addingTimeInterval(366 * 86400)).isEmpty)
+    }
     @Test func timeCountAndLengthRotateAndPendingSurvivesReload() throws {
         var options = QQMemoryOptions(); options.messageThreshold = 4; options.characterThreshold = 1000; options.intervalMinutes = 1
         var book = QQMemoryBook()
@@ -30,11 +43,14 @@ struct QQMemoryBookTests {
         let first = try #require(book.items.first)
         let correction = QQMemoryEvent(id: "2", subject: "PEER", text: "我改口了，现在晚饭喜欢吃辣", at: now.addingTimeInterval(10))
         book.append(correction)
-        let before = book
-        #expect(throws: (any Error).self) { try book.apply(delta(source: correction, subject: "OWNER"), batch: [correction], candidateIDs: [first.id], now: now) }
-        #expect(throws: (any Error).self) { try book.apply(delta(source: correction, evidence: "没有说过的内容"), batch: [correction], candidateIDs: [first.id], now: now) }
-        #expect(throws: (any Error).self) { try book.apply(delta(source: correction, replaces: [first.id]), batch: [correction], candidateIDs: [], now: now) }
-        #expect(book == before)
+        // A change with the wrong speaker, made-up evidence or an out-of-scope replacement is dropped on its own.
+        let facts = { (b: QQMemoryBook) in b.items.filter { $0.kind != "episode" } }
+        for (bad, candidates) in try [(delta(source: correction, subject: "OWNER"), Set([first.id])), (delta(source: correction, evidence: "没有说过的内容"), Set([first.id])),
+                                  (delta(source: correction, replaces: [first.id]), Set<String>())] {
+            var copy = book
+            try copy.apply(bad, batch: [correction], candidateIDs: candidates, now: now)
+            #expect(facts(copy) == facts(book))
+        }
         try book.apply(delta(source: correction, text: "现在晚饭喜欢吃辣", replaces: [first.id]), batch: [correction], candidateIDs: [first.id], now: now.addingTimeInterval(10))
         let index = QQMemoryIndex(book.items)
         let current = index.context("晚饭口味", subject: "PEER", characters: 500, now: now.addingTimeInterval(20))

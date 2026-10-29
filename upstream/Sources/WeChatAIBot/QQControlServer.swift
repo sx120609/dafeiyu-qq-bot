@@ -97,7 +97,17 @@ import BotCore
             }
             guard let url = RuntimeResources.directory?.appendingPathComponent("QQControl/\(name).\(ext)"),
                   let data = try? Data(contentsOf: url) else { reply(connection, id: id, code: 404); return }
-            reply(connection, id: id, code: 200, data: data, type: type); return
+            var served = data
+            if name == "index", ProcessInfo.processInfo.environment["DAFEIYU_CODEX_URL"] != nil,
+               let html = String(data: data, encoding: .utf8) {
+                served = Data(html.replacingOccurrences(of: "DeepSeek API Key", with: "本机模型网关凭证（已自动加载）")
+                    .replacingOccurrences(of: "DeepSeek Key", with: "本机模型网关凭证")
+                    .replacingOccurrences(of: "DeepSeek 原有识图", with: "当前模型直接识图")
+                    .replacingOccurrences(of: "id=\"imageGenPrimary\">", with: "id=\"imageGenPrimary\"><option value=\"codex\">模型网关生图（云端 API 或本机 Codex，独立于聊天模型）</option>")
+                    .replacingOccurrences(of: "value=\"deepseek-flash\"", with: "value=\"dafeiyu-active\"")
+                    .replacingOccurrences(of: "<footer>持续更新完善中</footer>", with: "<footer>连接方式和模型请在模型控制台选择；凭证自动加载，QQ 扫码后自动核对账号。</footer>").utf8)
+            }
+            reply(connection, id: id, code: 200, data: served, type: type); return
         }
         guard headers["x-qq-control"] == token,
               headers["origin"] == nil || headers["origin"] == origin else { reply(connection, id: id, code: 403); return }
@@ -148,6 +158,32 @@ import BotCore
                 case "saveImageGeneration":
                     guard let settings = request.imageGeneration else { throw AppFailure.message("缺少生图设置") }
                     configurationSaved = engine.saveImageGeneration(settings, zhipuKey: request.zhipuKey ?? "", cloudflareToken: request.cloudflareToken ?? "", persistCredentials: request.persistImageCredentials ?? true)
+                case "saveOutreach":
+                    guard let settings = request.outreach else { throw AppFailure.message("缺少主动聊天设置") }
+                    try engine.saveOutreach(settings)
+                    configurationSaved = true
+                case "savePoke":
+                    guard let settings = request.poke else { throw AppFailure.message("缺少戳一戳设置") }
+                    try engine.savePoke(settings)
+                    configurationSaved = true
+                case "saveQuietHours":
+                    guard let settings = request.quietHours else { throw AppFailure.message("缺少安静时段设置") }
+                    try engine.saveQuietHours(settings)
+                    configurationSaved = true
+                case "saveSettle":
+                    guard let seconds = request.settleSeconds else { throw AppFailure.message("缺少等待时长") }
+                    try engine.saveSettle(seconds: seconds)
+                    configurationSaved = true
+                case "saveReactions":
+                    guard let settings = request.reactions else { throw AppFailure.message("缺少贴表情设置") }
+                    try engine.saveReactions(settings)
+                    configurationSaved = true
+                case "previewOutreach":
+                    guard let target = request.target else { throw AppFailure.message("缺少会话") }
+                    try await engine.previewOutreach(target)
+                case "saveModeration":
+                    try engine.saveModeration(admins: request.adminIDs ?? engine.config.effectiveAdminIDs, blocked: request.blockedIDs ?? engine.config.effectiveBlockedIDs)
+                    configurationSaved = true
                 case "pause": engine.pause()
                 case "disconnect": engine.disconnect()
                 case "clear": engine.clearTemporaryCredentials()
@@ -170,7 +206,7 @@ import BotCore
                     }
                     await engine.connect()
                 case "add":
-                    guard !engine.running, let contact = engine.contacts.first(where: { $0.id == request.target }) else { throw AppFailure.message("请暂停后从已核对联系人中选择") }
+                    guard let contact = engine.contacts.first(where: { $0.id == request.target }) else { throw AppFailure.message("请从已核对联系人中选择") }
                     engine.add(contact)
                 case "remove":
                     guard let target = engine.config.targets.first(where: { $0.key == request.target }) else { throw AppFailure.message("会话不存在") }
@@ -179,7 +215,7 @@ import BotCore
                     guard let target = request.target, let style = request.personaStyle else { throw AppFailure.message("缺少会话或性格") }
                     engine.setPersonaStyle(style, target: target)
                 case "save":
-                    guard !engine.running, !engine.busy, !engine.runtimeBusy else { throw AppFailure.message("请先暂停") }
+                    guard !engine.busy, !engine.runtimeBusy else { throw AppFailure.message("请等待当前操作完成") }
                     var updated = engine.config
                     if let ai = request.ai { updated.ai = ai }
                     if let persona = request.persona { updated.persona = persona }
@@ -189,7 +225,10 @@ import BotCore
                     if let options = request.memoryOptions { updated.memoryOptions = options }
                     if let value = request.groupParticipationEnabled { updated.groupParticipationEnabled = value }
                     if let value = request.groupParticipationEvery { updated.groupParticipationEvery = value }
-                    try updated.validate(); engine.saveReplySettings(ai: updated.ai, persona: updated.effectivePersona, onlineEnabled: updated.effectiveOnlineEnabled, visionEnabled: updated.effectiveVisionEnabled, memoryEnabled: updated.effectiveMemoryEnabled, groupParticipationEnabled: updated.effectiveGroupParticipationEnabled, groupParticipationEvery: updated.effectiveGroupParticipationEvery, memoryOptions: updated.effectiveMemoryOptions, enabledTargets: request.enabled.map { Set($0) })
+                    if let value = request.fastReplyEnabled { updated.fastReplyEnabled = value }
+                    if let value = request.naturalRepliesEnabled { updated.naturalRepliesEnabled = value }
+                    if let value = request.loopProtectionEnabled { updated.loopProtectionEnabled = value }
+                    try updated.validate(); engine.saveReplySettings(ai: updated.ai, persona: updated.effectivePersona, onlineEnabled: updated.effectiveOnlineEnabled, visionEnabled: updated.effectiveVisionEnabled, memoryEnabled: updated.effectiveMemoryEnabled, groupParticipationEnabled: updated.effectiveGroupParticipationEnabled, groupParticipationEvery: updated.effectiveGroupParticipationEvery, memoryOptions: updated.effectiveMemoryOptions, enabledTargets: request.enabled.map { Set($0) }, fastReplyEnabled: updated.effectiveFastReplyEnabled, naturalRepliesEnabled: updated.effectiveNaturalRepliesEnabled, loopProtectionEnabled: updated.effectiveLoopProtectionEnabled)
                 case "start":
                     guard engine.connected, !engine.running, !engine.busy, !engine.runtimeBusy else { throw AppFailure.message("请先连接或暂停") }
                     let duration = request.singleReply == true ? 15 : (request.durationMinutes ?? 120)
@@ -208,12 +247,13 @@ import BotCore
             let config = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config))
             let object: [String: Any] = ["config": config, "configurationSaved": configurationSaved, "configurationRevision": currentConfigurationRevision(), "connected": engine.connected, "running": engine.running,
                 "busy": engine.busy || engine.runtimeBusy, "status": engine.status, "error": engine.error ?? "",
+                "kickedAt": engine.kickedAt.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
                 "temporaryCredentials": engine.usesTemporaryCredentials,
                 "supportsKeychain": RuntimeResources.supportsKeychain,
                 "configurationHints": engine.configurationHints,
                 "runtimeRecords": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.runtimeRecords)),
                 "imageGeneration": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectiveImageGeneration)),
-                "imageCredentials": ["zhipu": engine.hasZhipuImageKey, "cloudflare": engine.hasCloudflareImageToken],
+                "imageCredentials": ["zhipu": engine.hasZhipuImageKey, "cloudflare": engine.hasCloudflareImageToken, "codex": engine.hasCodexImageKey],
                 "visualTools": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectiveVisualTools)),
                 "googleVisionCredential": engine.hasGoogleVisionKey, "visualStatus": engine.visualStatus,
                 "imageGenerationStatus": engine.imageGenerationStatus,
@@ -235,7 +275,19 @@ import BotCore
                 "groupMessageCounts": engine.groupMessageCounts,
                 "queued": engine.queuedCount, "queueCapacity": QQEngine.queueCapacity,
                 "uncertain": engine.sends.uncertain, "rejected": engine.rejectedScopedEvents,
-                "contacts": engine.contacts.map { ["key": $0.id, "name": $0.name, "number": $0.number, "group": $0.group] as [String: Any] }]
+                "contacts": engine.contacts.map { ["key": $0.id, "name": $0.name, "number": $0.number, "group": $0.group] as [String: Any] },
+                "outreach": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectiveOutreach)),
+                "outreachChats": engine.outreachChats,
+                "reactions": try JSONSerialization.jsonObject(with: JSONEncoder().encode({ () -> QQReactionConfig in
+                    var view = engine.config.effectiveReactions; view.emojis = view.effectiveEmojis; return view }())),
+                "reactionsSent": engine.reactionsSent,
+                "interactions": engine.interactions.suffix(40).reversed().map { ["at": $0.at.timeIntervalSince1970, "chat": $0.chat, "what": $0.what, "why": $0.why] as [String: Any] },
+                "poke": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectivePoke)),
+                "settleSeconds": engine.config.effectiveSettleSeconds,
+                "quietHours": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectiveQuietHours)),
+                "decisions": engine.decisions.suffix(60).reversed().map { ["at": $0.at.timeIntervalSince1970, "chat": $0.chat, "speaker": $0.speaker, "text": $0.text, "outcome": $0.outcome] as [String: Any] },
+                "removedTargets": engine.removedTargets.reversed().map { ["number": $0.number, "name": $0.name, "group": $0.group, "reason": $0.reason, "removedAt": $0.removedAt.timeIntervalSince1970] as [String: Any] },
+                "outreachPreview": engine.outreachPreview.map { ["target": $0.target, "send": $0.send, "text": $0.text, "at": $0.at] as [String: Any] } ?? NSNull()]
             reply(connection, id: id, code: 200, data: try JSONSerialization.data(withJSONObject: object))
         } catch { reply(connection, id: id, code: 500) }
     }
@@ -277,8 +329,18 @@ import BotCore
         var visionEnabled: Bool?
         var memoryEnabled: Bool?
         var memoryOptions: QQMemoryOptions?
+        var fastReplyEnabled: Bool?
+        var naturalRepliesEnabled: Bool?
+        var loopProtectionEnabled: Bool?
         var durationMinutes: Int?
         var singleReply: Bool?
+        var adminIDs: [String]?
+        var blockedIDs: [String]?
+        var outreach: QQOutreachConfig?
+        var reactions: QQReactionConfig?
+        var poke: QQPokeConfig?
+        var settleSeconds: Int?
+        var quietHours: QQQuietHours?
     }
     private func reply(_ connection: LoopbackConnection, id: UUID, code: Int, data: Data = Data(), type: String = "application/json") {
         let header = "HTTP/1.1 \(code) Response\r\nContent-Type: \(type); charset=utf-8\r\nContent-Length: \(data.count)\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; frame-ancestors 'none'; form-action 'none'\r\n\r\n"

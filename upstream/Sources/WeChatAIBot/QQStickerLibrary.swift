@@ -31,6 +31,23 @@ struct QQStickerLibrary {
         let sha256: String
         let at: Date
     }
+    /// Offered when someone sends or quotes a picture: lets the model keep it when asked to ("把这个表情存一下").
+    static let saveToolDefinition: [String: Any] = ["type": "function", "function": [
+        "name": "save_sticker",
+        "description": "把对方这一轮引用的图（没有引用就用对方这一轮发的图）存进你的表情库，以后聊天合适时会发。只在对方明确让你存、收藏、记住这个表情时用。存之前看清画面：色情擦边、政治、血腥暴力、真人隐私、广告二维码一律不存，直接告诉对方不存。",
+        "parameters": ["type": "object", "additionalProperties": false, "required": ["title", "emotion", "context"], "properties": [
+            "title": ["type": "string", "description": "简短名字，写清画面和配字，例如“委屈小象耷拉眼睛”"],
+            "emotion": ["type": "string", "enum": QQEmotion.allCases.map(\.rawValue)],
+            "context": ["type": "string", "description": "一句话：什么时候适合发这张"]
+        ]]
+    ]]
+    static func saveToolArguments(_ arguments: String) -> (title: String, emotion: QQEmotion, context: String)? {
+        guard arguments.utf8.count <= 4096, let fields = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let title = (fields["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+              let emotion = (fields["emotion"] as? String).flatMap(QQEmotion.init(rawValue:)) else { return nil }
+        let context = ((fields["context"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (String(title.prefix(80)), emotion, String((context.isEmpty ? title : context).prefix(300)))
+    }
     init(directory: URL? = RuntimeResources.directory?.appendingPathComponent("QQStickers"), localDirectory: URL? = nil) {
         self.directory = directory; self.localDirectory = localDirectory
         items = Self.catalog(directory)
@@ -54,6 +71,14 @@ struct QQStickerLibrary {
         return items.filter { !excluded.contains($0.sha256) }
     }
     // A bounded caption shortlist, then the existing semantic reviewer chooses or abstains.
+    /// Someone plainly asking for a sticker: "发个表情", "来张表情包", "斗图", "表情呢".
+    static func requested(_ text: String) -> Bool {
+        text.range(of: "(发|甩|丢|整|贴)(个|张|一个|一张|点|几张)?.{0,2}(表情|贴图|梗图)|(来|给我)(个|张|一个|一张|点|几张).{0,2}(表情|贴图|梗图)|斗图|表情(包)?呢", options: .regularExpression) != nil
+    }
+    /// When a sticker was asked for, a few of every mood rather than only the draft's, so one fits whatever was said.
+    static func broadShortlist(_ available: [Item]) -> [Item] {
+        QQEmotion.allCases.flatMap { emotion in available.filter { $0.emotion == emotion }.shuffled().prefix(3) }
+    }
     static func shortlist(_ available: [Item], emotion: QQEmotion) -> [Item] {
         let matching = available.filter { $0.emotion == emotion }.shuffled()
         let gentle = emotion == .neutral ? [] : available.filter { $0.emotion == .neutral }.shuffled()

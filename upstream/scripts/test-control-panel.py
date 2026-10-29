@@ -193,8 +193,10 @@ with tempfile.TemporaryDirectory(prefix='dafeiyu-panel-test-') as folder:
                 started = action({'action':'start','durationMinutes':1})
                 assert not started['error'] and started['running'] and started['config'] == saved['config']
                 assert 50 < started['runDeadline'] - time.time() <= 60
-                failed_save = action({'action':'save','enabled':[]})
-                assert failed_save['error'] and failed_save['running'] and failed_save['config'] == saved['config']
+                # Settings save while replies run, and replies keep running.
+                kept = [('group:' if t['group'] else 'private:') + t['number'] for t in saved['config']['targets'] if t['enabled']]
+                live_save = action({'action':'save','enabled':kept})
+                assert not live_save['error'] and live_save['running'] and live_save['config'] == saved['config'], live_save['error']
                 if '--wait-for-expiry' in sys.argv:
                     expiry_limit = time.monotonic() + 65
                     while time.monotonic() < expiry_limit:

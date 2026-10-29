@@ -104,7 +104,7 @@ public enum MessagePolicy {
     }
 }
 
-public struct ChatTurn: Sendable {
+public struct ChatTurn: Codable, Sendable {
     public var incoming: String
     public var outgoing: String
     public init(incoming: String, outgoing: String) { self.incoming = incoming; self.outgoing = outgoing }

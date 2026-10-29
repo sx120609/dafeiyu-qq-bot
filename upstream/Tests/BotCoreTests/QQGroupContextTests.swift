@@ -7,6 +7,14 @@ struct QQGroupContextTests {
     private func event(_ id: String, _ text: String, _ minutes: Double, subject: String = "MEMBER_A") -> QQMemoryEvent {
         QQMemoryEvent(id: id, subject: subject, text: text, at: base.addingTimeInterval(minutes * 60))
     }
+    @Test func unaddressedLinesBeforeAMentionAreTheSpeakersSinceTheBotLastSpoke() {
+        let rows = [event("1", "早先说的", -60), event("bot", "机器人回复", -40, subject: "BOT"), event("2", "太久以前", -35),
+                    event("3", "老王开播了", -1), event("4", "别人插话", -0.5, subject: "MEMBER_B"), event("5", "（对方发来图片或表情包）", -0.4),
+                    event("6", "我跟你说话呢", 0)]
+        #expect(QQGroupContext.unaddressedEarlier(rows, subject: "MEMBER_A", current: "6", now: base) == ["老王开播了"])
+        #expect(QQGroupContext.unaddressedEarlier(rows, subject: "MEMBER_B", current: "6", now: base) == ["别人插话"])
+        #expect(QQGroupContext.unaddressedEarlier(rows + [event("bot2", "回了", 0.1, subject: "BOT")], subject: "MEMBER_A", current: "7", now: base).isEmpty)
+    }
     @Test func attachmentsAndRolesStayWithinTheAdmittedSnapshot() throws {
         let rows = [event("old", "旧图片", -5), event("owner", "问别的成员", 0, subject: "OWNER"),
                     event("bot", "机器人刚才的回复", 0.1, subject: "BOT"), event("image", "图片", 1), event("future", "未来图", 2)]
@@ -39,7 +47,19 @@ struct QQGroupContextTests {
         #expect(!context.hasUnansweredText)
         #expect(!context.context(characters: 5000).contains("棋"))
         #expect(!context.context(characters: 5000).contains("下盘"))
-        #expect(context.context(characters: 5000).contains("表情未读取"))
+        #expect(context.context(characters: 5000).contains("内容看不到"))
+    }
+    @Test func imagesTheBotAlreadyAnsweredComeBackOnTheNextDirectTurn() throws {
+        let rows = [event("shot", "", 0, subject: "OWNER"), event("bot", "周额度才用了 2%", 0.5, subject: "BOT"),
+                    event("old", "", -20), event("ask", "@BOT 你真读到了吗", 8, subject: "OWNER")]
+        let image = QQIncomingImage(file: "shot.png", url: "https://gchat.qpic.cn/shot")
+        let inputs = ["shot": QQIncoming(id: "shot", sender: "12345", target: "99999", group: true, text: "", time: base.timeIntervalSince1970, replyTo: nil, images: [image]),
+                      "old": QQIncoming(id: "old", sender: "54321", target: "99999", group: true, text: "", time: base.addingTimeInterval(-1200).timeIntervalSince1970, replyTo: nil, images: [image])]
+        let context = try #require(QQGroupContext(events: rows.sorted { $0.at < $1.at }, through: "ask", messages: inputs, account: "12345"))
+        #expect(context.recentImages.isEmpty)
+        #expect(context.followupImages.count == 1); #expect(context.followupImages[0].label.contains("shot"))
+        #expect(context.context(characters: 5000, attached: context.followupImages).contains("随本轮附上，标注为群消息 shot"))
+        #expect(context.context(characters: 5000, attached: []).contains("你当时看着图说的"))
     }
     @Test func followsLatestSpeakersAndBotWithoutFutureOrSameSecondLeakage() throws {
         let rows = [event("1", "下班吃面吗", 0), event("2", "好啊，想吃哪家", 1, subject: "BOT"),
@@ -57,6 +77,9 @@ struct QQGroupContextTests {
         let rows = [event("1", "周末去跑步", 0), event("2", "记得带水", 1, subject: "BOT"),
                     event("3", "（QQ 内置表情 ID 492，含义不确定时不要猜）", 2)]
         #expect(try #require(QQGroupContext(events: rows, through: "3")).hasUnansweredText == false)
+        #expect(try #require(QQGroupContext(events: rows + [event("named", "[QQ表情：捂脸]", 2.5)], through: "named")).hasUnansweredText == false)
+        QQPolicy.faceNames = ["264": "捂脸"]; defer { QQPolicy.faceNames = [:] }
+        #expect(QQPolicy.faceText("264") == "[QQ表情：捂脸]"); #expect(QQPolicy.faceText("9999").contains("不要猜"))
         #expect(try #require(QQGroupContext(events: rows + [event("4", "几点去？", 3)], through: "4")).hasUnansweredText)
     }
     @Test func continuousMediaCannotKeepOldTextBeyondThirtyMinutes() throws {

@@ -1,5 +1,17 @@
 import Foundation
 
+/// A managed chat taken off the list because QQ no longer has it (group left, friend removed).
+public struct QQRemovedTarget: Codable, Equatable, Sendable {
+    public var number: String
+    public var name: String
+    public var group: Bool
+    public var removedAt: Date
+    public var reason: String
+    public init(number: String, name: String, group: Bool, removedAt: Date, reason: String) {
+        self.number = number; self.name = name; self.group = group; self.removedAt = removedAt; self.reason = reason
+    }
+}
+
 public struct QQTarget: Codable, Equatable, Identifiable, Sendable {
     public var id = UUID()
     public var number: String
@@ -28,6 +40,32 @@ public struct QQConfig: Codable, Equatable, Sendable {
     public var effectiveMemoryOptions: QQMemoryOptions { get { memoryOptions ?? QQMemoryOptions() } set { memoryOptions = newValue } }
     public var groupParticipationEnabled: Bool?
     public var groupParticipationEvery: Int?
+    public var fastReplyEnabled: Bool?
+    public var naturalRepliesEnabled: Bool?
+    public var loopProtectionEnabled: Bool?
+    public var effectiveFastReplyEnabled: Bool { fastReplyEnabled ?? false }
+    public var effectiveNaturalRepliesEnabled: Bool { naturalRepliesEnabled ?? false }
+    public var effectiveLoopProtectionEnabled: Bool { loopProtectionEnabled ?? true }
+    /// QQ numbers allowed to run moderation commands in any managed conversation.
+    public var adminIDs: [String]?
+    /// QQ numbers the bot never answers, in private or group chats.
+    public var blockedIDs: [String]?
+    public var effectiveAdminIDs: [String] { adminIDs ?? [] }
+    public var effectiveBlockedIDs: [String] { blockedIDs ?? [] }
+    public var outreach: QQOutreachConfig?
+    public var effectiveOutreach: QQOutreachConfig { get { outreach ?? QQOutreachConfig() } set { outreach = newValue } }
+    /// Seconds to wait for someone to finish a run of messages before answering; 0 answers at once.
+    public var settleSeconds: Int?
+    public var effectiveSettleSeconds: Int { settleSeconds ?? 0 }
+    public var poke: QQPokeConfig?
+    public var effectivePoke: QQPokeConfig { get { poke ?? QQPokeConfig() } set { poke = newValue } }
+    /// Night hours in which the bot does not join group talk or react on its own; being @ still gets a reply.
+    public var quietHours: QQQuietHours?
+    public var effectiveQuietHours: QQQuietHours { get { quietHours ?? QQQuietHours() } set { quietHours = newValue } }
+    public var reactions: QQReactionConfig?
+    public var effectiveReactions: QQReactionConfig { get { reactions ?? QQReactionConfig() } set { reactions = newValue } }
+    public func isAdmin(_ id: String) -> Bool { effectiveAdminIDs.contains(id) }
+    public func isBlocked(_ id: String) -> Bool { effectiveBlockedIDs.contains(id) }
     public var effectiveGroupParticipationEnabled: Bool { get { groupParticipationEnabled ?? false } set { groupParticipationEnabled = newValue } }
     public var effectiveGroupParticipationEvery: Int { get { groupParticipationEvery ?? 10 } set { groupParticipationEvery = newValue } }
     public var effectiveVisionEnabled: Bool { get { visionEnabled ?? false } set { visionEnabled = newValue } }
@@ -60,6 +98,16 @@ public struct QQConfig: Codable, Equatable, Sendable {
         try effectiveMemoryOptions.validate()
         try effectiveImageGeneration.validate()
         guard (1...1000).contains(effectiveGroupParticipationEvery) else { throw CoreError.invalid("群主动接话间隔应为 1 至 1000 条消息") }
+        guard effectiveAdminIDs.count <= 20, effectiveAdminIDs.allSatisfy(Self.validID),
+              Set(effectiveAdminIDs).count == effectiveAdminIDs.count else { throw CoreError.invalid("管理员最多 20 个，QQ 号必须有效且不重复") }
+        guard effectiveBlockedIDs.count <= 1000, effectiveBlockedIDs.allSatisfy(Self.validID),
+              Set(effectiveBlockedIDs).count == effectiveBlockedIDs.count else { throw CoreError.invalid("黑名单最多 1000 个，QQ 号必须有效且不重复") }
+        guard Set(effectiveAdminIDs).isDisjoint(with: effectiveBlockedIDs) else { throw CoreError.invalid("管理员不能同时在黑名单中") }
+        try effectiveOutreach.validate()
+        try effectiveReactions.validate()
+        try effectivePoke.validate()
+        try effectiveQuietHours.validate()
+        guard (0...30).contains(effectiveSettleSeconds) else { throw CoreError.invalid("等待对方说完的时间应为 0–30 秒") }
     }
     public static func validID(_ s: String) -> Bool { Int64(s).map { $0 > 0 && String($0) == s } ?? false }
 }
@@ -75,10 +123,41 @@ public struct QQIncoming: Equatable, Sendable {
     public var mentionsSelf = false
     public var isOwner = false
     public var mentionedUsers: [String] = []
+    /// The sender's standing in the group as QQ reports it: "owner", "admin", or nil for an ordinary member.
+    public var role: String?
+    /// The sender's group card, or QQ nickname when the card is empty.
+    public var name: String?
     public var key: String { "\(group ? "group" : "private"):\(target)" }
     public var dedupKey: String { "\(key):\(id)" }
+    /// Several messages a person sent in a row, answered as one turn: texts in order, every image,
+    /// and the latest message's ID and time.
+    public func merging(earlier: [QQIncoming]) -> QQIncoming {
+        guard !earlier.isEmpty else { return self }
+        var merged = QQIncoming(id: id, sender: sender, target: target, group: group,
+                                text: (earlier.map(\.text) + [text]).filter { !$0.isEmpty }.joined(separator: "\n"),
+                                time: time, replyTo: replyTo ?? earlier.compactMap(\.replyTo).last,
+                                images: earlier.flatMap(\.images) + images)
+        merged.mentionsSelf = mentionsSelf || earlier.contains(where: \.mentionsSelf)
+        merged.isOwner = isOwner
+        merged.mentionedUsers = Array(Set(mentionedUsers + earlier.flatMap(\.mentionedUsers))).sorted()
+        merged.role = role; merged.name = name
+        return merged
+    }
+    /// How long to wait for the next message before answering: a message that looks finished
+    /// (ends like a sentence, or is long) waits less than a fragment like “帮我找个”.
+    public static func settleDelay(after text: String, base: Double) -> Double {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finished = trimmed.count >= 30 || trimmed.range(of: #"[。！？!?~～…]$|[吗呢吧啊呀哦嘛]$"#, options: .regularExpression) != nil
+        return finished ? max(1.5, base / 2) : base
+    }
 }
 public enum QQPolicy {
+    /// QQ's built-in face ID -> name ("捂脸", "棒棒糖"), loaded once at startup from the QQ install's table,
+    /// so a face-only message reads as a reaction instead of an unknown number.
+    nonisolated(unsafe) public static var faceNames: [String: String] = [:]
+    public static func faceText(_ id: String) -> String {
+        faceNames[id].map { "[QQ表情：\($0)]" } ?? "（QQ 内置表情 ID \(id)，含义不确定时不要猜）"
+    }
     public static func identifier(_ value: Any?) -> String? {
         if let s = value as? String { return s }
         if let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.stringValue }
@@ -115,7 +194,7 @@ public enum QQPolicy {
                 guard let file = data["file"] as? String, !file.isEmpty, file.count <= 2048 else { return nil }
                 if images.count < 3 { images.append(QQIncomingImage(file: file, url: data["url"] as? String)) }
             case "face":
-                guard let id = identifier(data["id"]), Int(id) != nil else { return nil }; text += "（QQ 内置表情 ID \(id)，含义不确定时不要猜）"
+                guard let id = identifier(data["id"]), Int(id) != nil else { return nil }; text += faceText(id)
             case "reply":
                 guard replyTo == nil, let reference = identifier(data["id"]), Int64(reference) != nil else { return nil }
                 replyTo = reference
@@ -130,7 +209,12 @@ public enum QQPolicy {
         if group && mention && text.isEmpty { text = "（对方只 @ 了你，请简短回应一声。）" }
         if group && allowUnmentionedGroup && text.isEmpty { text = "（群成员发来提及或引用，暂无文字内容）" }
         guard !text.isEmpty, text.count <= 12000, !group || mention || allowUnmentionedGroup else { return nil }
-        return QQIncoming(id: id, sender: sender, target: target, group: group, text: text, time: time, replyTo: replyTo, images: images, mentionsSelf: mention, isOwner: ownerGroup, mentionedUsers: mentionedUsers)
+        var incoming = QQIncoming(id: id, sender: sender, target: target, group: group, text: text, time: time, replyTo: replyTo, images: images, mentionsSelf: mention, isOwner: ownerGroup, mentionedUsers: mentionedUsers)
+        let senderInfo = object["sender"] as? [String: Any] ?? [:]
+        if group, let role = senderInfo["role"] as? String, ["owner", "admin"].contains(role) { incoming.role = role }
+        incoming.name = [senderInfo["card"], senderInfo["nickname"]].compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }.map { String($0.prefix(24)) }
+        return incoming
     }
     // Private references must come from a history query explicitly scoped to this peer.
     // Sender=self alone cannot prove which private conversation an outgoing message belongs to.

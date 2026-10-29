@@ -75,6 +75,14 @@ struct QQStickerTests {
         #expect(pool.allSatisfy { $0.emotion == .sleepy || $0.emotion == .neutral })
         #expect(!pool.contains { $0.emotion == .annoyed || $0.emotion == .teasing })
         #expect(QQStickerLibrary.shortlist([], emotion: .joy).isEmpty)
+        // Asked for outright, the candidates span every mood (a few each) instead of the draft's one.
+        let broad = QQStickerLibrary.broadShortlist(library.items)
+        #expect(Set(broad.map(\.emotion)) == Set(library.items.map(\.emotion)))
+        #expect(Dictionary(grouping: broad, by: \.emotion).values.allSatisfy { $0.count <= 3 })
+    }
+    @Test func askingForAStickerIsRecognised() {
+        for text in ["那你随便发个表情", "来张表情包", "斗图", "表情呢？", "甩个表情过来", "给我发点表情"] { #expect(QQStickerLibrary.requested(text), "\(text)") }
+        for text in ["这表情好可爱", "你的表情控制不了", "发个奶龙看看", "今天心情不错", "上面那个表情笑死", "看来这表情不行"] { #expect(!QQStickerLibrary.requested(text), "\(text)") }
     }
     @Test func tamperedOrMissingFilesCannotBecomeOutgoingMedia() throws {
         let library = QQStickerLibrary(directory: directory)
@@ -108,5 +116,30 @@ struct QQStickerTests {
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
         #expect(restored.available(recent: [.init(sha256: item.sha256, at: Date())], now: Date().addingTimeInterval(7201), repeatHours: 1).count == 1)
         #expect(restored.available(recent: [.init(sha256: item.sha256, at: Date())], now: Date().addingTimeInterval(7201), repeatHours: 24).isEmpty)
+    }
+    @MainActor @Test func adminsCanKeepAChatPictureAsASticker() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder); try? FileManager.default.removeItem(at: store) }
+        let engine = QQEngine(allowAuthenticationUI: false, storageDirectory: store, stickerLibrary: QQStickerLibrary(directory: nil, localDirectory: folder))
+        engine.config.adminIDs = ["10001"]
+        let target = QQTarget(number: "99999", name: "fixture group", group: true)
+        let bytes = try Data(contentsOf: directory.appendingPathComponent("neutral.png"))
+        let args = #"{"title":"委屈小象耷拉眼睛","emotion":"sad","context":"有人说自己好惨的时候"}"#
+        func ask(_ sender: String) throws -> QQIncoming {
+            let now = Date().timeIntervalSince1970
+            let event: [String: Any] = ["post_type": "message", "message_type": "group", "sub_type": "normal", "self_id": "12345", "user_id": sender,
+                                        "group_id": "99999", "message_id": "1", "time": now, "message": [["type": "text", "data": ["text": "把这个表情存一下"]]]]
+            return try #require(QQPolicy.incoming(event, selfID: "12345", since: 0, now: now, allowUnmentionedGroup: true))
+        }
+        // A member who is not an admin is told to ask one; nothing is stored.
+        #expect(engine.saveStickerFromChat(bytes, arguments: args, message: try ask("20002"), target: target).content.contains("管理员"))
+        #expect(engine.stickerLibrary.items.isEmpty)
+        #expect(engine.saveStickerFromChat(bytes, arguments: #"{"title":"缺情绪"}"#, message: try ask("10001"), target: target).content.contains("没存"))
+        #expect(engine.saveStickerFromChat(bytes, arguments: args, message: try ask("10001"), target: target).content.contains("已存进表情库"))
+        #expect(engine.stickerLibrary.items.first?.title == "委屈小象耷拉眼睛"); #expect(engine.stickerLibrary.items.first?.emotion == .sad)
+        #expect(engine.saveStickerFromChat(bytes, arguments: args, message: try ask("10001"), target: target).content.contains("没存成"))
+        #expect(QQStickerLibrary.saveToolArguments(#"{"title":"  ","emotion":"joy"}"#) == nil)
+        #expect(QQStickerLibrary.saveToolArguments(#"{"title":"开心","emotion":"joy"}"#)?.context == "开心")
     }
 }

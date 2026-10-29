@@ -68,6 +68,11 @@ public struct SendUsage: Codable, Sendable {
         guard pending.remove(ticket) != nil else { return }
         if confirmed { self.confirmed += 1 } else { uncertain += 1 }
     }
+    /// QQ refused the message (muted, for example): nothing went out, so it is neither confirmed nor
+    /// uncertain. The attempt still counts toward the limits.
+    public mutating func refused(_ ticket: UUID, now: Date = Date()) {
+        rollover(now: now); pending.remove(ticket)
+    }
     public mutating func recoverInterrupted(now: Date = Date()) {
         rollover(now: now); uncertain += pending.count; pending = []
     }

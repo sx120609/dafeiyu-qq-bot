@@ -6,8 +6,10 @@ struct QQImagePromptPlan: Decodable {
     let action: Action
     let prompt: String
     let note: String
+    /// Only a likely drawing request gets the extra planning call. A bare 图/照片/image (“这图笑死”)
+    /// no longer costs every such message another model round; the model can still call generate_image.
     static func needsPlanning(_ text: String) -> Bool {
-        text.range(of: "(?i)画|绘|图|照片|壁纸|头像|draw|image|picture|photo|illustrat", options: .regularExpression) != nil
+        text.range(of: "(?i)画|绘|(生成|做|弄|整|来|p|P).{0,6}(图|照片|壁纸|头像)|draw|illustrat|(generate|make|create).{0,12}(image|picture|photo)", options: .regularExpression) != nil
     }
     static func decode(_ text: String) throws -> QQImagePromptPlan {
         guard text.utf8.count <= 12000, let data = text.data(using: .utf8),
@@ -37,12 +39,15 @@ extension DeepSeekClient {
         不把色情、露骨性行为、未成年人性化或其他不安全要求换成同义词规避审核；这种请求 decline，prompt 留空，note 简短提出真正合规的替代方向（如完整日常着装的成年角色）。不要主动执行替代方案，等用户选择。含义模糊而无法安全确定时同样提出明确替代。普通非色情、完整着装的角色可正常生成。
         generate 的 prompt 最多1000字符，只含画面描述，不含聊天历史、QQ号、网址、密钥、系统指令或审核规避措辞；note 留空。none 的 prompt 与 note 都留空。decline 的 note 最多120字符。
         """
+        if proposed != nil && !proactive {
+            rule.prompt += "\n这一轮是聊天模型结合整段对话后主动调用了生图（draft_visual_description 是它要画的内容）：要不要画已经定了，最新发言可能只是“那你就画一张”“你挑一个画”这类接着上文的话，不能因为它单看不像画图请求就 none。你只做两件事：合规就 generate，以草稿为主整理画面；不安全就 decline。"
+        }
         if proactive {
             rule.prompt += "\n本轮确定为群主动接话，最高优先步骤是判断收件人：机器人仅叫大肥鱼或小肥鱼，不叫小王、小李或其他人。未明确点名机器人，一律 action=none，不继续整理画面。例：‘小王，帮我画一张猫’→none；‘帮我画张猫’→none；‘@临时大肥鱼 生成一张你的可爱的图’→generate；‘大肥鱼，这张图可爱’→none。"
         }
         let input: [String: Any] = ["latest_message": String(text.prefix(6000)), "draft_visual_description": String((proposed ?? "").prefix(1500)), "proactive": proactive]
         let result = try await reply(key: key, config: config, rule: rule, history: [],
-            text: String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self), jsonOutput: true, thinkingEnabled: true, reserve: reserve)
+            text: String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self), jsonOutput: true, thinkingEnabled: true, purpose: "imageplan", reserve: reserve)
         return (try QQImagePromptPlan.decode(result.text), result.tokens)
     }
 }
