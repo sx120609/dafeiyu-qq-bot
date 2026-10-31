@@ -352,6 +352,7 @@ struct QQRuntimeCredentials: Decodable {
                 agentTurns = (state.agentTurns ?? []).map { turn in
                     var turn = turn
                     if turn.decision == "thinking" { turn.decision = "failed"; turn.note = "引擎重启，这批没看完" }
+                    else if turn.seconds == 0 { turn.note += "（引擎重启时还没做完，后面的可能没发出去）" }
                     return turn
                 }
                 if let books = state.memoryBooks { memoryBooks = books }

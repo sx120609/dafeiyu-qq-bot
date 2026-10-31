@@ -91,22 +91,41 @@ test('the console edits engine settings only through an allow-list, and save kee
   await control.engineAction('resetMemory',{target:'group:1'});
   assert.deepEqual(sent.at(-1),['resetMemory',{target:'group:1'}]);
 });
-test('voice settings keep the key to themselves and call the speech endpoint with the chosen voice',async()=>{
-  const {VoiceSettings}=await import('../bridge/voice.mjs');
+test('voice: the realtime model reads the line by default, the old speech endpoint stays as an option, the key stays put',async()=>{
+  const {VoiceSettings,wav}=await import('../bridge/voice.mjs');
   const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
   const runtime=await fs.mkdtemp(path.join(os.tmpdir(),'voice-'));
-  const calls=[];
-  const voice=await new VoiceSettings({runtime,fetcher:async(url,init)=>{calls.push([url,JSON.parse(init.body),init.headers.Authorization]);return new Response(Buffer.alloc(500,1),{status:200});}}).load();
+  const sent=[],opened=[],calls=[];
+  // A fake Realtime socket: answers response.create with two audio chunks and response.done.
+  const socket=(url,init)=>{
+    const s={send(raw){const m=JSON.parse(raw);sent.push(m);if(m.type==='response.create')setTimeout(()=>{
+      for(const part of [Buffer.alloc(4000,1),Buffer.alloc(4000,2)])s.onmessage({data:JSON.stringify({type:'response.output_audio.delta',delta:part.toString('base64')})});
+      s.onmessage({data:JSON.stringify({type:'response.done',response:{status:'completed'}})});
+    });},close(){}};
+    opened.push([url,init.headers.Authorization]);setTimeout(()=>s.onopen());return s;
+  };
+  const voice=await new VoiceSettings({runtime,socket,fetcher:async(url,init)=>{calls.push([url,JSON.parse(init.body)]);return new Response(Buffer.alloc(500,1),{status:200});}}).load();
   await assert.rejects(voice.update({enabled:true}),/API Key/);
   await assert.rejects(voice.update({baseUrl:'http://example.com'}),/https/);
-  const view=await voice.update({enabled:true,apiKey:'sk-test-voice',voice:'nova',speed:1.2});
+  const view=await voice.update({enabled:true,apiKey:'sk-test-voice'});
   assert.equal(view.keySet,true);assert.equal(view.apiKey,undefined);assert.equal(voice.ready,true);
-  const audio=await voice.speak('你好呀');
-  assert.equal(audio.length,500);
-  assert.equal(calls[0][0],'https://api.openai.com/v1/audio/speech');
+  assert.equal(view.engine,'realtime');assert.equal(view.model,'gpt-realtime-2.1-mini');assert.equal(view.voice,'marin');
+  const spoken=await voice.speak('你好呀');
+  assert.equal(spoken.type,'audio/wav');assert.equal(spoken.audio.length,44+8000);assert.equal(spoken.audio.toString('ascii',0,4),'RIFF');
+  assert.deepEqual(opened[0],['wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1-mini','Bearer sk-test-voice']);
+  assert.equal(sent[0].session.audio.output.voice,'marin');assert.deepEqual(sent[0].session.output_modalities,['audio']);
+  assert.ok(sent[0].session.instructions.includes('原样念出来'));
+  assert.equal(sent[1].item.content[0].text,'你好呀');assert.equal(sent[2].type,'response.create');
+  assert.equal(wav(Buffer.alloc(10)).readUInt32LE(24),24000);
+  // The old endpoint, chosen explicitly.
+  await voice.update({engine:'speech',model:'gpt-4o-mini-tts',voice:'nova',speed:1.2});
+  const old=await voice.speak('你好');
+  assert.equal(old.type,'audio/mpeg');assert.equal(calls[0][0],'https://api.openai.com/v1/audio/speech');
   assert.equal(calls[0][1].voice,'nova');assert.equal(calls[0][1].speed,1.2);assert.ok(calls[0][1].instructions);
-  assert.equal(calls[0][2],'Bearer sk-test-voice');
-  const reloaded=await new VoiceSettings({runtime}).load();assert.equal(reloaded.ready,true);
+  await assert.rejects(voice.update({engine:'dance'}),/调用方式/);
+  // A file saved before the choice existed, with a speech model, keeps the speech endpoint.
+  await fs.writeFile(path.join(runtime,'voice.json'),JSON.stringify({enabled:true,apiKey:'k',model:'gpt-4o-mini-tts'}));
+  assert.equal((await new VoiceSettings({runtime}).load()).value.engine,'speech');
   await voice.update({clearKey:true});assert.equal(voice.ready,false);
   await fs.rm(runtime,{recursive:true,force:true});
 });

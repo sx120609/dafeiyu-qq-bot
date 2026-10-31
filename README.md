@@ -146,6 +146,7 @@
 - **两个模型**：指挥（`director`）负责看、拿主意、说话；助手（`operator`）跑腿（查资料、看图、刷 B 站、挑表情包），可以用便宜的模型。都在「模型 → 模型分工」里选。
 - **配置**：`QQConfig.agentForAll`（全部会话用代理，`classicTargets` 列出切回旧流程的）或 `agentTargets`（只列出的用代理）；网关 `/console/api/agent` 读写这些并返回各会话状态（`agentStates`）和最近 60 批的完整记录（`agentTurns`：收到什么、查了什么及结果摘要、决定、发了什么、理由、耗时、tokens；11-01 起和状态一起存盘，保留最近 200 批，重启时没看完的标成出错）。网关重启时，引擎的模型调用会等它约 30 秒再试；一批看失败了（任何原因）会带着这批和期间新来的消息自动重试两次（3 秒、10 秒后），都失败才记“处理失败”并在被叫到时说一句卡了。
 - 代理模式的群不跑“群里的小动作”，贴表情和戳人由指挥一起决定；表情偏好仍在「聊天行为 → 表情回应偏好」里设。
+- **发语音**（`voice` 气泡，标准和完全权限）：控制台「语音」页填主人自己的 OpenAI API Key（存 `.runtime/voice.json`，只写不回显）后打开。默认走 Realtime API：`gpt-realtime-2.1-mini` 按配音员的指示把那句话原样念出来，音色默认 marin，PCM 包成 WAV 交给 NapCat 作语音发出（`bridge/voice.mjs`、`QQVoice.swift`）。旧的 `/audio/speech`（tts-1、tts-1-hd、gpt-4o-mini-tts，OpenAI 宣布 2027-01-06 停用）留作“兼容模式”给只支持它的中转用。合成或发送失败时那句话改发文字。引擎每轮问网关 `/v1/voice` 决定给不给 `voice`。
 
 ## 模型分工与省 tokens
 

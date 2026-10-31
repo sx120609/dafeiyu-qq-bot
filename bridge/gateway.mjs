@@ -248,9 +248,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       const preview=req.url==='/console/api/voice/test',started=Date.now(),chat=preview?'控制台试听':String(data.chat||'').slice(0,60);
       if(!preview&&!voice.ready){send(409,{error:'语音没开'});return;}
       try{
-        const audio=await voice.speak(data.text);
+        const {audio,type}=await voice.speak(data.text);
         usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:true,ms:Date.now()-started});
-        send(200,{audio:audio.toString('base64'),type:'audio/mpeg'});
+        send(200,{audio:audio.toString('base64'),type});
       }catch(e){usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:false,ms:Date.now()-started});fail(e);}
       return;
     }

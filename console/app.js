@@ -850,11 +850,25 @@ function renderVoice(){
   $('voice-enabled').checked=v.enabled;$('voice-key').value='';
   $('voice-key-state').textContent=v.keySet?'已保存一个 Key（不会显示出来）':'还没有 Key';
   $('voice-base').value=v.baseUrl;$('voice-model').value=v.model;$('voice-speed').value=v.speed;$('voice-style').value=v.instructions;
+  $('voice-engine').value=v.engine;showVoiceEngine();
   fillSelect($('voice-voice'),v.voices.includes(v.voice)?v.voices:[v.voice,...v.voices],x=>x,v.voice);
   $('voice-status').textContent=v.enabled&&v.keySet?'已打开：代理模式的会话里它可以发语音。':v.keySet?'已有 Key，还没打开。':'填上 OpenAI API Key 并打开后，它就能发语音。';
   $('voice-clear').hidden=!v.keySet;
 }
-const voiceValues=()=>({enabled:$('voice-enabled').checked,apiKey:$('voice-key').value,baseUrl:$('voice-base').value,model:$('voice-model').value,
+// The model list follows the way it is called; switching ways swaps a default model for the other's default.
+const voiceModels={realtime:['gpt-realtime-2.1-mini','gpt-realtime-2.1'],speech:['gpt-4o-mini-tts','tts-1','tts-1-hd']};
+function showVoiceEngine(){
+  const engine=$('voice-engine').value;
+  $('voice-models').replaceChildren(...voiceModels[engine].map(m=>el('option',{value:m})));
+  $('voice-engine-help').textContent=engine==='realtime'?'用 OpenAI 的实时语音模型念出来（Realtime API），声音最自然。':'旧的 /audio/speech 接口：OpenAI 已宣布这些模型 2027-01-06 停用，只给只支持它的中转用。';
+  $('voice-speed-field').hidden=engine==='realtime';
+}
+$('voice-engine').onchange=()=>{
+  const engine=$('voice-engine').value,other=engine==='realtime'?'speech':'realtime';
+  if(!$('voice-model').value||voiceModels[other].includes($('voice-model').value))$('voice-model').value=voiceModels[engine][0];
+  showVoiceEngine();
+};
+const voiceValues=()=>({enabled:$('voice-enabled').checked,engine:$('voice-engine').value,apiKey:$('voice-key').value,baseUrl:$('voice-base').value,model:$('voice-model').value,
   voice:$('voice-voice').value,speed:Number($('voice-speed').value),instructions:$('voice-style').value});
 $('voice-form').onsubmit=async event=>{event.preventDefault();
   try{voiceConfig=await api('voice',voiceValues());renderVoice();toast('语音设置已保存');}catch(error){toast(error.message,true);}};

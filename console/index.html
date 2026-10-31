@@ -348,9 +348,13 @@
           <label class="field"><span>接口地址</span><input id="voice-base" autocomplete="off" spellcheck="false"><small class="muted">默认 OpenAI 官方；兼容 /audio/speech 的中转也行</small></label>
         </div>
         <div class="fields">
-          <label class="field"><span>模型</span><input id="voice-model" autocomplete="off" spellcheck="false" list="voice-models"><datalist id="voice-models"><option value="gpt-4o-mini-tts"><option value="tts-1"><option value="tts-1-hd"></datalist></label>
-          <label class="field"><span>音色</span><select id="voice-voice"></select></label>
-          <label class="field"><span>语速</span><input id="voice-speed" type="number" min="0.5" max="2" step="0.05"></label>
+          <label class="field"><span>调用方式</span><select id="voice-engine"><option value="realtime">实时语音模型（推荐）</option><option value="speech">兼容模式：/audio/speech</option></select>
+            <small id="voice-engine-help" class="muted"></small></label>
+          <label class="field"><span>模型</span><input id="voice-model" autocomplete="off" spellcheck="false" list="voice-models"><datalist id="voice-models"></datalist></label>
+        </div>
+        <div class="fields">
+          <label class="field"><span>音色</span><select id="voice-voice"></select><small class="muted">官方推荐 marin、cedar</small></label>
+          <label class="field" id="voice-speed-field"><span>语速</span><input id="voice-speed" type="number" min="0.5" max="2" step="0.05"></label>
         </div>
         <label class="field"><span>说话风格</span><textarea id="voice-style" rows="3" maxlength="600"></textarea><small class="muted">告诉语音模型用什么语气、声线说（tts-1 系列不支持，会忽略）。</small></label>
         <div class="fields">
