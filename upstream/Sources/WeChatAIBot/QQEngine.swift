@@ -2935,10 +2935,15 @@ struct QQRuntimeCredentials: Decodable {
                         if !voiceOpenAI, target.group, let character = qqVoiceCharacter {
                             try await agentSendAIVoice(target, text: words, character: character, answering: answering, epoch: epoch)
                         } else {
-                            let audio = try await QQVoice.speak(words, key: key, chat: chatLabel(target))
-                            try check(epoch, scope: target.key, target: target)
-                            _ = try await agentSend(target, segments: [["type": "record", "data": ["file": "base64://" + audio.base64EncodedString()]]],
-                                                    text: "[语音] " + words, answering: answering, epoch: epoch)
+                            do {
+                                let audio = try await QQVoice.speak(words, key: key, chat: chatLabel(target))
+                                try check(epoch, scope: target.key, target: target)
+                                _ = try await agentSend(target, segments: [["type": "record", "data": ["file": "base64://" + audio.base64EncodedString()]]],
+                                                        text: "[语音] " + words, answering: answering, epoch: epoch)
+                            } catch let error where !(error is CancellationError) && target.group && qqVoiceCharacter != nil {
+                                // NapCat could not take the recording (its ffmpeg, 11-01): QQ's own AI voice needs none.
+                                try await agentSendAIVoice(target, text: words, character: qqVoiceCharacter!, answering: answering, epoch: epoch)
+                            }
                         }
                         done.append("发了语音「" + String(words.prefix(40)) + "」")
                     } catch let error where !(error is CancellationError) {
