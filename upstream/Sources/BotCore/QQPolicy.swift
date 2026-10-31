@@ -174,7 +174,9 @@ public enum QQPolicy {
         guard object["post_type"] as? String == "message" || (ownerGroup && object["post_type"] as? String == "message_sent"), identifier(object["self_id"]) == selfID,
               let sender = identifier(object["user_id"]), QQConfig.validID(sender), sender != selfID || ownerGroup,
               let id = identifier(object["message_id"]), Int64(id) != nil,
-              let time = object["time"] as? Double, time >= since, time <= now + 5, now - time <= 120,
+              // QQ stamps messages with its own clock; WSL's falls behind after the PC sleeps (6 s on 10-31, when
+              // a 5-second limit dropped every message). Five minutes of skew is still clearly not a replay.
+              let time = object["time"] as? Double, time >= since, time <= now + 300, now - time <= 120,
               let type = object["message_type"] as? String, ["private", "group"].contains(type),
               let segments = object["message"] as? [[String: Any]], !segments.isEmpty else { return nil }
         let group = type == "group"

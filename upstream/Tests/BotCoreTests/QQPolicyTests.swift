@@ -15,6 +15,11 @@ struct QQPolicyTests {
             var media = ordinary; media["message"] = [segment]
             #expect(QQPolicy.incoming(media, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true) != nil)
         }
+        // A host clock a few seconds behind QQ's still gets the message; one from far in the future does not.
+        var ahead = ordinary; ahead["time"] = 1007.0
+        #expect(QQPolicy.incoming(ahead, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true) != nil)
+        ahead["time"] = 1400.0
+        #expect(QQPolicy.incoming(ahead, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true) == nil)
         var config = QQConfig(); config.expectedSelfID = "12345"
         let old = try JSONDecoder().decode(QQConfig.self, from: JSONEncoder().encode(config))
         #expect(!old.effectiveGroupParticipationEnabled); #expect(old.effectiveGroupParticipationEvery == 10)
@@ -124,7 +129,7 @@ struct QQPolicyTests {
         }
     }
     @Test func rejectsHistoryAndFuture() {
-        for time in [989.0, 800.0, 1007.0] { var e = event(); e["time"] = time; #expect(parse(e) == nil) }
+        for time in [989.0, 800.0, 1400.0] { var e = event(); e["time"] = time; #expect(parse(e) == nil) }
     }
     @Test func rejectsTemporaryAnonymousAndStringCQ() {
         var e = event(); e["sub_type"] = "group"; #expect(parse(e) == nil)
