@@ -258,7 +258,7 @@ import BotCore
                     } else {
                         switch sendUsage.allowance(chat: outgoing.rule.id, limits: savedConfig.effectiveSendLimits, chatCooldown: savedConfig.cooldownSeconds) {
                         case .allowed: outbox.removeFirst(); try await deliver(outgoing)
-                        case .cooldown: break
+                        case .cooldown, .hourlyLimit: break
                         case .globalLimit: stop(reason: "今日发送额度已用完")
                         case .chatLimit: takeOver(outgoing.rule.id)
                         }
@@ -325,7 +325,7 @@ import BotCore
             switch sendUsage.allowance(chat: id, limits: savedConfig.effectiveSendLimits, chatCooldown: savedConfig.cooldownSeconds) {
             case .globalLimit: stop(reason: "今日发送额度已用完"); return
             case .chatLimit: takeOver(id); continue
-            case .cooldown: continue
+            case .cooldown, .hourlyLimit: continue
             case .allowed: break
             }
             pending[id] = nil

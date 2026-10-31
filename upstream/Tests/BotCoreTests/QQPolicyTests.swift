@@ -43,6 +43,22 @@ struct QQPolicyTests {
         own["post_type"] = "message"
         #expect(QQPolicy.incoming(own, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true, allowOwnerGroup: true)?.isOwner == true)
     }
+    @Test func sendsArePacedByRecentActivityAndCappedPerHour() throws {
+        var limits = SendLimits(); limits.globalIntervalSeconds = 3; limits.hourly = 6
+        #expect(SendUsage.pacedGap(base: 3, lastTenMinutes: 2) == 3 && SendUsage.pacedGap(base: 3, lastTenMinutes: 12) == 6 && SendUsage.pacedGap(base: 3, lastTenMinutes: 100) == 30)
+        var usage = SendUsage(), now = Date(timeIntervalSince1970: 2_000_000_000)
+        let chat = UUID()
+        for _ in 0..<6 {
+            _ = try usage.reserve(chat: chat, limits: limits, chatCooldown: 0, now: now)
+            #expect(usage.allowance(chat: chat, limits: limits, chatCooldown: 0, now: now.addingTimeInterval(1)) == (usage.sent(within: 3600, now: now) >= 6 ? .hourlyLimit : .cooldown))
+            now = now.addingTimeInterval(40)
+        }
+        #expect(usage.allowance(chat: chat, limits: limits, chatCooldown: 0, now: now) == .hourlyLimit)
+        #expect(usage.allowance(chat: chat, limits: limits, chatCooldown: 0, now: now.addingTimeInterval(3600)) == .allowed)
+        var old = try JSONDecoder().decode(SendLimits.self, from: Data(#"{"daily":100,"perChatDaily":30,"globalIntervalSeconds":3}"#.utf8))
+        #expect(old.effectiveHourly == 90); old.hourly = 0
+        #expect(throws: (any Error).self) { try old.validate() }
+    }
     func event(group: Bool = false) -> [String: Any] {
         var e: [String: Any] = ["post_type": "message", "time": 1000.0, "self_id": 12345, "user_id": 54321,
           "message_id": -55, "message_type": group ? "group" : "private", "sub_type": group ? "normal" : "friend",

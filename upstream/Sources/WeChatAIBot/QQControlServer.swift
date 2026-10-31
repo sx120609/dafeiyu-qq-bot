@@ -269,6 +269,8 @@ import BotCore
             let object: [String: Any] = ["config": config, "configurationSaved": configurationSaved, "configurationRevision": currentConfigurationRevision(), "connected": engine.connected, "running": engine.running,
                 "busy": engine.busy || engine.runtimeBusy, "status": engine.status, "error": engine.error ?? "",
                 "kickedAt": engine.kickedAt.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
+                "kicks": engine.kicks.reversed().map { ["at": $0.at.timeIntervalSince1970, "sendsLastHour": $0.sendsLastHour, "sendsLastTenMinutes": $0.sendsLastTenMinutes] as [String: Any] },
+                "sendsLastHour": engine.sends.sent(within: 3600),
                 "temporaryCredentials": engine.usesTemporaryCredentials,
                 "supportsKeychain": RuntimeResources.supportsKeychain,
                 "configurationHints": engine.configurationHints,

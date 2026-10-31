@@ -84,7 +84,7 @@ export class RuntimeControl{
     if(bot.status==='fulfilled'){
       const d=bot.value,targets=d.config.targets;
       result.bot={state:'active',connected:d.connected,running:d.running,busy:d.busy,status:d.status,error:d.error||'',account:d.config.expectedSelfID,
-        runDeadline:d.runDeadline,kickedAt:d.kickedAt||null,calls:d.calls,dailyLimit:d.config.ai.dailyLimit,confirmed:d.confirmed,attempts:d.attempts,uncertain:d.uncertain,queued:d.queued,
+        runDeadline:d.runDeadline,kickedAt:d.kickedAt||null,kicks:(d.kicks||[]).slice(0,10),sendsLastHour:d.sendsLastHour??null,hourlyLimit:d.config.ai.sendLimits?.hourly??90,calls:d.calls,dailyLimit:d.config.ai.dailyLimit,confirmed:d.confirmed,attempts:d.attempts,uncertain:d.uncertain,queued:d.queued,
         sendLimit:d.config.ai.sendLimits?.daily??null,memoryStatus:d.memoryStatus,
         targets:{private:targets.filter(t=>!t.group&&t.enabled).length,group:targets.filter(t=>t.group&&t.enabled).length,total:targets.length},
         records:(d.runtimeRecords||[]).slice(0,15),removedTargets:(d.removedTargets||[]).slice(0,30),decisions:(d.decisions||[]).slice(0,60)};

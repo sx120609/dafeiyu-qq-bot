@@ -187,6 +187,9 @@ async function refreshOverview(){
   $('sv-targets').textContent=b.targets?`私聊 ${b.targets.private} · 群 ${b.targets.group}（名单共 ${b.targets.total}）`:'—';
   $('sv-memory').textContent=b.memoryStatus||'—';
   renderDecisions();
+  const kicks=b.kicks||[];
+  $('kicks-card').hidden=!kicks.length;$('kicks-count').textContent=String(kicks.length);
+  $('kicks-list').replaceChildren(...kicks.map(k=>el('li',{},el('strong',{},shortDate(k.at)),el('small',{},`被踢前一小时发了 ${k.sendsLastHour} 条，前十分钟 ${k.sendsLastTenMinutes} 条`))));
   const removed=b.removedTargets||[];
   $('removed-card').hidden=!removed.length;$('removed-count').textContent=String(removed.length);
   $('removed-list').replaceChildren(...removed.map(r=>el('li',{},el('strong',{},`${r.group?'群':'好友'} · ${r.name||r.number}`),el('small',{},`${shortDate(r.removedAt)} · ${r.reason}`))));
@@ -938,7 +941,7 @@ async function enterLimits(){await loadEngine();renderLimits();}
 function renderLimits(){
   const ai=engine.ai,limits=ai.sendLimits||{},m=engine.memoryOptions||{};
   $('limits-today').textContent=`今天已调用模型 ${engine.calls??0} 次，已发 ${engine.confirmed??0} 条。`;
-  $('limit-calls').value=ai.dailyLimit;$('limit-sends').value=limits.daily??100;$('limit-chat').value=limits.perChatDaily??30;$('limit-interval').value=limits.globalIntervalSeconds??3;$('limit-cooldown').value=ai.cooldownSeconds;
+  $('limit-calls').value=ai.dailyLimit;$('limit-sends').value=limits.daily??100;$('limit-chat').value=limits.perChatDaily??30;$('limit-interval').value=limits.globalIntervalSeconds??3;$('limit-hourly').value=limits.hourly??90;$('limit-cooldown').value=ai.cooldownSeconds;
   $('limit-hours').checked=ai.workHoursEnabled;fillSelect($('limit-start'),hours,hourLabel,ai.workStart??9);fillSelect($('limit-end'),hours,hourLabel,ai.workEnd??22);
   $('limit-start').disabled=$('limit-end').disabled=!ai.workHoursEnabled;
   $('memory-messages').value=m.messageThreshold;$('memory-characters').value=m.characterThreshold;$('memory-minutes').value=m.intervalMinutes;$('memory-budget').value=m.retrievalCharacters;
@@ -954,7 +957,7 @@ function renderLimits(){
 $('limit-hours').onchange=()=>{$('limit-start').disabled=$('limit-end').disabled=!$('limit-hours').checked;};
 $('limits-form').onsubmit=event=>{event.preventDefault();guarded($('limits-save'),async()=>{
   await engineAction('save',{ai:{dailyLimit:numberOf('limit-calls'),cooldownSeconds:numberOf('limit-cooldown'),workHoursEnabled:$('limit-hours').checked,workStart:Number($('limit-start').value),workEnd:Number($('limit-end').value),
-    sendLimits:{daily:numberOf('limit-sends'),perChatDaily:numberOf('limit-chat'),globalIntervalSeconds:numberOf('limit-interval')}}});renderLimits();toast('已保存');});};
+    sendLimits:{daily:numberOf('limit-sends'),perChatDaily:numberOf('limit-chat'),globalIntervalSeconds:numberOf('limit-interval'),hourly:numberOf('limit-hourly')}}});renderLimits();toast('已保存');});};
 $('memory-form').onsubmit=event=>{event.preventDefault();guarded($('memory-save'),async()=>{
   await engineAction('save',{memoryOptions:{messageThreshold:numberOf('memory-messages'),characterThreshold:numberOf('memory-characters'),intervalMinutes:numberOf('memory-minutes'),retrievalCharacters:numberOf('memory-budget')}});renderLimits();toast('已保存');});};
 

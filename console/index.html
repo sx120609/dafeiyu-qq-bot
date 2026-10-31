@@ -124,6 +124,11 @@
             </div>
             <p class="muted small">重启后会自动重连 QQ，并按你上次的选择恢复或保持暂停。</p>
           </div>
+          <div id="kicks-card" class="card" hidden>
+            <div class="card-head"><h3>被踢记录</h3><span id="kicks-count" class="badge"></span></div>
+            <p class="muted small">每次被腾讯踢下线的时间，和踢之前它发得有多频繁。用来看是不是发太快了。</p>
+            <ul id="kicks-list" class="plain-list"></ul>
+          </div>
           <div id="removed-card" class="card" hidden>
             <div class="card-head"><h3>已自动移除的会话</h3><span id="removed-count" class="badge"></span></div>
             <p class="muted small">机器人退了群、或对方不再是好友时，会话会自动从名单移除并记在这里；群和好友改名会自动同步。</p>
@@ -436,7 +441,9 @@
           <label class="field"><span>每个会话每天最多发</span><input id="limit-chat" type="number" min="1" max="10000"></label>
           <label class="field"><span>两条消息至少隔（秒）</span><input id="limit-interval" type="number" min="1" max="300"></label>
         </div>
-        <div class="fields"><label class="field"><span>同一会话两次回复至少隔（秒）</span><input id="limit-cooldown" type="number" min="1" max="300"></label></div>
+        <div class="fields"><label class="field"><span>同一会话两次回复至少隔（秒）</span><input id="limit-cooldown" type="number" min="1" max="300"></label>
+          <label class="field"><span>每小时最多发（所有会话合计）</span><input id="limit-hourly" type="number" min="1" max="1000"></label></div>
+        <p class="muted small">防腾讯风控：最近十分钟发得越多，两条之间自动隔得越久（最多 30 秒），每条再随机多等 0–2 秒；贴表情每小时最多 20 次、戳一戳 8 次、点赞 5 次。</p>
         <label class="switch-row"><span><strong>只在工作时段回复</strong><small>时段外完全不回、不记次数。</small></span><input id="limit-hours" type="checkbox" class="switch"></label>
         <div class="fields"><label class="field"><span>从</span><select id="limit-start"></select></label><label class="field"><span>到</span><select id="limit-end"></select></label></div>
         <div class="actions end"><button id="limits-save" class="btn primary" type="submit">保存</button></div>

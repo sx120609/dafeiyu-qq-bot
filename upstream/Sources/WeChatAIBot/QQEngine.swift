@@ -44,6 +44,13 @@ private struct QQStored: Codable {
     /// The agent page's records, kept on disk (11-01: "为什么只在内存，改成永久").
     var agentTurns: [QQAgentTurn]?
     var agentNotes: [QQAgentNote]?
+    var kicks: [QQKick]?
+}
+/// One time QQ forced the account offline, with how busy the bot had been in the hour before.
+struct QQKick: Codable {
+    var at: Date
+    var sendsLastHour: Int
+    var sendsLastTenMinutes: Int
 }
 /// A line in the agent's own notebook: for one chat (`key`), or for every chat when `key` is empty.
 struct QQAgentNote: Codable {
@@ -375,6 +382,7 @@ struct QQRuntimeCredentials: Decodable {
                 timelineSummaries = state.timelineSummaries ?? [:]
                 agentReminders = state.agentReminders ?? []
                 agentNotes = state.agentNotes ?? []
+                kicks = state.kicks ?? []
                 agentTurns = (state.agentTurns ?? []).map { turn in
                     var turn = turn
                     if turn.decision == "thinking" { turn.decision = "failed"; turn.note = "引擎重启，这批没看完" }
@@ -1922,9 +1930,11 @@ struct QQRuntimeCredentials: Decodable {
     /// When QQ last forced the account offline, until events arrive again. NapCat keeps reporting the account as
     /// logged in afterwards, so the supervisor reconnects to a dead session; this keeps the warning up meanwhile.
     @Published private(set) var kickedAt: Date?
+    private(set) var kicks: [QQKick] = []
     private func kickedOffline(_ detail: String) {
         let reason = "QQ 被踢下线了" + (detail.isEmpty ? "" : "（\(String(detail.prefix(120)))）") + "：在控制台「QQ 登录」用机器人的手机 QQ 重新扫码，登录后会自动恢复回复"
         kickedAt = Date()
+        kicks = Array((kicks + [QQKick(at: Date(), sendsLastHour: sends.sent(within: 3600), sendsLastTenMinutes: sends.sent(within: 600))]).suffix(30))
         record(nil, .failed, reason)
         disconnect(reason: reason)
         error = reason
@@ -2766,6 +2776,16 @@ struct QQRuntimeCredentials: Decodable {
         }
     }
 
+    /// Reactions, pokes and likes are QQ operations too; a burst of them looks scripted.
+    private var actionTimes: [String: [Date]] = [:]
+    private func actionBudget(_ kind: String, perHour: Int) -> Bool {
+        let now = Date()
+        let recent = (actionTimes[kind] ?? []).filter { now.timeIntervalSince($0) < 3600 }
+        guard recent.count < perHour else { actionTimes[kind] = recent; return false }
+        actionTimes[kind] = recent + [now]
+        return true
+    }
+
     /// Carries out one plan, bubble by bubble, with typing-length pauses. Every send goes through the usual
     /// limits and bookkeeping; a bubble that fails stops the rest without undoing what was sent.
     private func performAgentPlan(_ plan: QQAgentPlan, target: QQTarget, persona: QQPersona, members: [String: String], inputs: [String: QQIncoming],
@@ -2813,6 +2833,7 @@ struct QQRuntimeCredentials: Decodable {
                     previous = ""; done.append("发表情「\(item.title)」")
                 case .reaction(let message, let emoji):
                     guard target.group else { continue }
+                    guard actionBudget("reaction", perHour: 20) else { done.append("这一小时贴表情贴得够多了，先不贴（防风控）"); continue }
                     if (try? await connection.action("set_msg_emoji_like", params: ["message_id": message, "emoji_id": emoji, "set": true])) != nil {
                         reactionsSent += 1; botReactions[target.key + "|" + message] = emoji
                         done.append("给「\(String((inputs[message]?.text ?? "").prefix(12)))」贴了\(names[emoji] ?? emoji)")
@@ -2821,6 +2842,7 @@ struct QQRuntimeCredentials: Decodable {
                     }
                 case .poke(let member):
                     guard let number = members[member] else { continue }
+                    guard actionBudget("poke", perHour: 8) else { done.append("这一小时戳得够多了，先不戳（防风控）"); continue }
                     let (action, params): (String, [String: Any]) = target.group ? ("group_poke", ["group_id": target.number, "user_id": number]) : ("friend_poke", ["user_id": number])
                     if (try? await connection.action(action, params: params)) == nil {
                         _ = try? await connection.action("send_poke", params: target.group ? ["group_id": target.number, "user_id": number] : ["user_id": number])
@@ -2857,6 +2879,7 @@ struct QQRuntimeCredentials: Decodable {
                     done.append("取消了定时 \(id)")
                 case .like(let member, let times):
                     guard let number = members[member] else { continue }
+                    guard actionBudget("like", perHour: 5) else { done.append("这一小时点赞点得够多了，先不点（防风控）"); continue }
                     if (try? await connection.action("send_like", params: ["user_id": number, "times": times])) != nil {
                         done.append("给" + (inputs.values.first { $0.sender == number }?.name ?? (target.group ? member : "对方")) + "点了 \(times) 个赞")
                     } else { done.append("点赞被 QQ 拒了（可能今天点满了）") }
@@ -3510,6 +3533,9 @@ struct QQRuntimeCredentials: Decodable {
         try persist()
     }
     private func reserveSend(_ epoch: UInt64, target: QQTarget) async throws -> UUID {
+        if sends.allowance(chat: target.id, limits: config.ai.effectiveSendLimits, chatCooldown: config.ai.cooldownSeconds) == .hourlyLimit {
+            throw AppFailure.message("这一小时已经发了 \(config.ai.effectiveSendLimits.effectiveHourly) 条，先歇一会儿（防腾讯风控）")
+        }
         while sends.allowance(chat: target.id, limits: config.ai.effectiveSendLimits, chatCooldown: config.ai.cooldownSeconds) == .cooldown {
             try await Task.sleep(nanoseconds: 100_000_000)
             try check(epoch, scope: target.key, target: target)
@@ -3548,7 +3574,7 @@ struct QQRuntimeCredentials: Decodable {
                 // They quote messages, so they reach the disk only when the owner lets the bot keep chat text.
                 removedTargets: removedTargets, decisions: config.effectiveMemoryEnabled ? decisions : nil,
                 timelineSummaries: config.effectiveMemoryEnabled ? timelineSummaries : nil, agentReminders: agentReminders,
-                agentTurns: Array(agentTurns.suffix(Self.agentTurnsKept)), agentNotes: agentNotes)
+                agentTurns: Array(agentTurns.suffix(Self.agentTurnsKept)), agentNotes: agentNotes, kicks: kicks)
             // QQ uses authenticated network events and may run while the desktop is locked.
             // User-enabled structured memories and bounded/redacted pending excerpts; never image bytes or credentials.
             let data = try JSONEncoder().encode(state)
