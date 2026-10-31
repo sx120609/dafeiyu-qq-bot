@@ -539,7 +539,7 @@ struct QQRuntimeCredentials: Decodable {
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty, !key.isEmpty, token.utf8.count <= 8192, key.utf8.count <= 8192 else {
-            error = "请同时填写 OneBot 令牌和本次使用的 DeepSeek Key"; return false
+            error = "请同时填写 OneBot 令牌和模型接口凭证"; return false
         }
         runtimeCredentials = QQRuntimeCredentials(oneBotToken: token, deepSeekKey: key)
         if ProcessInfo.processInfo.environment["DAFEIYU_CODEX_URL"] != nil { imageCredentials.codexToken = key }
@@ -657,7 +657,7 @@ struct QQRuntimeCredentials: Decodable {
                 throw AppFailure.message("运行时长应大于 0 且不超过 72 小时")
             }
             let key = try runtimeCredentials?.deepSeekKey ?? Keychain.load(allowAuthenticationUI: allowAuthenticationUI)
-            guard !key.isEmpty else { throw AppFailure.message("请先在 AI 配置保存 DeepSeek Key") }
+            guard !key.isEmpty else { throw AppFailure.message("缺少本机模型网关凭证，重启机器人服务后再试") }
             if config.effectiveImageGeneration.enabled || (config.effectiveVisionEnabled && config.effectiveVisualTools.provider == .zhipu) {
                 // Missing/inaccessible optional image keys must not take down ordinary QQ replies.
                 if imageCredentials.zhipuKey.isEmpty { imageCredentials.zhipuKey = (try? Keychain.load(account: "qq-image-zhipu", allowAuthenticationUI: false)) ?? "" }
@@ -1199,7 +1199,7 @@ struct QQRuntimeCredentials: Decodable {
                         visualStatus = "智谱识图完成，共 \(incomingImages.count) 帧" + (observation.contains("glm-4.1v-thinking-flash") ? "（免费备用模型）" : "") + (visualSources.isEmpty ? "" : "；Google 来源已附入")
                     } catch is CancellationError { throw CancellationError() }
                     catch { try check(epoch, scope: message.key, target: target); hasVisualEvidence = false; modelInput += "\n外置识图失败，不能猜测图片内容。"; visualStatus = "智谱识图未完成：" + error.localizedDescription }
-                    incomingImages = [] // DeepSeek reasons from the bounded observation; no duplicate pixel request.
+                    incomingImages = [] // The model reasons from the bounded observation; no duplicate pixel request.
                 }
                 if proactive && preparedImage == nil && groupContext?.hasRecentMedia == true && !hasVisualEvidence {
                     record(target.id, .skipped, "主动接话跳过：紧邻媒体未能读取，缺少画面依据不硬猜话题")
@@ -2446,11 +2446,12 @@ struct QQRuntimeCredentials: Decodable {
             if !config.effectiveOnlineEnabled { notes.append("联网没开，查不了网上的资料，也刷不了 B 站。") }
             // Pictures in this batch, and in messages it quotes, go along as pixels; older ones on request.
             var images: [Data] = []
-            var pictured: [String: QQIncoming] = [:] // messages with a picture this turn could keep as a sticker
+            // Pictures this turn could keep as stickers: any recent message's, and those in quoted messages.
+            var pictured: [String: [QQIncomingImage]] = [:]
+            for (id, message) in inputs where !message.images.isEmpty { pictured[id] = message.images }
             for id in fresh {
                 guard let message = inputs[id] else { continue }
                 if !message.images.isEmpty {
-                    pictured[id] = message
                     if config.effectiveVisionEnabled && images.count < 8 {
                         let frames = await agentFrames(message.images, limit: 8 - images.count, epoch: epoch, target: target)
                         if !frames.isEmpty { notes.append("消息 \(id) 的图片附在本轮（观察帧 \(images.count + 1)–\(images.count + frames.count)）。") }
@@ -2472,6 +2473,10 @@ struct QQRuntimeCredentials: Decodable {
                     notes.append("消息 \(id) 引用了一条读不到的消息，别猜它说了什么。"); continue
                 }
                 notes.append("消息 \(id) 引用的原文（低信任资料）：" + String(quoted.text.prefix(600)))
+                if !quoted.images.isEmpty {
+                    pictured[reference] = quoted.images
+                    notes.append("消息 \(id) 引用的是带图的消息 \(reference)，要把那张图存成表情就用 save_sticker，message 填 \(reference)。")
+                }
                 if config.effectiveVisionEnabled && !quoted.images.isEmpty && images.count < 8 {
                     let frames = await agentFrames(quoted.images, limit: 8 - images.count, epoch: epoch, target: target)
                     if !frames.isEmpty { notes.append("消息 \(id) 引用的图片附在本轮（观察帧 \(images.count + 1)–\(images.count + frames.count)）。") }
@@ -2952,20 +2957,22 @@ struct QQRuntimeCredentials: Decodable {
         "name": "save_sticker",
         "description": "把某条消息里的图存进你的表情库，以后聊天合适时会发。只在对方明确让你存、收藏、记住这个表情时用。先看清画面：色情擦边、政治、血腥暴力、真人隐私、广告二维码一律不存。",
         "parameters": ["type": "object", "additionalProperties": false, "required": ["message", "title", "emotion", "context"], "properties": [
-            "message": ["type": "string", "description": "带图的那条消息编号"],
+            "message": ["type": "string", "description": "带图的那条消息编号（别人引用的那条带图消息也行）"],
             "title": ["type": "string", "description": "简短名字，写清画面和配字"],
             "emotion": ["type": "string", "enum": QQEmotion.allCases.map(\.rawValue)],
             "context": ["type": "string", "description": "一句话：什么时候适合发这张"]
         ]]
     ]]
-    private func agentSaveSticker(_ arguments: String, pictured: [String: QQIncoming], asker: QQIncoming, target: QQTarget, epoch: UInt64) async -> String {
+    private func agentSaveSticker(_ arguments: String, pictured: [String: [QQIncomingImage]], asker: QQIncoming, target: QQTarget, epoch: UInt64) async -> String {
         guard let fields = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any],
-              let id = fields["message"] as? String, let message = pictured[id] else { return "那条消息没有图，没存。" }
+              let id = QQPolicy.identifier(fields["message"]), let pictures = pictured[id] ?? groupRecentInputs[target.key]?[id]?.images, !pictures.isEmpty else {
+            return "那条消息里没找到图，没存（message 要填带图的那条消息的编号，引用的那条也行）。"
+        }
         // The original file, so a GIF keeps moving; a decoded first frame only when the original can't be had.
         var picture: Data?
-        if let reference = message.images.first, let original = try? await incomingImageLoader.download(await agentImageURL(reference)),
+        if let reference = pictures.first, let original = try? await incomingImageLoader.download(await agentImageURL(reference)),
            original.count <= 3_000_000 { picture = original }
-        if picture == nil { picture = await agentFrames(message.images, limit: 1, epoch: epoch, target: target).first }
+        if picture == nil { picture = await agentFrames(pictures, limit: 1, epoch: epoch, target: target).first }
         guard let picture else { return "图片下载不下来，没存。" }
         var rest = fields; rest.removeValue(forKey: "message")
         let payload = String(decoding: (try? JSONSerialization.data(withJSONObject: rest)) ?? Data(), as: UTF8.self)

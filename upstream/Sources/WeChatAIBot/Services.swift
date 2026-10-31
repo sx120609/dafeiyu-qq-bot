@@ -432,7 +432,7 @@ struct DeepSeekClient {
         if ProcessInfo.processInfo.environment["DAFEIYU_CODEX_URL"] != nil && base.host != "127.0.0.1" {
             throw AppFailure.message("Codex 接口必须是本机回环地址")
         }
-        guard !key.isEmpty else { throw AppFailure.message("请先保存 DeepSeek Key") }
+        guard !key.isEmpty else { throw AppFailure.message("缺少模型接口凭证") }
         var req = URLRequest(url: base.appendingPathComponent(path))
         req.httpMethod = body == nil ? "GET" : "POST"
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -460,10 +460,11 @@ struct HTTPFailure: LocalizedError {
     var code: Int
     var errorDescription: String? {
         switch code {
-        case 401: return "DeepSeek Key 无效（401）"
-        case 402: return "DeepSeek 余额不足（402）"
-        case 429: return "DeepSeek 请求限流（429）"
-        default: return "DeepSeek 请求失败（HTTP \(code)）"
+        // Which model runs is the local gateway's choice (Claude, Codex or a cloud API), so the message names none.
+        case 401: return "模型接口凭证无效（401）"
+        case 402: return "模型接口余额不足（402）"
+        case 429: return "模型接口限流（429）"
+        default: return "模型接口请求失败（HTTP \(code)）"
         }
     }
 }
