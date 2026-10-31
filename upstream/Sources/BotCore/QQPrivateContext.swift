@@ -52,11 +52,13 @@ public struct QQPrivateContext: Sendable {
                 switch segment["type"] as? String {
                 case "text": text += String((data["text"] as? String ?? "").prefix(max(0, 800 - text.count)))
                 case "image":
+                    text += QQPolicy.stickerText(data)
                     text += author == selfID ? "[本账号发出的图片/表情]"
                         : shown.contains(id) ? "[图片：画面随本轮附上，标注为消息 \(id)]"
                         : "[图片：这次没重新附上画面。你之前回复里要是描述过它，那是你当时看着图说的，不是编的]"
                 case "reply": text += "[引用此前消息]"
-                case "face": text += "[QQ表情]"
+                case "face": text += QQPolicy.faceText(data)
+                case let kind?: text += QQPolicy.placeholder(kind, data)
                 default: text += "[其他消息]"
                 }
             }

@@ -176,6 +176,27 @@ public enum QQPolicy {
     public static func faceText(_ id: String) -> String {
         faceNames[id].map { "[QQ表情：\($0)]" } ?? "（QQ 内置表情 ID \(id)，含义不确定时不要猜）"
     }
+    /// A face segment as text. QQ sends the face's own name with newer faces (`raw.faceText`, "/偷感"); the local
+    /// table only knows older ones, so an unknown id used to reach the model as a number (11-01: it took a 偷感
+    /// face for a share card it "could not open").
+    public static func faceText(_ data: [String: Any]) -> String {
+        let id = identifier(data["id"]) ?? ""
+        let raw = data["raw"] as? [String: Any]
+        let named = ((raw?["faceText"] as? String) ?? (data["faceText"] as? String))?.trimmingCharacters(in: CharacterSet(charactersIn: "/ []"))
+        if let named, !named.isEmpty {
+            // faceType 2 and 3 are the big animated "超级表情".
+            let animated = [2, 3].contains((raw?["faceType"] as? NSNumber)?.intValue ?? 0)
+            return animated ? "[QQ超级表情：\(named)]" : "[QQ表情：\(named)]"
+        }
+        return id.isEmpty ? "[QQ表情]" : faceText(id)
+    }
+    /// The name QQ gives a sticker sent as a picture ("[死了]", "[动画表情]"), as text, so a sticker is understood
+    /// even when its pixels are not looked at.
+    public static func stickerText(_ data: [String: Any]) -> String {
+        guard let summary = (data["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty, summary != "[图片]" else { return "" }
+        let name = summary.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        return name == "动画表情" ? "[动画表情]" : "[表情包：\(String(name.prefix(30)))]"
+    }
     /// What the model is told about a segment it cannot read itself: its kind, plus whatever plain summary QQ
     /// gives (a market sticker's name, a card's title, a file name). Never the raw payload.
     public static func placeholder(_ kind: String, _ data: [String: Any]) -> String {
@@ -252,11 +273,11 @@ public enum QQPolicy {
                 }
             case "image":
                 guard let file = data["file"] as? String, !file.isEmpty, file.count <= 2048 else { text += "[图片，没拿到]"; continue }
+                text += stickerText(data)
                 if images.count < 3 { images.append(QQIncomingImage(file: file, url: data["url"] as? String)) }
                 else { text += "[又一张图，没附上]" }
             case "face":
-                guard let id = identifier(data["id"]), Int(id) != nil else { text += "[QQ表情]"; continue }
-                text += faceText(id)
+                text += faceText(data)
             case "reply":
                 if replyTo == nil, let reference = identifier(data["id"]), Int64(reference) != nil { replyTo = reference }
             default:

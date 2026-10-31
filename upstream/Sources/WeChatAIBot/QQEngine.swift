@@ -2688,8 +2688,8 @@ struct QQRuntimeCredentials: Decodable {
                 switch segment["type"] as? String ?? "" {
                 case "text": return data["text"] as? String ?? ""
                 case "at": return QQPolicy.identifier(data["qq"]) == account ? "@你 " : "@" + ((data["name"] as? String) ?? "某人") + " "
-                case "image": return "[图]"
-                case "face": return QQPolicy.identifier(data["id"]).map(QQPolicy.faceText) ?? "[QQ表情]"
+                case "image": return QQPolicy.stickerText(data).isEmpty ? "[图]" : QQPolicy.stickerText(data)
+                case "face": return QQPolicy.faceText(data)
                 case "reply": return "[回复 \(QQPolicy.identifier(data["id"]) ?? "")]"
                 case let kind: return QQPolicy.placeholder(kind, data)
                 }

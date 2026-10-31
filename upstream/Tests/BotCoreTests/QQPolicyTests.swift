@@ -94,6 +94,13 @@ struct QQPolicyTests {
         judged["message"] = [["type": "text", "data": ["text": "如何评价"]], ["type": "at", "data": ["qq": "55555", "name": "窝很凶"]]]
         let label = QQMemoryBook.subject(account: "12345", target: "group:99999", sender: "55555")
         #expect(QQPolicy.incoming(judged, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true)?.text == "如何评价@窝很凶(\(label))")
+        // Newer faces carry their own name; stickers sent as pictures carry theirs in the summary.
+        var face = event(); face["message"] = [["type": "face", "data": ["id": "427", "raw": ["faceIndex": 427, "faceText": "/偷感", "faceType": 2]]]]
+        #expect(parse(face)?.text == "[QQ超级表情：偷感]")
+        var sticker = event(); sticker["message"] = [["type": "image", "data": ["file": "x", "summary": "[死了]", "sub_type": 7]]]
+        #expect(parse(sticker)?.text == "[表情包：死了]" && parse(sticker)?.images.count == 1)
+        sticker["message"] = [["type": "image", "data": ["file": "x", "summary": "[图片]"]]]
+        #expect(parse(sticker)?.text.hasPrefix("（对方发来图片") == true)
         // A private voice note is no longer silently ignored.
         var voice = event(); voice["message"] = [["type": "record", "data": ["file": "x"]]]
         #expect(parse(voice)?.text == "[语音，听不到内容]")
