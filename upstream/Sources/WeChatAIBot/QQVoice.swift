@@ -10,14 +10,15 @@ enum QQVoice {
               url.scheme == "http", url.host == "127.0.0.1" else { return nil }
         return url
     }
-    /// Whether voice is set up and switched on in the console.
-    static func enabled(key: String) async -> Bool {
-        guard let url = endpoint("/voice") else { return false }
+    /// What voice is available: the OpenAI voice (set up and switched on in the console), and QQ's own AI voice
+    /// character for groups (no key needed).
+    static func availability(key: String) async -> (openAI: Bool, qqCharacter: String?) {
+        guard let url = endpoint("/voice") else { return (false, nil) }
         var request = URLRequest(url: url); request.timeoutInterval = 5
         request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         guard let (data, response) = try? await URLSession.shared.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return object["enabled"] as? Bool == true
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return (false, nil) }
+        return (object["enabled"] as? Bool == true, (object["qq"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
     /// The line as mp3 audio, ready for a QQ record segment.
     static func speak(_ text: String, key: String, chat: String) async throws -> Data {

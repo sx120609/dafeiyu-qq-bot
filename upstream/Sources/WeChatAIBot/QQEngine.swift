@@ -2247,6 +2247,8 @@ struct QQRuntimeCredentials: Decodable {
     /// Reactions on the bot's messages waiting for the agent, and when it last looked because of one.
     private var agentReacted: [String: [String]] = [:]
     private var agentReactionLookAt: [String: Date] = [:]
+    /// A super-mode task Codex stopped to ask about, per chat, until the owner confirms it.
+    private var computerPending: [String: (task: String, ask: String, at: Double)] = [:]
     // MARK: Agent mode (代理模式)
 
     /// A batch closes once the chat has been quiet for `agentQuietSeconds`, or `agentCollectSeconds` after its
@@ -2522,8 +2524,20 @@ struct QQRuntimeCredentials: Decodable {
                 guard let self else { throw CancellationError() }
                 try await self.reserveModel(epoch, scope: key, target: target)
             }
-            let voiceOn = level.bubbleKinds.contains("voice") ? await QQVoice.enabled(key: credential) : false
-            if level.bubbleKinds.contains("voice") && !voiceOn { input += "\n\n（程序提示：语音这会儿发不了，不要用 voice。）" }
+            let voice = level.bubbleKinds.contains("voice") ? await QQVoice.availability(key: credential) : (openAI: false, qqCharacter: nil)
+            voiceOpenAI = voice.openAI; qqVoiceCharacter = voice.qqCharacter
+            let voiceOn = voice.openAI || (target.group && voice.qqCharacter != nil)
+            if level.bubbleKinds.contains("voice") && !voiceOn {
+                input += "\n\n（程序提示：这里发不了语音——" + (target.group ? "主人关掉了语音" : "私聊发语音要主人在控制台填 OpenAI Key，还没填") + "。有人要你发语音，就照实这么说，别编别的理由。）"
+            }
+            // Super mode: only in a private chat with the owner, and only for the owner's own messages.
+            let computerOwner = target.group ? nil : await QQComputer.owner(key: credential)
+            let superMode = computerOwner == target.number && anchor.sender == target.number && !anchor.isOwner
+            if superMode {
+                input += "\n\n（程序提示：你在和主人私聊，超级模式开着：主人让你在他电脑上做事时，用 computer_task 交给本机 Codex 去做，做完照实告诉他结果。"
+                    + (computerPending[key].map { "上次 Codex 停下来等确认的事：\($0.ask)（task：\($0.task)）。主人这批消息里确认了，就再调用 computer_task，task 照抄、confirmed_by 填他确认的那条；他没确认或者改主意了就别做。" } ?? "")
+                    + "）"
+            }
             let groupOnly: Set<String> = ["member_info", "group_info"]
             var tools = DeepSeekClient.agentTools(online: config.effectiveOnlineEnabled).filter {
                 let name = (($0["function"] as? [String: Any])?["name"] as? String) ?? ""
@@ -2533,6 +2547,7 @@ struct QQRuntimeCredentials: Decodable {
             let canNotifyOwner = config.effectiveAdminIDs.contains { $0 != account } && level.tools.contains("notify_owner")
             if canNotifyOwner { tools.append(Self.notifyOwnerDefinition) }
             if artworkOn { tools.append(QQArtworkLibrary.definition) }
+            if superMode { tools.append(DeepSeekClient.computerTool) }
             let turnID = turn.id
             var kinds = level.bubbleKinds
             if !stickersOn { kinds.remove("sticker") }
@@ -2568,6 +2583,8 @@ struct QQRuntimeCredentials: Decodable {
                         output = await self.agentGroupAdmin(groupAction, arguments: arguments, level: level, fresh: fresh, inputs: state.inputs, members: state.members, events: events, target: target)
                     } else if name == "manage_chat" {
                         output = try self.agentManage(arguments, fresh: fresh + state.consumed, inputs: state.inputs, members: state.members, target: target)
+                    } else if name == "computer_task", superMode, let owner = computerOwner {
+                        output = await self.agentComputer(arguments, owner: owner, state: state, fresh: fresh, key: key, credential: credential, target: target)
                     } else if name == "write_note" || name == "delete_note", level.tools.contains(name) {
                         output = self.agentNotebook(name, arguments, key: key)
                     } else if name == "read_qq_history", level.tools.contains(name) {
@@ -2687,6 +2704,33 @@ struct QQRuntimeCredentials: Decodable {
         }
         if action.quote != nil && plan.target == nil { return (done.isEmpty ? "什么也没做成。" : done.joined(separator: "；")) + "（要引用的那条编号不对，没引用）" }
         return done.isEmpty ? "什么也没做成。" : done.joined(separator: "；")
+    }
+    /// A super-mode task. A confirmed run needs a pending request and a newer message from the owner in this chat
+    /// that the agent points at; the program checks both, the model's word is not enough.
+    private func agentComputer(_ arguments: String, owner: String, state: QQAgentTurnState, fresh: [String], key: String, credential: String, target: QQTarget) async -> String {
+        let fields = ((try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any]) ?? [:]
+        guard let task = (fields["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty else { return "task 没写要做什么。" }
+        var confirmed = false, work = task
+        if let by = QQPolicy.identifier(fields["confirmed_by"]) {
+            guard let pending = computerPending[key] else { return "没有等确认的事；直接调用就行（不填 confirmed_by）。" }
+            guard (fresh + state.consumed).contains(by), let message = state.inputs[by], message.sender == owner, !message.isOwner,
+                  message.time >= pending.at else { return "confirmed_by 要填主人在这之后发的、确认这件事的那条消息编号。" }
+            confirmed = true
+            work = pending.task + "\n主人确认要做的是：" + pending.ask
+        }
+        do {
+            let result = try await QQComputer.run(work, confirmed: confirmed, requester: owner, key: credential)
+            if result.needsConfirmation {
+                computerPending[key] = (task, result.output, Date().timeIntervalSince1970)
+                record(target.id, .skipped, "超级模式等主人确认：" + String(result.output.prefix(60)))
+                return "Codex 停下来了，要主人确认：\(result.output)\n把这件事原样告诉主人、等他回复。他确认后再调用 computer_task，task 照抄，confirmed_by 填他确认的那条消息编号。"
+            }
+            if confirmed { computerPending.removeValue(forKey: key) }
+            record(target.id, .confirmed, "超级模式做完：" + String(task.prefix(40)))
+            return "做完了。Codex 的结果：\n" + result.output
+        } catch {
+            return "没做成：" + String(error.localizedDescription.prefix(200))
+        }
     }
     private func agentNotebook(_ name: String, _ arguments: String, key: String) -> String {
         let fields = ((try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any]) ?? [:]
@@ -2887,10 +2931,15 @@ struct QQRuntimeCredentials: Decodable {
                     done.append("戳了戳" + (inputs.values.first { $0.sender == number }?.name ?? (target.group ? member : "对方")))
                 case .voice(let words):
                     do {
-                        let audio = try await QQVoice.speak(words, key: key, chat: chatLabel(target))
-                        try check(epoch, scope: target.key, target: target)
-                        _ = try await agentSend(target, segments: [["type": "record", "data": ["file": "base64://" + audio.base64EncodedString()]]],
-                                                text: "[语音] " + words, answering: answering, epoch: epoch)
+                        // OpenAI's voice when it is set up; in groups otherwise QQ's own AI voice.
+                        if !voiceOpenAI, target.group, let character = qqVoiceCharacter {
+                            try await agentSendAIVoice(target, text: words, character: character, answering: answering, epoch: epoch)
+                        } else {
+                            let audio = try await QQVoice.speak(words, key: key, chat: chatLabel(target))
+                            try check(epoch, scope: target.key, target: target)
+                            _ = try await agentSend(target, segments: [["type": "record", "data": ["file": "base64://" + audio.base64EncodedString()]]],
+                                                    text: "[语音] " + words, answering: answering, epoch: epoch)
+                        }
                         done.append("发了语音「" + String(words.prefix(40)) + "」")
                     } catch let error where !(error is CancellationError) {
                         // Synthesis or the voice send failed: the words still go out, as text.
@@ -2945,6 +2994,25 @@ struct QQRuntimeCredentials: Decodable {
         return done
     }
 
+    /// Voice settings read at the start of each agent turn.
+    private var voiceOpenAI = false
+    private var qqVoiceCharacter: String?
+    /// A voice message in QQ's own AI voice (groups only), through the same limits and bookkeeping as other sends.
+    private func agentSendAIVoice(_ target: QQTarget, text: String, character: String, answering: String?, epoch: UInt64) async throws {
+        var ticket: UUID? = try await reserveSend(epoch, target: target)
+        try persist()
+        do {
+            let response = try await connection.action("send_group_ai_record", params: ["group_id": target.number, "character": character, "text": String(text.prefix(150))])
+            let id = (response["data"] as? [String: Any]).flatMap { QQPolicy.identifier($0["message_id"]) } ?? ("voice-" + UUID().uuidString.prefix(8))
+            noteSent(target, id: id, text: "[语音] " + text, answering: answering)
+            if let ticket { sends.finish(ticket, confirmed: true) }; ticket = nil
+            try persist()
+            record(target.id, .confirmed, "代理语音（QQ AI 语音）：" + String(text.prefix(40)))
+        } catch {
+            if let ticket { sendFailed(error, ticket: ticket, target: target, what: "代理语音") }
+            throw error
+        }
+    }
     /// One message of an agent turn: send limits, the echo hold, and noteSent, like every other send path.
     private func agentSend(_ target: QQTarget, segments: [[String: Any]], text: String, answering: String?, epoch: UInt64) async throws -> String {
         var ticket: UUID? = try await reserveSend(epoch, target: target)

@@ -7,11 +7,34 @@
 //   points to this model instead, which is not served on /audio/speech.
 // - speech: the old /audio/speech endpoint, for relays that only offer that.
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import {execFile} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+
+const here=path.dirname(fileURLToPath(import.meta.url));
+const silkPython=path.join(os.homedir(),'.local/share/dafeiyu/voice-venv/bin/python');
+const run=(file,args,timeout=30000)=>new Promise((resolve,reject)=>execFile(file,args,{timeout},(error,stdout,stderr)=>error?reject(new Error(String(stderr||error.message).trim().split('\n').pop())):resolve(stdout)));
+
+/** Audio as QQ's SILK voice format. NapCat converts anything else with ffmpeg inside its container, which fails
+ *  there (QQ answers 1200, 11-01), so the gateway does it: WAV is our 24 kHz PCM, MP3 is decoded with ffmpeg. */
+export async function toSilk(audio,type){
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'silk-')),pcm=path.join(dir,'in.pcm'),silk=path.join(dir,'out.silk');
+  try{
+    if(type==='audio/wav')await fs.writeFile(pcm,audio.subarray(44));
+    else{const input=path.join(dir,'in.mp3');await fs.writeFile(input,audio);await run('/usr/bin/ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y','-i',input,'-f','s16le','-ar','24000','-ac','1',pcm]);}
+    await run(silkPython,[path.join(here,'silk.py'),pcm,silk,'24000']).catch(error=>{throw new Error('语音转成 QQ 格式失败（先在 WSL 跑 scripts/setup-voice.sh）：'+error.message);});
+    return await fs.readFile(silk);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+}
 
 export const voices=['marin','cedar','alloy','ash','ballad','coral','echo','fable','nova','onyx','sage','shimmer','verse'];
 export const engines={realtime:{model:'gpt-realtime-2.1-mini'},speech:{model:'gpt-4o-mini-tts'}};
-const defaults={enabled:false,engine:'realtime',baseUrl:'https://api.openai.com/v1',model:engines.realtime.model,voice:'marin',speed:1,
+// QQ's built-in AI voice (NapCat send_group_ai_record): free, no key, groups only.
+export const qqVoices=[['lucy-voice-f38','傲娇少女'],['lucy-voice-xueling','元气少女'],['lucy-voice-female1','邻家小妹'],['lucy-voice-f36','温柔妹妹'],
+  ['lucy-voice-f37','文艺少女'],['lucy-voice-f34','书香少女'],['lucy-voice-suxinjiejie','酥心御姐'],['lucy-voice-female2','暖心姐姐'],['lucy-voice-daji','妲己'],
+  ['lucy-voice-guangdong-f1','东北老妹儿'],['lucy-voice-laibixiaoxin','小新'],['lucy-voice-houge','猴哥']];
+const defaults={qqEnabled:true,qqCharacter:'lucy-voice-f38',enabled:false,engine:'realtime',baseUrl:'https://api.openai.com/v1',model:engines.realtime.model,voice:'marin',speed:1,
   instructions:'可爱、轻快、有点调皮的年轻女生声音，说中文，像在 QQ 群里随口发语音，自然口语，不要播音腔，不要拖长音。'};
 
 /** 16-bit mono PCM at 24 kHz, the Realtime API's output, as a WAV file QQ and browsers can play. */
@@ -42,10 +65,14 @@ export class VoiceSettings{
   }
   async persist(){await fs.writeFile(this.file+'.tmp',JSON.stringify(this.value),{mode:0o600});await fs.rename(this.file+'.tmp',this.file);}
   get ready(){return this.value.enabled&&!!this.value.apiKey;}
-  view(){const {apiKey,...rest}=this.value;return {...rest,keySet:!!apiKey,voices,engines,defaults:{baseUrl:defaults.baseUrl,instructions:defaults.instructions}};}
+  view(){const {apiKey,...rest}=this.value;return {...rest,keySet:!!apiKey,voices,engines,qqVoices,defaults:{baseUrl:defaults.baseUrl,instructions:defaults.instructions}};}
+  /** What the engine may use this turn: the OpenAI voice, and/or QQ's AI voice character for groups. */
+  available(){return {enabled:this.ready,qq:this.value.qqEnabled?this.value.qqCharacter:null};}
   async update(data){
     const next={...this.value};
     if(typeof data.enabled==='boolean')next.enabled=data.enabled;
+    if(typeof data.qqEnabled==='boolean')next.qqEnabled=data.qqEnabled;
+    if(typeof data.qqCharacter==='string'){if(!/^lucy-voice-[\w-]{1,40}$/.test(data.qqCharacter))throw new Error('QQ 语音角色不对');next.qqCharacter=data.qqCharacter;}
     if(data.engine!==undefined){if(!engines[data.engine])throw new Error('调用方式不对');next.engine=data.engine;}
     if(typeof data.baseUrl==='string'&&data.baseUrl.trim()){
       let url;try{url=new URL(data.baseUrl.trim());}catch{throw new Error('接口地址不对');}

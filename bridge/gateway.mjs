@@ -15,7 +15,8 @@ import {ConsoleAuth} from './auth.mjs';
 import {Autostart} from './autostart.mjs';
 import {UsageLedger} from './usage.mjs';
 import {ProviderBackoff,withDeadline} from './provider-health.mjs';
-import {VoiceSettings} from './voice.mjs';
+import {VoiceSettings,toSilk} from './voice.mjs';
+import {ComputerControl} from './computer.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
@@ -86,7 +87,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime})}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime})}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -205,8 +206,11 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/console/api/agent'){try{send(200,await runtimeControl.agent());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/engine'){try{send(200,await runtimeControl.engineState());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/voice'){send(200,voice.view());return;}
+      if(req.url==='/console/api/computer'){send(200,{...computer.view(),history:await computer.history()});return;}
+      // The engine asks whether super mode is on, and for whom.
+      if(req.url==='/v1/computer'){send(200,{enabled:computer.value.enabled,owner:computer.value.owner});return;}
       // The engine asks whether it may send voice messages this turn.
-      if(req.url==='/v1/voice'){send(200,{enabled:voice.ready});return;}
+      if(req.url==='/v1/voice'){send(200,voice.available());return;}
       if(pathname.startsWith('/console/api/engine/sticker/')){
         try{const image=await runtimeControl.stickerImage(decodeURIComponent(pathname.slice('/console/api/engine/sticker/'.length)));
           res.writeHead(200,{'Content-Type':image.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});res.end(image.body);}
@@ -243,6 +247,10 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     }
     if(req.url==='/console/api/social'){try{send(200,await runtimeControl.socialPanel(data.platform));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/voice'){try{send(200,await voice.update(data));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/computer'){try{send(200,{...await computer.update(data),history:await computer.history()});}catch(e){fail(e);}return;}
+    if(req.url==='/v1/computer/run'){
+      try{send(200,await computer.run({task:data.task,confirmed:data.confirmed===true,requester:String(data.requester||'')}));}catch(e){fail(e);}return;
+    }
     // A voice line: for the engine's voice bubbles, and for the console's preview button.
     if(req.url==='/v1/voice/speech'||req.url==='/console/api/voice/test'){
       const preview=req.url==='/console/api/voice/test',started=Date.now(),chat=preview?'控制台试听':String(data.chat||'').slice(0,60);
@@ -250,6 +258,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       try{
         const {audio,type,usage:spent}=await voice.speak(data.text);
         usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:true,ms:Date.now()-started,usage:spent});
+        // QQ gets SILK; the console's preview gets something a browser plays.
+        if(!preview){send(200,{audio:(await toSilk(audio,type)).toString('base64'),type:'audio/silk'});return;}
         send(200,{audio:audio.toString('base64'),type});
       }catch(e){usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:false,ms:Date.now()-started});fail(e);}
       return;
@@ -383,7 +393,8 @@ export async function startGateway(config,configFile){
   const auth=await new ConsoleAuth({runtime,secret:config.consoleToken}).load();
   const usage=await new UsageLedger({runtime}).load();
   const voice=await new VoiceSettings({runtime}).load();
-  const server=createGateway(config,settings,{runtime,auth,usage,voice});
+  const computer=await new ComputerControl({runtime}).load();
+  const server=createGateway(config,settings,{runtime,auth,usage,voice,computer});
   await fs.writeFile(path.join(runtime,'console-url.txt'),`http://127.0.0.1:${config.port||18191}/console/#${config.consoleToken}`,{mode:0o600});
   server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();});
   return server;

@@ -154,6 +154,16 @@ extension DeepSeekClient {
         return tools
     }
 
+    /// Super mode: the owner's own computer, through the local Codex.
+    static let computerTool: [String: Any] = ["type": "function", "function": [
+        "name": "computer_task",
+        "description": "让本机 Codex 在主人的电脑上做一件事（完全权限：命令行、文件、PowerShell、已装的程序）。查看类的它直接做；删改文件、装卸软件、改设置、关机重启这类，它会先停下来说要做什么——你把这句原样转告主人、等他回复确认，再调用一次，confirmed_by 填主人确认的那条消息编号。做一件事可能要几分钟。",
+        "parameters": ["type": "object", "additionalProperties": false, "required": ["task"], "properties": [
+            "task": ["type": "string", "description": "要做的事，写清楚具体要求；主人确认后再调用时照抄上次的 task"],
+            "confirmed_by": ["type": "string", "description": "主人确认的那条消息编号；只有在 Codex 说要确认、主人也回了确认之后才填"]
+        ]]
+    ]]
+
     /// The director's turn as a loop: it calls tools (looking things up, or acting in the chat, each done at once and
     /// reported back) until it stops calling them; its last words are a note for the owner, never sent. Before the
     /// turn closes, `finish` may hand it something more to look at (new messages, or that it was spoken to and has

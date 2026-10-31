@@ -145,3 +145,22 @@ test('usage: image, realtime and Anthropic-style token fields are counted, and n
   for(const model of ['opus','claude-opus-5-5','gpt-realtime-2.1','tts-1','gpt-4o-mini-tts'])assert.ok(referencePrices[model],model);
   ledger.timer&&clearTimeout(ledger.timer);await fs.rm(runtime,{recursive:true,force:true});
 });
+test('super mode: off by default, owner only, destructive work waits for confirmation, every run is logged',async()=>{
+  const {ComputerControl}=await import('../bridge/computer.mjs');
+  const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
+  const runtime=await fs.mkdtemp(path.join(os.tmpdir(),'computer-'));
+  const prompts=[];
+  const control=await new ComputerControl({runtime,runner:async prompt=>{prompts.push(prompt);return prompt.includes('已经在 QQ 里确认')?'已删除 3 个文件':'看了一下。\nNEEDS_CONFIRMATION: 删除 D:\\tmp 里的 3 个 log 文件'}}).load();
+  await assert.rejects(control.run({task:'看看磁盘',requester:'11111'}),/没开/);
+  await assert.rejects(control.update({enabled:true}),/QQ 号/);
+  await control.update({enabled:true,owner:'11111'});
+  await assert.rejects(control.run({task:'看看磁盘',requester:'22222'}),/主人/);
+  const first=await control.run({task:'清掉临时日志',requester:'11111'});
+  assert.equal(first.status,'needs_confirmation');assert.match(first.output,/3 个 log/);
+  const second=await control.run({task:'清掉临时日志',confirmed:true,requester:'11111'});
+  assert.equal(second.status,'done');assert.equal(second.output,'已删除 3 个文件');
+  assert.ok(prompts[0].includes('NEEDS_CONFIRMATION')&&!prompts[1].includes('先别做'));
+  const history=await control.history();
+  assert.deepEqual(history.map(h=>h.status),['done','needs_confirmation']);
+  await fs.rm(runtime,{recursive:true,force:true});
+});

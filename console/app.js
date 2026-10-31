@@ -509,9 +509,20 @@ async function enterChat(){await Promise.all([loadTiming(),loadReactions(),loadO
 /* Agent mode page */
 let agentData=null;
 const agentDecisions={reply:['回复','ok'],silence:['没出声',''],wait:['等一等','accent'],failed:['出错','bad'],thinking:['正在想','warn']};
-const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来',read_qq_history:'翻聊天记录',send_to_chat:'去别处说',write_note:'记笔记',delete_note:'删笔记',send_message:'发消息',search_stickers:'搜表情包',send_sticker:'发表情包',react:'贴表情',poke:'戳一戳',like:'点赞',recall:'撤回',send_voice:'发语音',draw_image:'画图',send_artwork:'发插画',set_reminder:'定时',cancel_reminder:'取消定时',check_new_messages:'看新消息',wait:'等一等'};
+const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来',read_qq_history:'翻聊天记录',send_to_chat:'去别处说',computer_task:'操作电脑',write_note:'记笔记',delete_note:'删笔记',send_message:'发消息',search_stickers:'搜表情包',send_sticker:'发表情包',react:'贴表情',poke:'戳一戳',like:'点赞',recall:'撤回',send_voice:'发语音',draw_image:'画图',send_artwork:'发插画',set_reminder:'定时',cancel_reminder:'取消定时',check_new_messages:'看新消息',wait:'等一等'};
 const levelNames={basic:'基础',standard:'标准',full:'完全'};
-async function enterAgent(){await refreshAgent();}
+async function enterAgent(){await Promise.all([refreshAgent(),loadComputer()]);}
+let computerConfig=null;
+async function loadComputer(){try{computerConfig=await api('computer');renderComputer();}catch(error){toast(error.message,true);}}
+function renderComputer(){
+  const c=computerConfig;$('computer-enabled').checked=c.enabled;$('computer-owner').value=c.owner||'';
+  const tone={done:'做完',needs_confirmation:'等确认',failed:'失败'};
+  const rows=(c.history||[]).slice(0,8).map(h=>el('div',{className:'state-row'},el('span',{className:'name',title:h.task+'\n'+h.output},(h.confirmed?'[已确认] ':'')+h.task),
+    el('span',{className:'muted small'},(tone[h.status]||h.status)+' · '+clock(h.at/1000))));
+  $('computer-history').replaceChildren(...(rows.length?rows:[el('p',{className:'empty'},'还没让它操作过电脑。')]));
+}
+$('computer-form').onsubmit=async event=>{event.preventDefault();
+  try{computerConfig=await api('computer',{enabled:$('computer-enabled').checked,owner:$('computer-owner').value});renderComputer();toast('已保存');}catch(error){toast(error.message,true);}};
 async function refreshAgent(){
   agentData=await api('agent');
   renderAgentStats();renderAgentStates();renderAgentReminders();renderAgentNotes();renderAgentFilters();renderAgentTurns();
@@ -858,8 +869,10 @@ function renderVoice(){
   $('voice-key-state').textContent=v.keySet?'已保存一个 Key（不会显示出来）':'还没有 Key';
   $('voice-base').value=v.baseUrl;$('voice-model').value=v.model;$('voice-speed').value=v.speed;$('voice-style').value=v.instructions;
   $('voice-engine').value=v.engine;showVoiceEngine();
+  $('qqvoice-enabled').checked=v.qqEnabled!==false;
+  fillSelect($('qqvoice-character'),(v.qqVoices||[]).map(x=>x[0]),id=>(v.qqVoices.find(x=>x[0]===id)||[id,id])[1],v.qqCharacter);
   fillSelect($('voice-voice'),v.voices.includes(v.voice)?v.voices:[v.voice,...v.voices],x=>x,v.voice);
-  $('voice-status').textContent=v.enabled&&v.keySet?'已打开：代理模式的会话里它可以发语音。':v.keySet?'已有 Key，还没打开。':'填上 OpenAI API Key 并打开后，它就能发语音。';
+  $('voice-status').textContent=v.enabled&&v.keySet?'已打开：群聊和私聊都用 OpenAI 的声音。':v.keySet?'已有 Key，还没打开。':'可选：填上 OpenAI API Key 并打开后，私聊也能发语音，群里也改用 OpenAI 的声音。';
   $('voice-clear').hidden=!v.keySet;
 }
 // The model list follows the way it is called; switching ways swaps a default model for the other's default.
@@ -877,6 +890,8 @@ $('voice-engine').onchange=()=>{
 };
 const voiceValues=()=>({enabled:$('voice-enabled').checked,engine:$('voice-engine').value,apiKey:$('voice-key').value,baseUrl:$('voice-base').value,model:$('voice-model').value,
   voice:$('voice-voice').value,speed:Number($('voice-speed').value),instructions:$('voice-style').value});
+$('qqvoice-form').onsubmit=async event=>{event.preventDefault();
+  try{voiceConfig=await api('voice',{qqEnabled:$('qqvoice-enabled').checked,qqCharacter:$('qqvoice-character').value});renderVoice();toast('已保存');}catch(error){toast(error.message,true);}};
 $('voice-form').onsubmit=async event=>{event.preventDefault();
   try{voiceConfig=await api('voice',voiceValues());renderVoice();toast('语音设置已保存');}catch(error){toast(error.message,true);}};
 $('voice-clear').onclick=async()=>{if(!confirm('删除已保存的 API Key？语音会随之关闭。'))return;
