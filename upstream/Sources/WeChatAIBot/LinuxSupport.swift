@@ -19,7 +19,7 @@ enum Keychain {
 
 enum LinuxImages {
     static func process(_ data: Data, mode: String, options: [String: Int] = [:]) throws -> [Data] {
-        guard data.count <= 20_000_000, let resources = RuntimeResources.directory else {
+        guard data.count <= 32_000_000, let resources = RuntimeResources.directory else {
             throw AppFailure.message("图片过大或资源目录不可用")
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dafeiyu-image-" + UUID().uuidString)
@@ -33,7 +33,7 @@ enum LinuxImages {
         defer { try? stdin.close(); try? stdout.close() }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/timeout")
-        process.arguments = ["--signal=KILL", "20", "/usr/bin/python3", resources.appendingPathComponent("Linux/image-helper.py").path]
+        process.arguments = ["--signal=KILL", "30", "/usr/bin/python3", resources.appendingPathComponent("Linux/image-helper.py").path]
         process.standardInput = stdin; process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
         try process.run(); process.waitUntilExit()
         guard process.terminationStatus == 0, let size = try output.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 20_000_000,

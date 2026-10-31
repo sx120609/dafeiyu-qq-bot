@@ -17,6 +17,8 @@ struct QQIncomingImages {
         return URLSession(configuration: config)
     }()
     var session: URLSession = ephemeralSession
+    /// Phone photos and screenshots sent as originals run to 10–15 MB; they are decoded at reduced size.
+    static let maxBytes = 32_000_000
     static func allowedURL(_ value: String?) -> URL? {
         guard let value, value.utf8.count <= 8192, var url = URLComponents(string: value),
               ["http", "https"].contains(url.scheme ?? ""), url.user == nil, url.password == nil, url.port == nil,
@@ -32,17 +34,17 @@ struct QQIncomingImages {
         guard let url = Self.allowedURL(value) else { throw AppFailure.message("图片下载地址不受支持") }
         var request = URLRequest(url: url); request.timeoutInterval = 15
         #if os(Linux)
-        let (linuxData, response) = try await session.boundedData(for: request, limit: 8_000_000)
+        let (linuxData, response) = try await session.boundedData(for: request, limit: Self.maxBytes)
         #else
         let (bytes, response) = try await session.bytes(for: request, delegate: QQImageNoRedirect())
         #endif
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200, response.expectedContentLength <= 8_000_000 else { throw AppFailure.message("图片暂时无法下载") }
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200, response.expectedContentLength <= Self.maxBytes else { throw AppFailure.message("图片暂时无法下载") }
         var data = Data()
         #if os(Linux)
         data = linuxData
         #else
         for try await byte in bytes {
-            guard data.count < 8_000_000 else { throw AppFailure.message("图片太大，未进行识别") }
+            guard data.count < Self.maxBytes else { throw AppFailure.message("图片太大，未进行识别") }
             data.append(byte)
         }
         #endif
@@ -53,10 +55,10 @@ struct QQIncomingImages {
         #if os(Linux)
         return try LinuxImages.process(data, mode: "frames", options: ["maxFrames": maxFrames])
         #else
-        guard data.count <= 8_000_000, let source = CGImageSourceCreateWithData(data as CFData, nil),
+        guard data.count <= maxBytes, let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              (1...12000).contains(width), (1...12000).contains(height), width * height <= 40_000_000 else { throw AppFailure.message("图片格式或尺寸不受支持") }
+              (1...20000).contains(width), (1...20000).contains(height), width * height <= 150_000_000 else { throw AppFailure.message("图片格式或尺寸不受支持") }
         let count = CGImageSourceGetCount(source)
         guard count > 0 && count <= 1000 else { throw AppFailure.message("动图帧数不受支持") }
         // Sample across playback time, not only frame number; GIF delays can vary greatly.

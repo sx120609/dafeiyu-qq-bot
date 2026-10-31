@@ -81,9 +81,10 @@ extension DeepSeekClient {
             ]],
             ["type": "function", "function": [
                 "name": "search_chat_history",
-                "description": "翻这个群更早的聊天记录和关于群友的记忆，按关键词找。想知道之前聊过什么、某人说过什么、某个梗的来历时用。",
+                "description": "翻这个聊天更早的记录和记忆，按关键词找。想知道之前聊过什么、某人说过什么、某个外号或梗是什么时用。",
                 "parameters": ["type": "object", "additionalProperties": false, "required": ["query"], "properties": [
-                    "query": ["type": "string", "description": "关键词，可以写几个，用空格分开"]
+                    "query": ["type": "string", "description": "关键词，可以写几个，用空格分开"],
+                    "everywhere": ["type": "boolean", "description": "在所有群和私聊的记录和记忆里找；只在和机器人管理员私聊时有效"]
                 ]]
             ]],
             ["type": "function", "function": [

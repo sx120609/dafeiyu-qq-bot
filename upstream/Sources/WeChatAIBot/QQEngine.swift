@@ -3164,14 +3164,25 @@ struct QQRuntimeCredentials: Decodable {
             guard !terms.isEmpty else { return "没给关键词。" }
             let clock = DateFormatter(); clock.dateFormat = "MM-dd HH:mm"
             var seen = Set<String>()
-            let pool = (memoryBooks[scope]?.recent ?? []) + (groupRecentMessages[target.key] ?? [])
-            let hits = pool.filter { event in seen.insert(event.id).inserted && terms.contains { event.text.lowercased().contains($0) } }.suffix(15)
-            var answer = hits.isEmpty ? "聊天记录里没找到。" : "聊天记录：\n" + hits.map { "[\(clock.string(from: $0.at))] \($0.subject)：\(String($0.text.prefix(200)))" }.joined(separator: "\n")
-            if config.effectiveMemoryEnabled, let book = memoryBooks[scope] {
-                let recalled = QQMemoryIndex(book.items).context(query, subject: "", characters: 1000)
-                if !recalled.isEmpty { answer += "\n\n记忆：\n" + recalled }
+            // A bot admin in a private chat may search every chat (11-01: the owner said 康神开播了 in private, and the
+            // agent did not know a meme one of their groups had taught it). Everyone else stays within their chat.
+            let everywhere = fields["everywhere"] as? Bool == true && !target.group && config.isAdmin(target.number)
+            let keys = everywhere ? config.targets.filter(\.enabled).map(\.key) : [target.key]
+            var answer = ""
+            for key in keys {
+                let place = config.expectedSelfID + ":" + key
+                let pool = (memoryBooks[place]?.recent ?? []) + (groupRecentMessages[key] ?? [])
+                let hits = pool.filter { event in seen.insert(key + event.id).inserted && terms.contains { event.text.lowercased().contains($0) } }.suffix(everywhere ? 6 : 15)
+                var found = hits.isEmpty ? "" : "聊天记录：\n" + hits.map { "[\(clock.string(from: $0.at))] \($0.subject)：\(String($0.text.prefix(200)))" }.joined(separator: "\n")
+                if config.effectiveMemoryEnabled, let book = memoryBooks[place] {
+                    let recalled = QQMemoryIndex(book.items).context(query, subject: "", characters: everywhere ? 500 : 1000)
+                    if !recalled.isEmpty { found += (found.isEmpty ? "" : "\n") + "记忆：\n" + recalled }
+                }
+                guard !found.isEmpty else { continue }
+                let name = config.targets.first { $0.key == key }.map { ($0.group ? "群·" : "好友·") + $0.name } ?? key
+                answer += (answer.isEmpty ? "" : "\n\n") + (everywhere ? "【\(name)】\n" : "") + found
             }
-            return answer
+            return answer.isEmpty ? (everywhere ? "所有聊天的记录和记忆里都没找到。" : "这个聊天的记录和记忆里没找到。") : String(answer.prefix(5000))
         case "look_at_image":
             guard config.effectiveVisionEnabled else { return "识图没开，看不了图。" }
             guard let id = fields["message"] as? String, let message = groupRecentInputs[target.key]?[id], !message.images.isEmpty else { return "那条消息没有图，或者已经找不到了。" }

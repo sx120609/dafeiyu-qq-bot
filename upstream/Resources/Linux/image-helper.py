@@ -6,7 +6,7 @@ from PIL import Image, ImageOps
 
 def process(payload):
     mode = payload['mode']
-    limits = {'frames': (8_000_000, 12000, 40_000_000), 'artwork': (20_000_000, 12000, 40_000_000),
+    limits = {'frames': (32_000_000, 20000, 150_000_000), 'artwork': (20_000_000, 12000, 40_000_000),
               'sticker': (3_000_000, 4096, 4096 * 4096), 'generated': (8_000_000, 4096, 8_000_000),
               'search': (3_000_000, 4096, 8_000_000), 'sticker-import': (3_000_000, 4096, 8_000_000)}
     byte_limit, edge, pixels = limits[mode]
@@ -15,6 +15,10 @@ def process(payload):
         raise ValueError('size')
     image = Image.open(io.BytesIO(raw))
     width, height = image.size
+    # Big JPEG originals are decoded at a reduced scale straight away: far less memory and time, and the frames
+    # are shrunk to 1280 px anyway.
+    if mode == 'frames' and image.format == 'JPEG' and max(width, height) > 2560:
+        image.draft('RGB', (2560, 2560))
     count = getattr(image, 'n_frames', 1)
     if not (1 <= width <= edge and 1 <= height <= edge and width * height <= pixels and 1 <= count <= 1000):
         raise ValueError('dimensions')
@@ -74,14 +78,14 @@ def process(payload):
 
 
 if __name__ == '__main__':
-    resource.setrlimit(resource.RLIMIT_AS, (768 * 1024**2, 768 * 1024**2))
-    resource.setrlimit(resource.RLIMIT_CPU, (15, 15))
+    resource.setrlimit(resource.RLIMIT_AS, (2048 * 1024**2, 2048 * 1024**2))
+    resource.setrlimit(resource.RLIMIT_CPU, (25, 25))
     resource.setrlimit(resource.RLIMIT_FSIZE, (20_000_000, 20_000_000))
-    Image.MAX_IMAGE_PIXELS = 40_000_000
+    Image.MAX_IMAGE_PIXELS = 150_000_000
     warnings.simplefilter('error', Image.DecompressionBombWarning)
     try:
-        data = sys.stdin.buffer.read(28_000_001)
-        if len(data) > 28_000_000:
+        data = sys.stdin.buffer.read(48_000_001)
+        if len(data) > 48_000_000:
             raise ValueError('input size')
         print(json.dumps(process(json.loads(data)), separators=(',', ':')))
     except Exception:
