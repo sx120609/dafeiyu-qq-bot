@@ -12,7 +12,7 @@ const maxBody = 24 * 1024 * 1024;
 const toWindows = p => process.platform === 'win32' ? p : execFileSync('wslpath', ['-w', p], {encoding:'utf8'}).trim();
 
 export function validateRequest(body) {
-  if (!body || !Array.isArray(body.messages) || !body.messages.length || body.messages.length > 100) throw new Error('Invalid messages');
+  if (!body || !Array.isArray(body.messages) || !body.messages.length || body.messages.length > 300) throw new Error('Invalid messages');
   if (body.stream) throw new Error('Streaming is not supported');
   if (body.model !== model) throw new Error('Unsupported model');
   const roles = new Set(['system','developer','user','assistant','tool']);
@@ -24,7 +24,7 @@ export function validateRequest(body) {
       throw new Error('Only inline PNG/JPEG/WebP images and text are supported');
     }
   }
-  if (body.tools && (!Array.isArray(body.tools) || body.tools.length > 20 || body.tools.some(t => t.type !== 'function' || !t.function?.name))) throw new Error('Invalid tools');
+  if (body.tools && (!Array.isArray(body.tools) || body.tools.length > 64 || body.tools.some(t => t.type !== 'function' || !t.function?.name))) throw new Error('Invalid tools');
 }
 
 // Keep whatever is usable instead of failing the whole reply: unknown or malformed tool calls are
@@ -39,7 +39,8 @@ export function completion(body, envelope, usage = {}) {
     return [{id:'call_'+crypto.randomUUID(), type:'function', function:{name:t.name,arguments:JSON.stringify(args)}}];
   }).slice(0, 2);
   if (!calls.length) {
-    if (!content.trim()) throw new Error('Empty reply');
+    // The agent's director may end a turn with nothing left to say; anything else needs words.
+    if (!content.trim()) { if (body.metadata?.dafeiyu_purpose === 'director') content = '（结束）'; else throw new Error('Empty reply'); }
     if (body.response_format?.type === 'json_object') {
       const start = content.indexOf('{'), end = content.lastIndexOf('}');
       try { JSON.parse(content); } catch { if (start >= 0 && end > start) content = content.slice(start, end + 1); }

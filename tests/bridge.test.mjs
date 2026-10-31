@@ -43,3 +43,9 @@ test('HTTP auth, browser isolation, single flight, and disconnect cancellation',
     assert.equal(signal.aborted,true);
   }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+test('an agent turn may offer many tools, run long, and end without words',()=>{
+  const tools=Array.from({length:40},(_,i)=>({type:'function',function:{name:'t'+i,parameters:{type:'object',properties:{}}}}));
+  const messages=[{role:'user',content:'x'},...Array.from({length:150},()=>({role:'tool',tool_call_id:'c',content:'ok'}))];
+  assert.doesNotThrow(()=>validateRequest({model,messages,tools}));
+  assert.equal(completion({tools,metadata:{dafeiyu_purpose:'director'}},{content:''}).choices[0].message.content,'（结束）');
+});
