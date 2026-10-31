@@ -18,7 +18,28 @@ export const referencePrices={
   'gpt-5.6-sol':{input:4,cachedInput:0.4,output:20},
   'gpt-5.6-terra':{input:2,cachedInput:0.2,output:12},
   'gpt-5.6-luna':{input:0.2,cachedInput:0.02,output:1.2},
-  'gpt-5.5':{input:5,cachedInput:0.5,output:30}
+  'gpt-5.5':{input:5,cachedInput:0.5,output:30},
+  // Claude list prices (Anthropic API, 2026-10). Claude Code reports its own cost, so these only price calls it
+  // reported none for; it names models by alias, hence the aliases.
+  'claude-opus-5-5':{input:4,cachedInput:0.2,output:20},
+  'claude-sonnet-5-5':{input:2,cachedInput:0.2,output:10},
+  'claude-haiku-5-5':{input:0.1,cachedInput:0.01,output:0.5,estimated:true},
+  'claude-fable-5-1':{input:10,cachedInput:0.25,output:50},
+  opus:{input:4,cachedInput:0.2,output:20},default:{input:4,cachedInput:0.2,output:20},
+  sonnet:{input:2,cachedInput:0.2,output:10},haiku:{input:0.1,cachedInput:0.01,output:0.5,estimated:true},
+  fable:{input:10,cachedInput:0.25,output:50},
+  // Image models are priced per token: text input, image output (OpenAI, 2026-11).
+  'gpt-image-2.5-flare':{input:5,cachedInput:1.25,output:30},
+  'gpt-image-2.5-sunburst':{input:5,cachedInput:1.25,output:30},
+  // Voice: the realtime models' output is audio, priced at the audio rate; input is the text to read.
+  'gpt-realtime-2.1-mini':{input:0.6,cachedInput:0.06,output:20},
+  'gpt-realtime-2.1':{input:4,cachedInput:0.4,output:64},
+  // The /audio/speech models report no usage; the voice module records characters as input "tokens".
+  'tts-1':{input:15,output:0},
+  'tts-1-hd':{input:30,output:0},
+  // gpt-4o-mini-tts bills $12 per million audio tokens, not reported here: about 1.5 cents a minute, roughly
+  // 250 Chinese characters, so about $60 per million characters.
+  'gpt-4o-mini-tts':{input:60,output:0,estimated:true}
 };
 
 // Every model call the gateway makes, summed per Beijing day and per provider, model, purpose and conversation.
@@ -37,7 +58,10 @@ export class UsageLedger{
     const clean=v=>String(v||'').replaceAll('|','/').slice(0,60);
     const row=(days[today]??={})[[provider,clean(model)||'unknown',purpose,clean(chat)].join('|')]??=blank();
     row.calls++;if(!ok)row.failures++;row.ms+=Math.max(0,ms|0);
-    row.input+=usage.prompt_tokens||0;row.cached+=usage.cached_tokens||0;row.output+=usage.completion_tokens||0;
+    // OpenAI chat names its fields prompt/completion; the image, Realtime and Anthropic APIs say input/output.
+    row.input+=usage.prompt_tokens||usage.input_tokens||0;
+    row.cached+=usage.cached_tokens||usage.prompt_tokens_details?.cached_tokens||usage.input_tokens_details?.cached_tokens||usage.input_token_details?.cached_tokens||0;
+    row.output+=usage.completion_tokens||usage.output_tokens||0;
     row.reasoning+=usage.reasoning_tokens||0;row.reportedCost+=Number(usage.cost_usd)||0;
     for(const old of Object.keys(days).sort().slice(0,-keep))delete days[old];
     this.schedule();

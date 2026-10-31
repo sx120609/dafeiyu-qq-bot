@@ -65,7 +65,9 @@ export class VoiceSettings{
   async speak(text){
     if(!this.value.apiKey)throw new Error('语音还没填 API Key');
     const input=String(text||'').trim().slice(0,600);if(!input)throw new Error('没有要说的话');
-    return this.value.engine==='speech'?{audio:await this.speech(input),type:'audio/mpeg'}:{audio:await this.realtime(input),type:'audio/wav'};
+    if(this.value.engine==='speech')return {audio:await this.speech(input),type:'audio/mpeg',usage:{prompt_tokens:[...input].length}};
+    const {audio,usage}=await this.realtime(input);
+    return {audio,type:'audio/wav',usage};
   }
   realtime(input){
     const v=this.value,url=v.baseUrl.replace(/^https:/,'wss:')+'/realtime?model='+encodeURIComponent(v.model);
@@ -94,7 +96,7 @@ export class VoiceSettings{
           const pcm=Buffer.concat(chunks);
           if(pcm.length<4800)return finish(new Error('语音合成没有出声音'));
           if(pcm.length>8_000_000)return finish(new Error('语音太长'));
-          finish(null,wav(pcm));
+          finish(null,{audio:wav(pcm),usage:data.response?.usage||{}});
         }
       };
       socket.onerror=()=>finish(new Error('连不上语音接口（实时模型）'));

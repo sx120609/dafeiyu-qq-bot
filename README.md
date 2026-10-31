@@ -163,7 +163,7 @@
 
 网关记下自己发起的每一次模型调用（`bridge/usage.mjs`，存在 `.runtime/usage.json`，保留 120 天），按北京时间分天，再按连接、模型、用途（回复起草、改口吻、插话校对、群聊摘要、记忆整理、小动作、画图判断、主动聊天、戳一戳、连接测试、看视频、画图）和会话汇总。只统计这个机器人的用量，不读账号额度。
 
-- 花费：Claude Code 每次会报告自己的花费（订阅用户是按 API 价折算的等价金额），直接采用。Codex 和云端 API 不报金额：常见 GPT 型号内置了 2026 年 10 月的列表价（`bridge/usage.mjs` 的 `referencePrices`，来自第三方价格汇总站；gpt-6.1-terra 查不到，按同代型号估算并标“估”），自动估算；Codex 走 ChatGPT 订阅实际不按 token 扣钱，这里显示的是同样用量走 API 的价格。在「用量」页填了单价就按你的算。
+- 花费：Claude Code 每次会报告自己的花费（订阅用户是按 API 价折算的等价金额），直接采用。Codex 和云端 API 不报金额：常见 GPT 型号内置了 2026 年 10 月的列表价（`bridge/usage.mjs` 的 `referencePrices`，来自第三方价格汇总站；gpt-6.1-terra 查不到，按同代型号估算并标“估”），自动估算；Codex 走 ChatGPT 订阅实际不按 token 扣钱，这里显示的是同样用量走 API 的价格。在「用量」页填了单价就按你的算。11-01 补了没标价的：Claude 各型号和 Claude Code 用的别名（opus、sonnet 等，只给它没报金额的调用用）、gpt-image-2.5（按 token：文字输入 $5、图片输出 $30 每百万）、gpt-realtime-2.1 / -mini（输出按音频价）、tts-1 / tts-1-hd（按字符）、gpt-4o-mini-tts（按每分钟约 1.5 美分折成每百万字约 $60，标“估”）。生图和 Realtime 接口回的用量字段叫 input_tokens / output_tokens，以前只认 prompt_tokens / completion_tokens，所以之前这两类调用记成了 0 token；现在都认，语音调用也把 Realtime 报的用量记下来。
 - 汇率默认 1 美元 = 7.1 元，可改。
 - 失败的调用也计次数和耗时。
 

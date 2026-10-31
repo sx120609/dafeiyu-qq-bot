@@ -100,7 +100,7 @@ test('voice: the realtime model reads the line by default, the old speech endpoi
   const socket=(url,init)=>{
     const s={send(raw){const m=JSON.parse(raw);sent.push(m);if(m.type==='response.create')setTimeout(()=>{
       for(const part of [Buffer.alloc(4000,1),Buffer.alloc(4000,2)])s.onmessage({data:JSON.stringify({type:'response.output_audio.delta',delta:part.toString('base64')})});
-      s.onmessage({data:JSON.stringify({type:'response.done',response:{status:'completed'}})});
+      s.onmessage({data:JSON.stringify({type:'response.done',response:{status:'completed',usage:{input_tokens:30,output_tokens:200}}})});
     });},close(){}};
     opened.push([url,init.headers.Authorization]);setTimeout(()=>s.onopen());return s;
   };
@@ -111,6 +111,7 @@ test('voice: the realtime model reads the line by default, the old speech endpoi
   assert.equal(view.keySet,true);assert.equal(view.apiKey,undefined);assert.equal(voice.ready,true);
   assert.equal(view.engine,'realtime');assert.equal(view.model,'gpt-realtime-2.1-mini');assert.equal(view.voice,'marin');
   const spoken=await voice.speak('你好呀');
+  assert.deepEqual(spoken.usage,{input_tokens:30,output_tokens:200});
   assert.equal(spoken.type,'audio/wav');assert.equal(spoken.audio.length,44+8000);assert.equal(spoken.audio.toString('ascii',0,4),'RIFF');
   assert.deepEqual(opened[0],['wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1-mini','Bearer sk-test-voice']);
   assert.equal(sent[0].session.audio.output.voice,'marin');assert.deepEqual(sent[0].session.output_modalities,['audio']);
@@ -120,7 +121,7 @@ test('voice: the realtime model reads the line by default, the old speech endpoi
   // The old endpoint, chosen explicitly.
   await voice.update({engine:'speech',model:'gpt-4o-mini-tts',voice:'nova',speed:1.2});
   const old=await voice.speak('你好');
-  assert.equal(old.type,'audio/mpeg');assert.equal(calls[0][0],'https://api.openai.com/v1/audio/speech');
+  assert.equal(old.type,'audio/mpeg');assert.deepEqual(old.usage,{prompt_tokens:2});assert.equal(calls[0][0],'https://api.openai.com/v1/audio/speech');
   assert.equal(calls[0][1].voice,'nova');assert.equal(calls[0][1].speed,1.2);assert.ok(calls[0][1].instructions);
   await assert.rejects(voice.update({engine:'dance'}),/调用方式/);
   // A file saved before the choice existed, with a speech model, keeps the speech endpoint.
@@ -128,4 +129,19 @@ test('voice: the realtime model reads the line by default, the old speech endpoi
   assert.equal((await new VoiceSettings({runtime}).load()).value.engine,'speech');
   await voice.update({clearKey:true});assert.equal(voice.ready,false);
   await fs.rm(runtime,{recursive:true,force:true});
+});
+test('usage: image, realtime and Anthropic-style token fields are counted, and newer models have list prices',async()=>{
+  const {UsageLedger,referencePrices}=await import('../bridge/usage.mjs');
+  const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
+  const runtime=await fs.mkdtemp(path.join(os.tmpdir(),'usage-'));
+  const ledger=new UsageLedger({runtime});
+  ledger.record({provider:'cloud',model:'gpt-image-2.5-flare',purpose:'image',usage:{input_tokens:100,output_tokens:4000,input_tokens_details:{cached_tokens:0}}});
+  ledger.record({provider:'voice',model:'gpt-realtime-2.1-mini',purpose:'voice',usage:{input_tokens:300,output_tokens:1000,input_token_details:{cached_tokens:100}}});
+  const models=ledger.summary({days:1}).models;
+  const image=models.find(m=>m.model==='gpt-image-2.5-flare'),voiceRow=models.find(m=>m.model==='gpt-realtime-2.1-mini');
+  assert.equal(image.input,100);assert.equal(image.output,4000);assert.equal(image.costSource,'reference');
+  assert.ok(Math.abs(image.usd-(100*5+4000*30)/1e6)<1e-12);
+  assert.equal(voiceRow.cached,100);assert.ok(Math.abs(voiceRow.usd-(200*0.6+100*0.06+1000*20)/1e6)<1e-12);
+  for(const model of ['opus','claude-opus-5-5','gpt-realtime-2.1','tts-1','gpt-4o-mini-tts'])assert.ok(referencePrices[model],model);
+  ledger.timer&&clearTimeout(ledger.timer);await fs.rm(runtime,{recursive:true,force:true});
 });
