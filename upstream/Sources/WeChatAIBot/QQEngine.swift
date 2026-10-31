@@ -2220,7 +2220,33 @@ struct QQRuntimeCredentials: Decodable {
         }
         let retained = Set((groupRecentMessages[target.key] ?? []).map(\.id))
         groupReactionsSeen[target.key] = seen.filter { retained.contains($0.key) && !$0.value.isEmpty }
+        // Someone reacted to the bot's own message: in agent mode it gets to see that and answer (11-01: "别人给你点
+        // 表情，也应当回应"). Reactions within a few seconds are looked at together, at most one such look per chat
+        // every two minutes.
+        let account = config.expectedSelfID
+        guard adding, config.isAgent(target.key), botMessageIDs[account + ":" + target.key + ":" + message] != nil,
+              let user = QQPolicy.identifier(object["user_id"]), !config.isBlocked(user) else { return }
+        let said = (groupRecentMessages[target.key] ?? []).first { $0.id == message }?.text ?? ""
+        let name = groupRecentInputs[target.key]?.values.first { $0.sender == user }?.name
+        let label = QQMemoryBook.subject(account: account, target: target.key, sender: user)
+        let emojis = (object["likes"] as? [[String: Any]] ?? []).prefix(3).compactMap { QQPolicy.identifier($0["emoji_id"]).map(Self.reactionName) }
+        guard !emojis.isEmpty else { return }
+        agentReacted[target.key, default: []].append((name.map { "\($0)(\(label))" } ?? label) + " 给你的消息 \(message)「\(String(said.prefix(40)))」贴了 " + emojis.joined(separator: "、"))
+        agentReacted[target.key] = Array(agentReacted[target.key]!.suffix(6))
+        let now = Date()
+        guard agentPending[target.key] == nil, agentTimers[target.key] == nil,
+              now.timeIntervalSince(agentReactionLookAt[target.key] ?? .distantPast) >= 120 else { return }
+        agentReactionLookAt[target.key] = now
+        armAgent(target, delay: 5)
     }
+    /// A reaction id as something readable: QQ's own faces by name, larger ids are emoji code points.
+    static func reactionName(_ id: String) -> String {
+        if let code = Int(id), code > 1000, let scalar = UnicodeScalar(code) { return String(Character(scalar)) }
+        return QQPolicy.faceNames[id].map { "[\($0)]" } ?? "表情 \(id)"
+    }
+    /// Reactions on the bot's messages waiting for the agent, and when it last looked because of one.
+    private var agentReacted: [String: [String]] = [:]
+    private var agentReactionLookAt: [String: Date] = [:]
     // MARK: Agent mode (代理模式)
 
     /// A batch closes once the chat has been quiet for `agentQuietSeconds`, or `agentCollectSeconds` after its
@@ -2328,18 +2354,19 @@ struct QQRuntimeCredentials: Decodable {
         let calling = agentCalling.remove(key) != nil
         agentFirstPending.removeValue(forKey: key)
         let wake = agentWake.removeValue(forKey: key) ?? []
+        let reacted = agentReacted.removeValue(forKey: key) ?? []
         let events = groupRecentMessages[key] ?? []
         let fresh = pending.filter { id in events.contains { $0.id == id } } // recalled ones are gone
         let inputs = groupRecentInputs[key] ?? [:]
         // A due reminder looks at the chat as it stands, anchored on its latest message.
-        let anchorID = fresh.last ?? (wake.isEmpty ? nil : events.last(where: { inputs[$0.id] != nil })?.id)
+        let anchorID = fresh.last ?? (wake.isEmpty && reacted.isEmpty ? nil : events.last(where: { inputs[$0.id] != nil })?.id)
         guard let anchor = anchorID.flatMap({ inputs[$0] }) else {
             if !wake.isEmpty { await sayReminders(wake, target: target, epoch: epoch) }
             return
         }
         let started = Date()
         let turn = QQAgentTurn(at: started, chat: chatLabel(target), key: key,
-                               batch: wake.map { "[到点] " + String($0.about.prefix(80)) } +
+                               batch: wake.map { "[到点] " + String($0.about.prefix(80)) } + reacted.map { "[表情] " + String($0.prefix(80)) } +
                                    fresh.compactMap { id in inputs[id].map { ($0.name ?? (target.group ? QQMemoryBook.subject(account: config.expectedSelfID, target: key, sender: $0.sender) : "好友")) + "：" + String($0.text.prefix(80)) } })
         agentTurns.append(turn)
         if agentTurns.count > Self.agentTurnsKept { agentTurns.removeFirst(agentTurns.count - Self.agentTurnsKept) }
@@ -2376,6 +2403,10 @@ struct QQRuntimeCredentials: Decodable {
             let notebook = agentNotes.filter { $0.key == key || $0.key.isEmpty }
             if !notebook.isEmpty && level.tools.contains("write_note") {
                 notes.append("你的笔记本（你自己记的，delete_note 填编号删）：\n" + notebook.map { "\($0.id) [\($0.key.isEmpty ? "所有会话" : "这里")·\(clock.string(from: $0.at))] \($0.text)" }.joined(separator: "\n"))
+            }
+            if !reacted.isEmpty {
+                notes.append("有人给你发的消息贴了表情：\n" + reacted.joined(separator: "\n") +
+                             "\n这是在回应你，接一下：可以给对方那条消息回贴一个表情（react），或者说一句（比如被夸了就得意一下、被笑话了就回个嘴）；同一个人连着贴就不用每个都回。")
             }
             let reminders = agentReminders.filter { $0.key == key }
             if !reminders.isEmpty {

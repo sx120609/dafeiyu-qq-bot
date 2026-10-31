@@ -163,6 +163,32 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         #expect(QQPolicy.stickerSegment(Data([1])).description.contains("动画表情"))
     }
 
+    /// Someone reacts to the bot's own message: the agent gets a turn about it and answers.
+    @Test func aReactionToItsMessageGetsAnAnswer() async throws {
+        AgentModelProtocol.reset { purpose, messages in
+            guard purpose == "director" else { return ["content": "不用"] }
+            let input = opening(messages)
+            if input.contains("贴了 😍") { return results(messages).isEmpty ? call("send_message", ["text": "被夸了，得意"]) : ["content": "回应了表情"] }
+            return results(messages).isEmpty ? call("send_message", ["text": "第一句"]) : ["content": "回了"]
+        }
+        let rig = try await rig(); defer { rig.stop() }
+        let engine = rig.engine
+        engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
+        engine.config.targets[0].enabled = true
+        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
+        engine.start()
+        var called = group(51, 54321, " 在吗")
+        called["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": " 在吗"]]]
+        try rig.batch([called])
+        try await wait { engine.agentTurns.last?.note == "回了" }
+        // The fixture gives every sent message id 99.
+        try rig.batch([["post_type": "notice", "notice_type": "group_msg_emoji_like", "self_id": 12345, "group_id": 99999, "user_id": 54321,
+                        "message_id": 99, "is_add": true, "likes": [["emoji_id": "128525", "count": 1]], "time": Date().timeIntervalSince1970]])
+        try await wait({ engine.agentTurns.last?.note == "回应了表情" }, seconds: 12)
+        #expect(engine.agentTurns.last?.batch.first?.hasPrefix("[表情]") == true)
+        #expect(rig.payloads().last == ["text:被夸了，得意"])
+    }
+
     /// A turn that fails before anything went out is tried again by itself with the same batch, and the records
     /// survive a restart.
     @Test func aFailedTurnIsRetriedAndTurnsAreKept() async throws {
