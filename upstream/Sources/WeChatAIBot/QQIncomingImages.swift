@@ -25,6 +25,10 @@ struct QQIncomingImages {
         return url.url
     }
     func load(_ value: String?, maxFrames: Int = 6) async throws -> [Data] {
+        try Self.frames(try await download(value), maxFrames: maxFrames)
+    }
+    /// The picture as it was sent, for saving a sticker: decoding it into frames would lose a GIF's animation.
+    func download(_ value: String?) async throws -> Data {
         guard let url = Self.allowedURL(value) else { throw AppFailure.message("图片下载地址不受支持") }
         var request = URLRequest(url: url); request.timeoutInterval = 15
         #if os(Linux)
@@ -43,7 +47,7 @@ struct QQIncomingImages {
         }
         #endif
         try Task.checkCancellation()
-        return try Self.frames(data, maxFrames: maxFrames)
+        return data
     }
     static func frames(_ data: Data, maxFrames: Int = 6) throws -> [Data] {
         #if os(Linux)

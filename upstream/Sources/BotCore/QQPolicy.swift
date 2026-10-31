@@ -176,6 +176,35 @@ public enum QQPolicy {
     public static func faceText(_ id: String) -> String {
         faceNames[id].map { "[QQ表情：\($0)]" } ?? "（QQ 内置表情 ID \(id)，含义不确定时不要猜）"
     }
+    /// What the model is told about a segment it cannot read itself: its kind, plus whatever plain summary QQ
+    /// gives (a market sticker's name, a card's title, a file name). Never the raw payload.
+    static func placeholder(_ kind: String, _ data: [String: Any]) -> String {
+        func field(_ key: String) -> String? {
+            (data[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ").prefix(80).description
+        }
+        switch kind {
+        case "mface", "marketface": return "[表情包：" + (field("summary") ?? field("name") ?? "商城表情") + "]"
+        case "record": return "[语音，听不到内容]"
+        case "video": return "[视频，看不到内容]"
+        case "file": return "[文件" + (field("name").map { "：" + $0 } ?? (field("file").map { "：" + $0 } ?? "")) + "]"
+        case "forward", "node": return "[合并转发的聊天记录，没展开]"
+        case "dice": return "[掷骰子" + (field("result").map { "：" + $0 + " 点" } ?? "") + "]"
+        case "rps": return "[猜拳]"
+        case "poke", "shake": return "[戳一戳]"
+        case "location": return "[位置" + (field("title").map { "：" + $0 } ?? "") + "]"
+        case "music": return "[分享音乐" + (field("title").map { "：" + $0 } ?? "") + "]"
+        case "share": return "[分享链接" + (field("title").map { "：" + $0 } ?? "") + "]"
+        case "contact": return "[推荐联系人]"
+        case "markdown": return field("content").map { "[消息：" + $0 + "]" } ?? "[卡片消息]"
+        case "json":
+            // Mini-program and link cards carry a one-line "prompt" ("[QQ小程序]哔哩哔哩") and often a title.
+            let card = (data["data"] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            let prompt = (card?["prompt"] as? String).map { String($0.prefix(80)) }
+            return "[卡片" + (prompt.map { "：" + $0 } ?? "") + "]"
+        case "xml": return "[卡片]"
+        default: return "[" + (kind.isEmpty ? "未知内容" : kind) + "]"
+        }
+    }
     public static func identifier(_ value: Any?) -> String? {
         if let s = value as? String { return s }
         if let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.stringValue }
@@ -190,7 +219,7 @@ public enum QQPolicy {
               let id = identifier(object["message_id"]), Int64(id) != nil,
               // QQ stamps messages with its own clock; WSL's falls behind after the PC sleeps (6 s on 10-31, when
               // a 5-second limit dropped every message). Five minutes of skew is still clearly not a replay.
-              let time = object["time"] as? Double, time >= since, time <= now + 300, now - time <= 120,
+              let time = object["time"] as? Double, time >= since, time <= now + 300, now - time <= 600,
               let type = object["message_type"] as? String, ["private", "group"].contains(type),
               let segments = object["message"] as? [[String: Any]], !segments.isEmpty else { return nil }
         let group = type == "group"
@@ -201,34 +230,46 @@ public enum QQPolicy {
         var mentionedUsers: [String] = []
         var replyTo: String?
         var images: [QQIncomingImage] = []
+        // No segment makes the whole message vanish: what can be read is read, the rest becomes a placeholder
+        // the model can see (a voice note, a card, a market sticker), instead of the message being dropped.
         for segment in segments {
-            guard let data = segment["data"] as? [String: Any] else { return nil }
-            switch segment["type"] as? String {
-            case "text": guard let content = data["text"] as? String else { return nil }; text += content
+            let data = segment["data"] as? [String: Any] ?? [:]
+            let kind = segment["type"] as? String ?? ""
+            switch kind {
+            case "text": text += data["text"] as? String ?? ""
             case "at":
-                guard group, let qq = identifier(data["qq"]), qq == "all" || QQConfig.validID(qq) else { return nil }
+                guard let qq = identifier(data["qq"]), qq == "all" || QQConfig.validID(qq) else { text += "@某人 "; continue }
+                guard group else { if qq != selfID { text += "@" + ((data["name"] as? String).map { String($0.prefix(24)) } ?? "某人") + " " }; continue }
                 if mentionedUsers.count < 20 && !mentionedUsers.contains(qq) { mentionedUsers.append(qq) }
                 if qq == selfID { mention = true }
                 else if !allowUnmentionedGroup { return nil }
+                else {
+                    // Someone else mentioned mid-sentence stays in the text ("如何评价@某人"): dropping it left
+                    // the model asking what it was supposed to judge (11-01).
+                    let label = QQMemoryBook.subject(account: selfID, target: "group:" + target, sender: qq)
+                    let name = (data["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(24)
+                    text += qq == "all" ? "@全体成员 " : name.map { $0.isEmpty ? "@\(label) " : "@\($0)(\(label)) " } ?? "@\(label) "
+                }
             case "image":
-                guard let file = data["file"] as? String, !file.isEmpty, file.count <= 2048 else { return nil }
+                guard let file = data["file"] as? String, !file.isEmpty, file.count <= 2048 else { text += "[图片，没拿到]"; continue }
                 if images.count < 3 { images.append(QQIncomingImage(file: file, url: data["url"] as? String)) }
+                else { text += "[又一张图，没附上]" }
             case "face":
-                guard let id = identifier(data["id"]), Int(id) != nil else { return nil }; text += faceText(id)
+                guard let id = identifier(data["id"]), Int(id) != nil else { text += "[QQ表情]"; continue }
+                text += faceText(id)
             case "reply":
-                guard replyTo == nil, let reference = identifier(data["id"]), Int64(reference) != nil else { return nil }
-                replyTo = reference
-            case "record", "video", "file", "forward", "json", "xml", "dice", "rps":
-                guard group && allowUnmentionedGroup else { return nil }
-                text += "（群成员发送了媒体或卡片，内容未读取，不要猜测）"
-            default: return nil
+                if replyTo == nil, let reference = identifier(data["id"]), Int64(reference) != nil { replyTo = reference }
+            default:
+                text += placeholder(kind, data)
             }
         }
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(12000))
         if !images.isEmpty && text.isEmpty { text = "（对方发来图片或表情包，请结合画面和前文简短回应。）" }
         if group && mention && text.isEmpty { text = "（对方只 @ 了你，请简短回应一声。）" }
         if group && allowUnmentionedGroup && text.isEmpty { text = "（群成员发来提及或引用，暂无文字内容）" }
-        guard !text.isEmpty, text.count <= 12000, !group || mention || allowUnmentionedGroup else { return nil }
+        if text.isEmpty && replyTo != nil { text = "（只引用了一条消息，没写字）" }
+        // Only a message with nothing in it at all (blank text) is ignored.
+        guard !text.isEmpty, !group || mention || allowUnmentionedGroup else { return nil }
         var incoming = QQIncoming(id: id, sender: sender, target: target, group: group, text: text, time: time, replyTo: replyTo, images: images, mentionsSelf: mention, isOwner: ownerGroup, mentionedUsers: mentionedUsers)
         let senderInfo = object["sender"] as? [String: Any] ?? [:]
         if group, let role = senderInfo["role"] as? String, ["owner", "admin"].contains(role) { incoming.role = role }
@@ -267,9 +308,14 @@ public enum QQPolicy {
         guard let data = try? JSONSerialization.data(withJSONObject: context, options: [.sortedKeys]) else { return nil }
         return QQQuotedContext(text: String(decoding: data, as: UTF8.self), images: images)
     }
-    public static func sendAction(target: QQTarget, text: String, image: Data? = nil) -> (String, [String: Any]) {
+    /// A sticker goes out as QQ's 动画表情 (sub_type 1): shown small like a sticker, and a GIF plays, instead of
+    /// arriving as a photo.
+    public static func stickerSegment(_ image: Data) -> [String: Any] {
+        ["type": "image", "data": ["file": "base64://" + image.base64EncodedString(), "sub_type": 1, "summary": "[动画表情]"]]
+    }
+    public static func sendAction(target: QQTarget, text: String, image: Data? = nil, sticker: Bool = false) -> (String, [String: Any]) {
         var segments: [[String: Any]] = [["type": "text", "data": ["text": text]]]
-        if let image { segments.append(["type": "image", "data": ["file": "base64://" + image.base64EncodedString()]]) }
+        if let image { segments.append(sticker ? stickerSegment(image) : ["type": "image", "data": ["file": "base64://" + image.base64EncodedString()]]) }
         return (target.group ? "send_group_msg" : "send_private_msg",
          [target.group ? "group_id" : "user_id": target.number,
           "message": segments])

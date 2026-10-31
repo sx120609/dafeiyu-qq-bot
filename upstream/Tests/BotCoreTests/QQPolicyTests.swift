@@ -61,12 +61,26 @@ struct QQPolicyTests {
         e["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": "你好"]]]
         #expect(parse(e)?.key == "group:99999")
     }
-    @Test func rejectAtAllOtherMentionsAndMedia() {
-        for segment in [["type": "at", "data": ["qq": "all"]], ["type": "at", "data": ["qq": "55555"]], ["type": "image", "data": ["file": ""]], ["type": "reply", "data": ["id": "invalid"]]] {
+    /// The classic flow still leaves alone a message that also @s someone else. Anything else odd in a message
+    /// is kept as a placeholder instead of dropping the message.
+    @Test func classicSkipsOtherMentionsButOddSegmentsBecomePlaceholders() {
+        for segment in [["type": "at", "data": ["qq": "all"]], ["type": "at", "data": ["qq": "55555"]]] {
             var e = event(group: true)
             e["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": "你好"]], segment]
             #expect(parse(e) == nil)
         }
+        var e = event(group: true)
+        e["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": "你好"]], ["type": "image", "data": ["file": ""]], ["type": "reply", "data": ["id": "invalid"]],
+                        ["type": "mface", "data": ["summary": "[开心]"]], ["type": "record", "data": [:]], ["type": "json", "data": ["data": #"{"prompt":"[QQ小程序]哔哩哔哩"}"#]], ["type": "weird"]]
+        #expect(parse(e)?.text == "你好[图片，没拿到][表情包：[开心]][语音，听不到内容][卡片：[QQ小程序]哔哩哔哩][weird]")
+        // In agent groups (every message admitted), someone else's @ stays in the sentence.
+        var judged = event(group: true)
+        judged["message"] = [["type": "text", "data": ["text": "如何评价"]], ["type": "at", "data": ["qq": "55555", "name": "窝很凶"]]]
+        let label = QQMemoryBook.subject(account: "12345", target: "group:99999", sender: "55555")
+        #expect(QQPolicy.incoming(judged, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true)?.text == "如何评价@窝很凶(\(label))")
+        // A private voice note is no longer silently ignored.
+        var voice = event(); voice["message"] = [["type": "record", "data": ["file": "x"]]]
+        #expect(parse(voice)?.text == "[语音，听不到内容]")
     }
     @Test func admitsImagesButStillRequiresGroupMention() throws {
         let picture: [String: Any] = ["type": "image", "data": ["file": "fixture", "url": "https://multimedia.nt.qq.com.cn/test", "sub_type": 1]]
@@ -93,7 +107,7 @@ struct QQPolicyTests {
         e["message"] = [quote, ["type": "at", "data": ["qq": "54321"]], text]; #expect(parse(e) == nil)
         e["message"] = [quote, ["type": "at", "data": ["qq": "12345"]], text]
         #expect(parse(e)?.text == "你好")
-        e["message"] = [quote, quote, ["type": "at", "data": ["qq": "12345"]], text]; #expect(parse(e) == nil)
+        e["message"] = [quote, quote, ["type": "at", "data": ["qq": "12345"]], text]; #expect(parse(e)?.replyTo == "-12")
     }
     @Test func quoteContextCannotCrossGroupsOrTrustEmbeddedQuoteText() throws {
         var e = event(group: true)

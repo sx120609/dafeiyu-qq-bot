@@ -87,7 +87,7 @@ struct QQStickerLibrary {
     func data(for item: Item) -> Data? {
         let directory = item.id.hasPrefix("local-") ? localDirectory : directory
         guard let directory, item.file == (item.file as NSString).lastPathComponent,
-              ["png", "webp", "jpg", "jpeg"].contains((item.file as NSString).pathExtension),
+              ["png", "webp", "jpg", "jpeg", "gif"].contains((item.file as NSString).pathExtension),
               let size = try? directory.appendingPathComponent(item.file).resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey]),
               size.isSymbolicLink == false, let bytes = size.fileSize, (1...3_000_000).contains(bytes),
               let data = try? Data(contentsOf: directory.appendingPathComponent(item.file)), data.count == bytes,
@@ -95,7 +95,7 @@ struct QQStickerLibrary {
         #if os(Linux)
         guard (try? LinuxImages.process(data, mode: "sticker")) != nil else { return nil }
         #else
-        guard let image = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(image) == 1,
+        guard let image = CGImageSourceCreateWithData(data as CFData, nil), (1...300).contains(CGImageSourceGetCount(image)),
               let properties = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
@@ -116,6 +116,9 @@ struct QQStickerLibrary {
         #if os(Linux)
         normalized = try LinuxImages.process(bytes, mode: "sticker-import")[0]
         #else
+        if bytes.starts(with: Data("GIF8".utf8)), let gif = CGImageSourceCreateWithData(bytes as CFData, nil), (2...300).contains(CGImageSourceGetCount(gif)) {
+            normalized = bytes
+        } else {
         guard let imageSource = CGImageSourceCreateWithData(bytes as CFData, nil), CGImageSourceGetCount(imageSource) == 1,
               let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
@@ -126,6 +129,7 @@ struct QQStickerLibrary {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { throw AppFailure.message("图片转换失败") }
         normalized = output as Data
+        }
         #endif
         guard normalized.count <= 3_000_000 else { throw AppFailure.message("解码后的图片超过 3 MB，请缩小后导入") }
         let hash = SHA256.hash(data: normalized).map { String(format: "%02x", $0) }.joined()
@@ -133,7 +137,8 @@ struct QQStickerLibrary {
         guard items.count < 500 else { throw AppFailure.message("表情库最多 500 张") }
         try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         guard try localDirectory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw AppFailure.message("表情目录不能是符号链接") }
-        let file = hash + ".png", target = localDirectory.appendingPathComponent(file)
+        // An animated GIF stays a GIF so it still moves when sent; everything else was re-encoded as PNG.
+        let file = hash + (normalized.starts(with: Data("GIF8".utf8)) ? ".gif" : ".png"), target = localDirectory.appendingPathComponent(file)
         try normalized.write(to: target, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
         let item = Item(id: "local-" + hash, title: title, emotion: emotion, file: file, sha256: hash, source: source,

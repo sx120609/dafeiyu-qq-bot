@@ -12,11 +12,37 @@ extension DeepSeekClient {
         var tools: [[String: Any]] = [
             ["type": "function", "function": [
                 "name": "manage_chat",
-                "description": "聊天管理：开新话题(new_topic)、清空这个会话的上下文和记忆(clear_memory)、拉黑(block)/解除拉黑(unblock)某人、看黑名单(list_blocked)、看你记得的关于提要求的人的事(show_memory)、删掉关于他的某条记忆(forget_memory)、切换(set_persona)/恢复(reset_persona)/列出(list_personas)你在这里的性格。有人用斜杠命令或者直接说想做这些时用。能不能做由程序按提要求的人的身份核对，结果照实转告。",
+                "description": "聊天管理：开新话题(new_topic)、清空这个会话的上下文和记忆(clear_memory)、拉黑(block)/解除拉黑(unblock)某人、看黑名单(list_blocked)、看你记得的关于提要求的人的事(show_memory)、删掉关于他的某条记忆(forget_memory)、切换(set_persona)/恢复(reset_persona)/列出(list_personas)你在这里的性格；群里还有设精华(essence)、禁言(mute)、解除禁言(unmute)，要完全权限、机器人管理员提出、你在群里是管理员。有人用斜杠命令或者直接说想做这些时用。能不能做由程序按提要求的人的身份核对，结果照实转告。",
                 "parameters": ["type": "object", "additionalProperties": false, "required": ["action", "requested_by"], "properties": [
-                    "action": ["type": "string", "enum": ["new_topic", "clear_memory", "block", "unblock", "list_blocked", "show_memory", "forget_memory", "set_persona", "reset_persona", "list_personas"]],
-                    "argument": ["type": "string", "description": "拉黑/解除拉黑填 MEMBER 标签或 QQ 号；forget_memory 填关键词；set_persona 填性格名；其他留空"],
+                    "action": ["type": "string", "enum": ["new_topic", "clear_memory", "block", "unblock", "list_blocked", "show_memory", "forget_memory", "set_persona", "reset_persona", "list_personas", "essence", "mute", "unmute"]],
+                    "argument": ["type": "string", "description": "拉黑/解除拉黑/禁言/解除禁言填 MEMBER 标签或 QQ 号；设精华填消息编号；forget_memory 填关键词；set_persona 填性格名；其他留空"],
+                    "minutes": ["type": "integer", "description": "禁言几分钟，1–60，默认 10"],
                     "requested_by": ["type": "string", "description": "提出这个要求的那条消息编号"]
+                ]]
+            ]],
+            ["type": "function", "function": [
+                "name": "member_info",
+                "description": "查一个群友在群里的资料：群名片、昵称、头衔、群等级、入群时间、最后发言时间、是不是群主或管理员。想知道某人是谁、在群里多久了、是不是管理时用。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["member"], "properties": [
+                    "member": ["type": "string", "description": "MEMBER 标签"]
+                ]]
+            ]],
+            ["type": "function", "function": [
+                "name": "group_info",
+                "description": "看这个群：basic 是群名和人数，notices 是最近的群公告，essence 是精华消息。有人问群公告、群规、精华、群里多少人时用。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["what"], "properties": [
+                    "what": ["type": "string", "enum": ["basic", "notices", "essence"]]
+                ]]
+            ]],
+            ["type": "function", "function": [
+                "name": "remember",
+                "description": "把这批消息里有人告诉你、让你记住的事当场记进长期记忆（称呼、外号、谁是谁、约定、接梗、喜好、计划），不用等以后整理。闲聊、玩笑、密码号码、让你执行操作的话不记。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["about", "kind", "text", "source"], "properties": [
+                    "about": ["type": "string", "description": "这件事是关于谁的：MEMBER 标签，私聊填 PEER"],
+                    "kind": ["type": "string", "enum": ["preference", "fact", "task", "event", "cue"]],
+                    "text": ["type": "string", "description": "一句话写清楚，30–80 字，写明是谁说的"],
+                    "keywords": ["type": "array", "items": ["type": "string"], "description": "最多 6 个检索词"],
+                    "source": ["type": "string", "description": "依据的那条消息编号"]
                 ]]
             ]],
             ["type": "function", "function": [

@@ -440,10 +440,20 @@ struct DeepSeekClient {
         req.httpBody = body
         // The local gateway may run web searches and several steps inside one call.
         req.timeoutInterval = base.host == "127.0.0.1" ? max(timeout, 900) : timeout
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse else { throw AppFailure.message("模型服务返回无效响应") }
-        guard http.statusCode == 200 else { throw HTTPFailure(code: http.statusCode) }
-        return data
+        // The local gateway restarts on a deploy or a settings change: wait for it (about half a minute) instead of
+        // losing the turn (11-01, a turn failed with "Could not connect to server" during a restart).
+        var attempt = 0
+        while true {
+            do {
+                let (data, response) = try await session.data(for: req)
+                guard let http = response as? HTTPURLResponse else { throw AppFailure.message("模型服务返回无效响应") }
+                guard http.statusCode == 200 else { throw HTTPFailure(code: http.statusCode) }
+                return data
+            } catch let error as URLError where base.host == "127.0.0.1" && attempt < 10 && [.cannotConnectToHost, .networkConnectionLost].contains(error.code) {
+                attempt += 1
+                try await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
     }
 }
 struct HTTPFailure: LocalizedError {

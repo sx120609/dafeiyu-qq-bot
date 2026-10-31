@@ -18,8 +18,15 @@ def process(payload):
     count = getattr(image, 'n_frames', 1)
     if not (1 <= width <= edge and 1 <= height <= edge and width * height <= pixels and 1 <= count <= 1000):
         raise ValueError('dimensions')
-    if mode != 'frames' and count != 1:
+    # Stickers may be animated GIFs (QQ's 动画表情); they are checked frame by frame and kept as they are.
+    animated_sticker = mode in ('sticker', 'sticker-import') and image.format == 'GIF' and count > 1
+    if mode != 'frames' and count != 1 and not (animated_sticker and count <= 300):
         raise ValueError('static required')
+    if animated_sticker:
+        for i in range(count):
+            image.seek(i)
+            image.load()
+        return [base64.b64encode(raw).decode('ascii')]
     options = payload.get('options', {})
     if mode == 'artwork' and (max(width, height) < options['minLongEdge'] or min(width, height) < options['minShortEdge']):
         raise ValueError('resolution')

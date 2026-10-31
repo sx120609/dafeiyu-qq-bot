@@ -75,3 +75,38 @@ test('outreach settings are validated and previews only target private chats',as
   assert.equal(saved.chats.find(c=>c.key==='group:222').level,'basic');
   assert.deepEqual(saved.chats.map(c=>[c.key,c.agent]),[['group:111',true],['group:222',true],['private:333',false]]);
 });
+test('the console edits engine settings only through an allow-list, and save keeps the rest of ai',async()=>{
+  const sent=[];const control=new RuntimeControl({runtime:'.',integrations:{}});
+  const status={connected:true,running:true,busy:false,contacts:[{key:'group:1',name:'甲',number:'1',group:true},{key:'private:2',name:'乙',number:'2',group:false}],
+    config:{targets:[{number:'1',name:'甲',group:true,enabled:true}],ai:{model:'m',maxTokens:2000,prompt:'p',dailyLimit:10,cooldownSeconds:2,sendLimits:{daily:5,perChatDaily:3,globalIntervalSeconds:3},workHoursEnabled:false},memoryEnabled:true,visionEnabled:true},
+    personalities:[{id:'teasing',name:'雌小鬼'}],persona:{style:'teasing'},memoryOptions:{},stickers:[{id:'a',title:'t',emotion:'joy',file:'x.png',sha256:'h'}],imageCredentials:{zhipu:true}};
+  control.panel=async(action,values)=>{if(action)sent.push([action,values]);return status;};
+  const state=await control.engineState();
+  assert.deepEqual(state.contacts.map(c=>c.key),['private:2']); // already on the list: not offered again
+  assert.equal(state.stickers[0].file,undefined);assert.equal(state.imageCredentials.zhipu,true);
+  await assert.rejects(control.engineAction('connect',{}),/不支持/);
+  await assert.rejects(control.engineAction('disconnect',{}),/不支持/);
+  await control.engineAction('save',{ai:{dailyLimit:50,sendLimits:{daily:9}},endpoint:'ws://evil',enabled:['group:1']});
+  assert.deepEqual(sent.at(-1),['save',{enabled:['group:1'],ai:{model:'m',maxTokens:2000,prompt:'p',dailyLimit:50,cooldownSeconds:2,sendLimits:{daily:9,perChatDaily:3,globalIntervalSeconds:3},workHoursEnabled:false}}]);
+  await control.engineAction('resetMemory',{target:'group:1'});
+  assert.deepEqual(sent.at(-1),['resetMemory',{target:'group:1'}]);
+});
+test('voice settings keep the key to themselves and call the speech endpoint with the chosen voice',async()=>{
+  const {VoiceSettings}=await import('../bridge/voice.mjs');
+  const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
+  const runtime=await fs.mkdtemp(path.join(os.tmpdir(),'voice-'));
+  const calls=[];
+  const voice=await new VoiceSettings({runtime,fetcher:async(url,init)=>{calls.push([url,JSON.parse(init.body),init.headers.Authorization]);return new Response(Buffer.alloc(500,1),{status:200});}}).load();
+  await assert.rejects(voice.update({enabled:true}),/API Key/);
+  await assert.rejects(voice.update({baseUrl:'http://example.com'}),/https/);
+  const view=await voice.update({enabled:true,apiKey:'sk-test-voice',voice:'nova',speed:1.2});
+  assert.equal(view.keySet,true);assert.equal(view.apiKey,undefined);assert.equal(voice.ready,true);
+  const audio=await voice.speak('你好呀');
+  assert.equal(audio.length,500);
+  assert.equal(calls[0][0],'https://api.openai.com/v1/audio/speech');
+  assert.equal(calls[0][1].voice,'nova');assert.equal(calls[0][1].speed,1.2);assert.ok(calls[0][1].instructions);
+  assert.equal(calls[0][2],'Bearer sk-test-voice');
+  const reloaded=await new VoiceSettings({runtime}).load();assert.equal(reloaded.ready,true);
+  await voice.update({clearKey:true});assert.equal(voice.ready,false);
+  await fs.rm(runtime,{recursive:true,force:true});
+});

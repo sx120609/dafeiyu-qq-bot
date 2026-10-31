@@ -10,9 +10,59 @@ export class RuntimeControl{
     const status=await statusResponse.json();if(!action)return status;
     const payload={action,...values,configurationRevision:status.configurationRevision};
     if(action==='start'){payload.durationMinutes=0;payload.singleReply=false;}
-    const response=await fetch(base+'/api/action',{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)});
+    const route=action==='importSticker'?'/api/import-sticker':'/api/action';
+    const response=await fetch(base+route,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)});
     const data=await response.json();if(!response.ok||data.error)throw new Error(data.error||'机器人操作失败');
     return data;
+  }
+  // Everything the console's chat, persona, image and limit pages read, in one call. No credentials: only
+  // whether each one is loaded.
+  async engineState(){
+    const s=await this.panel(),c=s.config,key=t=>(t.group?'group:':'private:')+t.number;
+    const targets=new Set(c.targets.map(key));
+    return {connected:s.connected,running:s.running,busy:s.busy,
+      targets:c.targets.map(t=>({key:key(t),name:t.name,number:t.number,group:t.group,enabled:t.enabled,personaStyle:t.personaStyle||null})),
+      contacts:(s.contacts||[]).filter(x=>!targets.has(x.key)).map(x=>({key:x.key,name:x.name,number:x.number,group:x.group})),
+      personalities:s.personalities||[],persona:s.persona,
+      ai:{prompt:c.ai.prompt,dailyLimit:c.ai.dailyLimit,cooldownSeconds:c.ai.cooldownSeconds,sendLimits:c.ai.sendLimits||{},workHoursEnabled:!!c.ai.workHoursEnabled,workStart:c.ai.workStart,workEnd:c.ai.workEnd},
+      calls:s.calls,confirmed:s.confirmed,
+      memoryEnabled:!!c.memoryEnabled,memoryOptions:s.memoryOptions,memories:s.memories||[],memoryStatus:s.memoryStatus,
+      stickers:(s.stickers||[]).map(x=>({id:x.id,title:x.title,emotion:x.emotion,context:x.context,source:x.source,author:x.author,license:x.license,local:x.local})),
+      visionEnabled:!!c.visionEnabled,visualTools:s.visualTools,googleVisionCredential:!!s.googleVisionCredential,visualStatus:s.visualStatus,
+      imageGeneration:s.imageGeneration,imageCredentials:s.imageCredentials||{},imageGenerationStatus:s.imageGenerationStatus,
+      artwork:s.artwork,artworkArtists:s.artworkArtists||[],artworkStatus:s.artworkStatus,artworkNetworkCalls:s.artworkNetworkCalls,artworkConfirmed:s.artworkConfirmed,
+      supportsKeychain:s.supportsKeychain!==false};
+  }
+  async engineAction(action,values={}){
+    const allowed=['add','remove','setPersona','save','resetMemory','saveArtwork','addArtworkArtist','removeArtworkArtist','saveImageGeneration','saveVisualTools','importSticker'];
+    if(!allowed.includes(action))throw new Error('不支持的操作');
+    if(action==='save'){
+      // Only the parts the console edits; ai is merged over the engine's own so its model settings stay.
+      const current=(await this.panel()).config,next={};
+      if(Array.isArray(values.enabled))next.enabled=values.enabled;
+      if(values.persona&&typeof values.persona==='object')next.persona=values.persona;
+      if(values.ai&&typeof values.ai==='object')next.ai={...current.ai,...values.ai,sendLimits:{...(current.ai.sendLimits||{}),...(values.ai.sendLimits||{})}};
+      if(values.memoryOptions&&typeof values.memoryOptions==='object')next.memoryOptions=values.memoryOptions;
+      values=next;
+    }
+    await this.panel(action,values,{timeout:action==='importSticker'?60000:20000});
+    return this.engineState();
+  }
+  async stickerImage(id){
+    const {base,token}=await this.integrations.botTarget();
+    const response=await fetch(base+'/api/sticker/'+encodeURIComponent(id),{headers:{'X-QQ-Control':token},signal:AbortSignal.timeout(10000)});
+    if(!response.ok)throw new Error('图片不可用');
+    return {type:response.headers.get('content-type')||'image/png',body:Buffer.from(await response.arrayBuffer())};
+  }
+  // The Xiaohongshu / Bilibili panel runs on its own loopback address; the console only opens it.
+  async socialPanel(platform){
+    if(!['xiaohongshu','bilibili'].includes(platform))throw new Error('未知平台');
+    const {base,token}=await this.integrations.botTarget();
+    const response=await fetch(base+'/api/social-panel',{method:'POST',headers:{'X-QQ-Control':token,Origin:base,'Content-Type':'application/json'},body:JSON.stringify({platform}),signal:AbortSignal.timeout(20000)});
+    if(!response.ok)throw new Error('社交平台面板没能打开');
+    const {url}=await response.json(),parsed=new URL(url);
+    if(parsed.protocol!=='http:'||parsed.hostname!=='127.0.0.1')throw new Error('社交平台面板地址无效');
+    return {url};
   }
   async napcat(action){return this.execute('/usr/bin/sudo',['-n','/usr/local/bin/dafeiyu-qq-runtime',action],'',{timeout:45000});}
   async engine(action){return this.execute('/usr/bin/systemctl',['--user',action,'dafeiyu-bot.service'],'',{timeout:30000});}
@@ -81,7 +131,7 @@ export class RuntimeControl{
       const key=t=>(t.group?'group:':'private:')+t.number;
       const levels=c.agentLevels||{};
       return {forAll,chats:c.targets.map(t=>({key:key(t),name:t.name,group:t.group,enabled:t.enabled,agent:forAll?!classic.has(key(t)):agentSet.has(key(t)),level:levels[key(t)]||'standard'})),
-        states:status.agentStates||[],turns:status.agentTurns||[],running:status.running,connected:status.connected};
+        states:status.agentStates||[],turns:status.agentTurns||[],reminders:status.agentReminders||[],running:status.running,connected:status.connected};
     };
     if(!settings)return view(await this.panel());
     const chats=new Set((await this.panel()).config.targets.map(t=>(t.group?'group:':'private:')+t.number));

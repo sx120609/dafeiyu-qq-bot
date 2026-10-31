@@ -9,7 +9,11 @@ const pages={
   features:['功能开关','打开或关闭机器人的能力，保存后立即生效'],
   moderation:['管理员与黑名单','谁能管机器人，谁不理'],
   qq:['QQ 登录','NapCat 管理页，扫码登录机器人的 QQ'],
-  panel:['会话与详细设置','原项目面板：会话范围、性格、额度、图片、记忆'],
+  chats:['会话','在哪些好友和群里说话，各自用什么方式、权限和性格'],
+  persona:['人设与表情','默认性格、说话长短、表情库'],
+  images:['图片与插画','识图、画图和 Pixiv 插画的细节设置'],
+  voice:['语音','用 OpenAI 的语音模型让它发语音'],
+  limits:['记忆与额度','每天能用多少、什么时段回复，以及各会话记得的东西'],
   activity:['浏览记录','机器人实际读过的公开内容'],
   settings:['设置','控制台密码与开机自启']
 };
@@ -96,7 +100,7 @@ $('login-form').onsubmit=event=>{
 $('logout').onclick=async()=>{try{await api('auth/logout',{});}catch{}current=null;boot();};
 
 /* Routing */
-const dirty=()=>({features:!$('feature-bar').hidden,moderation:!$('moderation-bar').hidden,model:modelDirty}[current]);
+const dirty=()=>({features:!$('feature-bar').hidden,moderation:!$('moderation-bar').hidden,model:modelDirty,chats:chatsDirty}[current]);
 function route(){
   let page=location.hash.slice(1);if(!pages[page])page='overview';
   if(current===page)return;
@@ -106,7 +110,7 @@ function route(){
   $('page-title').textContent=pages[page][0];$('page-sub').textContent=pages[page][1];
   renderPageActions();
   const enter={overview:refreshOverview,usage:enterUsage,model:enterModel,agent:enterAgent,chat:enterChat,features:enterFeatures,moderation:enterModeration,
-    qq:()=>openEmbed('qq'),panel:()=>openEmbed('panel'),activity:enterActivity,settings:enterSettings}[page];
+    qq:()=>openEmbed('qq'),chats:enterChats,persona:enterPersona,images:enterImages,voice:enterVoice,limits:enterLimits,activity:enterActivity,settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
   schedulePolling();
 }
@@ -115,7 +119,7 @@ window.addEventListener('hashchange',()=>{
   const leaving=current;
   if(dirty()){
     if(!confirm('当前页面有未保存的改动，确定离开吗？')){history.replaceState(null,'','#'+leaving);return;}
-    modelDirty=false;$('feature-bar').hidden=true;$('moderation-bar').hidden=true;
+    modelDirty=false;chatsDirty=false;$('feature-bar').hidden=true;$('moderation-bar').hidden=true;
   }
   route();
 });
@@ -124,7 +128,6 @@ function renderPageActions(){
   const button=(label,handler,name,kind='btn small ghost')=>{const b=el('button',{type:'button',className:kind},...(name?[icon(name)]:[]),label);b.onclick=()=>busy(b,handler);actions.append(b);};
   if(current==='features')button('全部开启',async()=>{for(const f of features)if(f.available)featureDraft[f.id]=true;renderFeatures();},null,'btn small');
   if(current==='qq'){button('重新连接',()=>openEmbed('qq',true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
-  if(current==='panel'){button('刷新',()=>openEmbed('panel',true),'refresh');button('新窗口打开',async()=>window.open('/bot/','_blank','noopener'),'ext');}
   if(['activity','usage','chat'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,chat:enterChat}[current],'refresh');
 }
 
@@ -501,15 +504,19 @@ $('routes-form').onsubmit=event=>{
 let timing=null,reactions=null,outreach=null;
 async function enterChat(){await Promise.all([loadTiming(),loadReactions(),loadOutreach()]);}
 /* Agent mode page */
-let agentData=null,agentDirty=false;
+let agentData=null;
 const agentDecisions={reply:['回复','ok'],silence:['没出声',''],wait:['等一等','accent'],failed:['出错','bad'],thinking:['正在想','warn']};
-const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人'};
+const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来'};
 const levelNames={basic:'基础',standard:'标准',full:'完全'};
-async function enterAgent(){agentDirty=false;await refreshAgent();renderAgentForm();}
+async function enterAgent(){await refreshAgent();}
 async function refreshAgent(){
   agentData=await api('agent');
-  renderAgentStats();renderAgentStates();renderAgentFilters();renderAgentTurns();
-  if(!agentDirty)renderAgentForm();
+  renderAgentStats();renderAgentStates();renderAgentReminders();renderAgentFilters();renderAgentTurns();
+}
+function renderAgentReminders(){
+  const rows=(agentData.reminders||[]).map(r=>el('div',{className:'state-row'},el('span',{className:'name',title:r.chat+'：'+r.about},r.about),
+    el('span',{className:'muted small'},r.chat+' · '+clock(r.due))));
+  $('agent-reminders').replaceChildren(...(rows.length?rows:[el('p',{className:'empty'},'没有。有人让它过一会儿提醒或回访时会出现在这里。')]));
 }
 function renderAgentStats(){
   const states=agentData.states||[],turns=agentData.turns||[],hour=Date.now()/1000-3600;
@@ -558,26 +565,6 @@ function renderAgentTurns(){
   }):[el('p',{className:'empty'},chat||kind?'没有符合条件的记录。':'还没有记录。会话里有新消息时它会看。')]));
 }
 $('agent-filter-chat').onchange=renderAgentTurns;$('agent-filter-kind').onchange=renderAgentTurns;
-function renderAgentForm(){
-  $('agent-all').checked=agentData.forAll;
-  $('agent-chats').replaceChildren(...(agentData.chats.length?agentData.chats.map(chat=>{
-    const box=el('input',{type:'checkbox',checked:chat.agent});box.dataset.key=chat.key;box.setAttribute('aria-label','用代理模式：'+chat.name);
-    const level=el('select',{});level.dataset.key=chat.key;level.setAttribute('aria-label','权限：'+chat.name);
-    level.append(...Object.entries(levelNames).map(([value,name])=>el('option',{value,selected:value===chat.level},name)));
-    level.disabled=!chat.agent;box.onchange=()=>{level.disabled=!box.checked;agentDirty=true;};level.onchange=()=>{agentDirty=true;};
-    return el('div',{className:'state-row'+(chat.enabled?'':' idle')},el('label',{className:'name'},box,el('span',{title:chat.name},(chat.group?'群 · ':'好友 · ')+chat.name)),level);
-  }):[el('p',{className:'empty'},'名单里还没有会话。')]));
-}
-$('agent-all').onchange=()=>{agentDirty=true;if($('agent-all').checked)for(const box of $$('#agent-chats input[type=checkbox]')){box.checked=true;box.dispatchEvent(new Event('change'));}};
-$('agent-form').onsubmit=event=>{
-  event.preventDefault();
-  busy($('agent-save'),async()=>{
-    const boxes=$$('#agent-chats input[type=checkbox]'),forAll=$('agent-all').checked;
-    const levels=Object.fromEntries($$('#agent-chats select').map(s=>[s.dataset.key,s.value]));
-    agentData=await api('agent',{forAll,agent:boxes.filter(b=>b.checked).map(b=>b.dataset.key),classic:forAll?boxes.filter(b=>!b.checked).map(b=>b.dataset.key):[],levels});
-    agentDirty=false;renderAgentForm();renderAgentStates();renderAgentStats();toast('已保存，下一批消息起生效');
-  });
-};
 async function loadTiming(){
   try{timing=await api('timing');}catch(error){setDisabled($('timing-form'),true);setDisabled($('legacy-form'),true);toast(error.message,true);return;}
   setDisabled($('timing-form'),false);
@@ -713,11 +700,258 @@ $('moderation-save').onclick=()=>busy($('moderation-save'),async()=>{
   moderation={...moderation,...result};moderationDraft={admins:[...result.admins],blocked:[...result.blocked]};renderModeration();toast('名单已保存，立即生效');
 });
 
-/* Embedded NapCat and bot panel, full size inside the console */
+/* Engine settings: chats, persona and stickers, pictures, limits and memory */
+let engine=null,chatsDirty=false;
+const loadEngine=async()=>(engine=await api('engine'));
+const engineAction=async(action,values={})=>(engine=await api('engine',{action,...values},{timeout:action==='importSticker'?70000:30000}));
+const chatLabelOf=t=>(t.group?'群 · ':'好友 · ')+t.name;
+const confirmed=message=>confirm(message);
+const numberOf=id=>{const input=$(id);if(!input.checkValidity()){input.reportValidity();throw new Error('');}return Number(input.value);};
+async function guarded(button,task){return busy(button,async()=>{try{await task();}catch(error){if(error.message)throw error;}});}
+
+async function enterChats(){chatsDirty=false;await Promise.all([loadEngine(),api('agent').then(d=>agentData=d)]);renderChats();}
+function renderChats(){
+  $('chats-agent-all').checked=agentData.forAll;
+  const modes=new Map(agentData.chats.map(c=>[c.key,c]));
+  const styles=[{id:'',name:'跟随默认'},...engine.personalities];
+  $('chats-rows').replaceChildren(...(engine.targets.length?engine.targets.map(t=>{
+    const agent=modes.get(t.key)||{agent:false,level:'standard'};
+    const enabled=el('input',{type:'checkbox',checked:t.enabled});enabled.dataset.key=t.key;enabled.className='chat-enabled';enabled.setAttribute('aria-label','启用：'+t.name);
+    const mode=el('select',{className:'chat-mode'},el('option',{value:'agent',selected:agent.agent},'代理'),el('option',{value:'classic',selected:!agent.agent},'旧流程'));mode.dataset.key=t.key;
+    const level=el('select',{className:'chat-level',disabled:!agent.agent},...Object.entries(levelNames).map(([v,n])=>el('option',{value:v,selected:v===agent.level},n)));level.dataset.key=t.key;
+    const style=el('select',{className:'chat-style'},...styles.map(s=>el('option',{value:s.id,selected:s.id===(t.personaStyle||''),title:s.description||''},s.name)));style.dataset.key=t.key;
+    for(const input of [enabled,mode,level,style])input.addEventListener('change',()=>{chatsDirty=true;level.disabled=mode.value!=='agent';});
+    const reset=el('button',{type:'button',className:'btn small ghost'},'清空记忆');
+    reset.onclick=()=>{if(confirmed(`清空「${t.name}」的上下文和长期记忆？其他会话不受影响，机器人不会暂停。`))busy(reset,async()=>{await engineAction('resetMemory',{target:t.key});toast('已清空');});};
+    const remove=el('button',{type:'button',className:'btn small ghost danger'},'移除');
+    remove.onclick=()=>{if(confirmed(`把「${t.name}」移出名单？之后不再在这里说话，可以随时加回来。`))busy(remove,async()=>{await engineAction('remove',{target:t.key});await enterChats();toast('已移除');});};
+    return el('tr',{},el('td',{},enabled),el('td',{},el('strong',{},chatLabelOf(t)),el('small',{className:'muted block'},t.number)),el('td',{},mode),el('td',{},level),el('td',{},style),el('td',{className:'row-actions'},reset,remove));
+  }):[el('tr',{},el('td',{colSpan:6,className:'empty'},'名单是空的，从下面添加。'))]));
+  renderContacts();
+}
+function renderContacts(){
+  const query=$('chats-search').value.trim().toLowerCase();
+  const rows=engine.contacts.filter(c=>!query||c.name.toLowerCase().includes(query)||c.number.includes(query)).slice(0,20).map(c=>{
+    const add=el('button',{type:'button',className:'btn small'},'添加');
+    add.onclick=()=>busy(add,async()=>{await engineAction('add',{target:c.key});await enterChats();toast(`已添加「${c.name}」，记得勾选启用后保存`);});
+    return el('div',{className:'state-row'},el('span',{className:'name'},chatLabelOf(c),el('small',{className:'muted'},' '+c.number)),add);
+  });
+  $('chats-contacts').replaceChildren(...(rows.length?rows:[el('p',{className:'empty'},query?'没有匹配的好友或群。':'好友和群都已经在名单里了。')]));
+}
+$('chats-search').addEventListener('input',()=>engine&&renderContacts());
+$('chats-agent-all').onchange=()=>{chatsDirty=true;if($('chats-agent-all').checked)for(const s of $$('#chats-rows .chat-mode')){s.value='agent';s.dispatchEvent(new Event('change'));}};
+$('chats-form').onsubmit=event=>{
+  event.preventDefault();
+  busy($('chats-save'),async()=>{
+    const enabled=$$('#chats-rows .chat-enabled').filter(x=>x.checked).map(x=>x.dataset.key);
+    const modes=$$('#chats-rows .chat-mode'),forAll=$('chats-agent-all').checked;
+    const levels=Object.fromEntries($$('#chats-rows .chat-level').map(s=>[s.dataset.key,s.value]));
+    await engineAction('save',{enabled});
+    agentData=await api('agent',{forAll,agent:modes.filter(s=>s.value==='agent').map(s=>s.dataset.key),classic:forAll?modes.filter(s=>s.value!=='agent').map(s=>s.dataset.key):[],levels});
+    for(const select of $$('#chats-rows .chat-style')){
+      const target=engine.targets.find(t=>t.key===select.dataset.key);
+      if(target&&(target.personaStyle||'')!==select.value)await engineAction('setPersona',{target:target.key,personaStyle:select.value||'default'});
+    }
+    chatsDirty=false;await enterChats();toast('已保存，下一批消息起生效');
+  });
+};
+
+/* Persona and stickers */
+const personaPresets={chat:'你是轻松自然的聊天搭子，认真接住对方的话，通常一两句。可以接梗，但不写动作描写、不套客服语气。',gentle:'你是温柔耐心的陪伴者，先理解再回应，不说教、不强行安慰，不编造亲密关系。熟悉后可以轻轻开玩笑。',banter:'你是嘴快但讲道理的游戏搭子，抓当前话题里的具体矛盾俏皮吐槽，承认自己答错；不攻击身份、身体或家人，认真求助时收起玩笑。'};
+const emotionNames={neutral:'平静',joy:'开心',smug:'得意',annoyed:'不满',sad:'难过',sleepy:'困倦',flustered:'害羞',teasing:'调侃'};
+let stickerShown=0;
+async function enterPersona(){await loadEngine();renderPersona();stickerShown=0;renderStickers();}
+function renderPersona(){
+  const p=engine.persona;
+  $('persona-style').replaceChildren(...engine.personalities.map(s=>el('option',{value:s.id,selected:s.id===(p.style||'teasing')},s.name)));
+  $('persona-max').value=p.maxCharacters;$('persona-banter').value=String(p.banter??1);
+  $('persona-custom-name').value=p.customName||'';$('persona-custom-prompt').value=p.customPrompt||'';
+  $('persona-notes').value=engine.ai.prompt||'';
+  fillSelect($('persona-repeat'),[6,12,24,48,72,168],v=>v<24?`${v} 小时`:`${v/24} 天`,p.stickerRepeatHours??24);
+  $('persona-every').value=p.stickerEveryReplies??3;$('persona-interval').value=p.stickerIntervalSeconds??180;
+  $('persona-trigger').value=p.stickerTrigger||'contextual';
+  syncPersonaFields();
+}
+function syncPersonaFields(){
+  const style=$('persona-style').value,item=engine.personalities.find(s=>s.id===style);
+  $('persona-style-help').textContent=item?.description||'';
+  $('persona-custom').hidden=style!=='custom';$('persona-banter-row').hidden=style!=='teasing';
+  const trigger=$('persona-trigger').value,p=engine.persona;
+  $('persona-trigger-values').disabled=trigger==='contextual';
+  $('persona-trigger-values').value=trigger==='emotions'?(p.stickerEmotions||[]).map(e=>emotionNames[e]||e).join('，'):trigger==='keywords'?(p.stickerKeywords||[]).join('，'):'';
+  $('persona-trigger-help').textContent=trigger==='emotions'?'可用：'+Object.values(emotionNames).join('、'):trigger==='keywords'?'收到其中任何一个词时配图':'';
+}
+$('persona-style').onchange=syncPersonaFields;$('persona-trigger').onchange=syncPersonaFields;
+document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{$('persona-custom-prompt').value=personaPresets[b.dataset.preset];});
+$('persona-form').onsubmit=event=>{
+  event.preventDefault();
+  guarded($('persona-save'),async()=>{
+    const trigger=$('persona-trigger').value,values=$('persona-trigger-values').value.split(/[,，、\s]+/).map(s=>s.trim()).filter(Boolean);
+    const byName=Object.fromEntries(Object.entries(emotionNames).map(([k,v])=>[v,k]));
+    if($('persona-style').value==='custom'&&!$('persona-custom-prompt').value.trim())throw new Error('自定义性格要写说明');
+    const persona={...engine.persona,style:$('persona-style').value,maxCharacters:numberOf('persona-max'),banter:Number($('persona-banter').value),
+      customName:$('persona-custom-name').value.trim(),customPrompt:$('persona-custom-prompt').value.trim(),stickerRepeatHours:Number($('persona-repeat').value),
+      stickerEveryReplies:numberOf('persona-every'),stickerIntervalSeconds:numberOf('persona-interval'),stickerTrigger:trigger,
+      stickerEmotions:trigger==='emotions'?values.map(v=>byName[v]||v).filter(v=>emotionNames[v]):engine.persona.stickerEmotions,
+      stickerKeywords:trigger==='keywords'?values:engine.persona.stickerKeywords};
+    await engineAction('save',{persona,ai:{prompt:$('persona-notes').value}});renderPersona();toast('已保存');
+  });
+};
+function renderStickers(){
+  const items=engine.stickers,local=items.filter(s=>s.local).length;
+  $('stickers-summary').textContent=`共 ${items.length} 张（自带 ${items.length-local}，本机导入 ${local}）。聊天时由模型按画面和语境挑。`;
+  if(stickerShown===0)$('stickers-grid').replaceChildren();
+  const next=items.slice(stickerShown,stickerShown+24);
+  $('stickers-grid').append(...next.map(s=>el('figure',{className:'sticker',title:[s.context,s.author,s.license].filter(Boolean).join(' · ')},
+    el('img',{src:'/console/api/engine/sticker/'+encodeURIComponent(s.id),alt:s.title,loading:'lazy'}),
+    el('figcaption',{},el('span',{},s.title),el('small',{className:'muted'},(emotionNames[s.emotion]||s.emotion)+(s.local?' · 本机':''))))));
+  stickerShown+=next.length;$('stickers-more').hidden=stickerShown>=items.length;
+}
+$('stickers-more').onclick=renderStickers;
+// A sticker pack carries only descriptions and pictures; nothing in it can act.
+async function readStickerPack(file){
+  if(!file||file.size<1||file.size>24000000)throw new Error('资源包最多 24 MB。');
+  const pack=JSON.parse(await file.text());
+  if(pack?.format!=='dafeiyu-stickers'||pack.version!==1||!Array.isArray(pack.items)||pack.items.length<1||pack.items.length>50)throw new Error('请选择有效的表情资源包，每包 1–50 张。');
+  return pack.items.map(item=>{
+    if(!item||!emotionNames[item.emotion]||typeof item.title!=='string'||!item.title.trim()||typeof item.imageBase64!=='string')throw new Error('资源包内容无效。');
+    const sticker={publicSharing:false};for(const key of ['title','emotion','context','source','author','license'])sticker[key]=String(item[key]??'');
+    return {name:item.title,payload:{sticker,stickerImage:item.imageBase64}};
+  });
+}
+$('sticker-import').onclick=()=>busy($('sticker-import'),async()=>{
+  const files=[...$('sticker-files').files],status=$('sticker-import-status');
+  if(!files.length||files.length>50)throw new Error('每次选 1–50 张图片，或一个资源包');
+  const pack=files.some(f=>f.name.toLowerCase().endsWith('.json'));
+  if(pack&&files.length!==1)throw new Error('资源包请单独导入');
+  const meta={emotion:$('sticker-emotion').value,context:$('sticker-context').value.trim(),author:$('sticker-author').value.trim(),license:$('sticker-license').value.trim(),source:$('sticker-source').value.trim(),publicSharing:$('sticker-public').checked};
+  const jobs=pack?await readStickerPack(files[0]):await Promise.all(files.map(async file=>{
+    if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>3000000)throw new Error(file.name+'：需要 3 MB 内的 PNG/JPEG/WebP');
+    const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+    return {name:file.name,payload:{sticker:{...meta,title:file.name.replace(/\.[^.]+$/,'').slice(0,80)},stickerImage:btoa(binary)}};
+  }));
+  let done=0;const failures=[];
+  for(const job of jobs){
+    try{await engineAction('importSticker',job.payload);done++;}catch(error){failures.push(job.name+'：'+error.message);}
+    status.textContent=`已导入 ${done} / ${jobs.length} 张`;
+  }
+  status.textContent=`已导入 ${done} 张。`+(failures.length?'\n'+failures.join('\n'):'');
+  if(!failures.length)$('sticker-files').value='';
+  stickerShown=0;renderStickers();
+});
+
+/* Pictures: vision, drawing, artwork */
+async function enterImages(){await loadEngine();renderImages();}
+/* Voice page */
+let voiceConfig=null;
+async function enterVoice(){voiceConfig=await api('voice');renderVoice();}
+function renderVoice(){
+  const v=voiceConfig;
+  $('voice-enabled').checked=v.enabled;$('voice-key').value='';
+  $('voice-key-state').textContent=v.keySet?'已保存一个 Key（不会显示出来）':'还没有 Key';
+  $('voice-base').value=v.baseUrl;$('voice-model').value=v.model;$('voice-speed').value=v.speed;$('voice-style').value=v.instructions;
+  fillSelect($('voice-voice'),v.voices.includes(v.voice)?v.voices:[v.voice,...v.voices],x=>x,v.voice);
+  $('voice-status').textContent=v.enabled&&v.keySet?'已打开：代理模式的会话里它可以发语音。':v.keySet?'已有 Key，还没打开。':'填上 OpenAI API Key 并打开后，它就能发语音。';
+  $('voice-clear').hidden=!v.keySet;
+}
+const voiceValues=()=>({enabled:$('voice-enabled').checked,apiKey:$('voice-key').value,baseUrl:$('voice-base').value,model:$('voice-model').value,
+  voice:$('voice-voice').value,speed:Number($('voice-speed').value),instructions:$('voice-style').value});
+$('voice-form').onsubmit=async event=>{event.preventDefault();
+  try{voiceConfig=await api('voice',voiceValues());renderVoice();toast('语音设置已保存');}catch(error){toast(error.message,true);}};
+$('voice-clear').onclick=async()=>{if(!confirm('删除已保存的 API Key？语音会随之关闭。'))return;
+  try{voiceConfig=await api('voice',{clearKey:true});renderVoice();toast('已删除');}catch(error){toast(error.message,true);}};
+$('voice-test').onclick=async()=>{
+  const button=$('voice-test');button.disabled=true;button.textContent='合成中…';
+  try{
+    // Unsaved edits are saved first, so the preview uses what is on screen.
+    voiceConfig=await api('voice',{...voiceValues(),enabled:voiceConfig.enabled&&$('voice-enabled').checked});renderVoice();
+    const result=await api('voice/test',{text:$('voice-sample').value},{timeout:70000});
+    const player=$('voice-player');player.src='data:'+result.type+';base64,'+result.audio;player.hidden=false;player.play().catch(()=>{});
+  }catch(error){toast(error.message,true);}
+  finally{button.disabled=false;button.textContent='试听';}
+};
+function renderImages(){
+  const v=engine.visualTools||{},g=engine.imageGeneration||{},c=engine.imageCredentials||{},a=engine.artwork||{};
+  $('vision-provider').value=v.provider||'deepseek';$('vision-google').checked=!!v.googleWebEnabled;
+  $('vision-google-state').textContent=engine.googleVisionCredential?'已载入 Google 凭证':'还没有 Google 凭证';
+  $('vision-status').textContent=(engine.visionEnabled?'识图已开。':'识图在「功能开关」里关着。')+(engine.visualStatus&&!engine.visualStatus.startsWith('尚未')?' '+engine.visualStatus:'');
+  $('draw-primary').value=g.primary||'codex';$('draw-fallback').checked=g.fallbackEnabled!==false;$('draw-account').value=g.cloudflareAccountID||'';
+  $('draw-credentials').textContent=`已载入：智谱 ${c.zhipu?'有':'没有'}，Cloudflare ${c.cloudflare?'有':'没有'}，本机 Codex ${c.codex?'有':'没有'}`;
+  $('draw-status').textContent=(g.enabled?'画图已开。':'画图在「功能开关」里关着。')+(engine.imageGenerationStatus&&!engine.imageGenerationStatus.startsWith('尚未')?' '+engine.imageGenerationStatus:'');
+  for(const id of ['vision-persist','draw-persist']){$(id).disabled=!engine.supportsKeychain;if(!engine.supportsKeychain)$(id).checked=false;}
+  $('art-agent').checked=!!a.agentEnabled;
+  for(const [id,key] of Object.entries({'art-daily':'dailyPerChat','art-network':'networkDailyLimit','art-repeat':'repeatDays','art-bookmarks':'searchMinBookmarks','art-hour':'scheduleHour','art-minute':'scheduleMinute','art-long':'minLongEdge','art-short':'minShortEdge'}))$(id).value=a[key]??'';
+  $('art-frequency').value=a.scheduleFrequency||'daily';$('art-mode').value=a.scheduleMode||'hot';$('art-zone').value=a.scheduleTimeZone||'Asia/Shanghai';
+  $('art-hour').disabled=$('art-frequency').value==='hourly';
+  $('art-permissions').value=Object.entries(a.imagePermissions||{}).map(([id,url])=>`${id} ${url}`).join('\n');
+  $('art-status').textContent=(a.enabled?'找插画已开':'找插画在「功能开关」里关着')+'，定时分享'+(a.scheduleEnabled?'已开':'关着')+'。'+(engine.artworkStatus&&!engine.artworkStatus.startsWith('插画尚未')?` ${engine.artworkStatus} · 今天请求来源 ${engine.artworkNetworkCalls} 次`:'');
+  $('art-targets').replaceChildren(...engine.targets.map(t=>{const box=el('input',{type:'checkbox',value:t.key,checked:(a.scheduleTargets||[]).includes(t.key)});
+    return el('label',{className:'check-item'},box,el('span',{},chatLabelOf(t)+(t.enabled?'':'（没启用，不会发）')));}));
+  $('art-artists').replaceChildren(...(engine.artworkArtists.length?engine.artworkArtists.map(artist=>{
+    const remove=el('button',{type:'button',className:'btn small ghost danger'},'移除');
+    remove.onclick=()=>busy(remove,async()=>{await engineAction('removeArtworkArtist',{artistInput:artist.id});renderImages();});
+    return el('div',{className:'state-row'},el('span',{className:'name'},el('a',{href:'https://www.pixiv.net/users/'+artist.id,target:'_blank',rel:'noreferrer'},`${artist.name}（${artist.id}）`),el('small',{className:'muted'},' '+(artist.deliveryStatus||''))),remove);
+  }):[el('p',{className:'empty'},'还没有精选画师。')]));
+}
+$('art-frequency').onchange=()=>{$('art-hour').disabled=$('art-frequency').value==='hourly';};
+$('vision-form').onsubmit=event=>{event.preventDefault();busy($('vision-save'),async()=>{
+  await engineAction('saveVisualTools',{visualTools:{...engine.visualTools,provider:$('vision-provider').value,googleWebEnabled:$('vision-google').checked},googleVisionKey:$('vision-google-key').value,persistVisualCredentials:$('vision-persist').checked});
+  $('vision-google-key').value='';renderImages();toast('已保存');});};
+$('draw-form').onsubmit=event=>{event.preventDefault();busy($('draw-save'),async()=>{
+  await engineAction('saveImageGeneration',{imageGeneration:{...engine.imageGeneration,primary:$('draw-primary').value,fallbackEnabled:$('draw-fallback').checked,cloudflareAccountID:$('draw-account').value.trim()},
+    zhipuKey:$('draw-zhipu').value,cloudflareToken:$('draw-cloudflare').value,persistImageCredentials:$('draw-persist').checked});
+  $('draw-zhipu').value='';$('draw-cloudflare').value='';renderImages();toast('已保存');});};
+$('art-artist-add').onclick=()=>busy($('art-artist-add'),async()=>{
+  const input=$('art-artist-input').value.trim();if(!input)throw new Error('填 Pixiv 主页链接或数字 ID');
+  await engineAction('addArtworkArtist',{artistInput:input});$('art-artist-input').value='';renderImages();toast('已添加');});
+$('art-form').onsubmit=event=>{event.preventDefault();guarded($('art-save'),async()=>{
+  const a=structuredClone(engine.artwork);
+  a.agentEnabled=$('art-agent').checked;
+  for(const [id,key] of Object.entries({'art-daily':'dailyPerChat','art-network':'networkDailyLimit','art-repeat':'repeatDays','art-bookmarks':'searchMinBookmarks','art-minute':'scheduleMinute','art-long':'minLongEdge','art-short':'minShortEdge'}))a[key]=numberOf(id);
+  if(!$('art-hour').disabled)a.scheduleHour=numberOf('art-hour');
+  a.scheduleFrequency=$('art-frequency').value;a.scheduleMode=$('art-mode').value;a.scheduleTimeZone=$('art-zone').value.trim()||'Asia/Shanghai';
+  a.scheduleTargets=$$('#art-targets input:checked').map(x=>x.value);
+  a.imagePermissions={};
+  for(const line of $('art-permissions').value.split('\n').map(x=>x.trim()).filter(Boolean)){const parts=line.split(/\s+/);if(parts.length!==2)throw new Error('授权每行写“画师 ID 空格 HTTPS 链接”');a.imagePermissions[parts[0]]=parts[1];}
+  await engineAction('saveArtwork',{artwork:a});renderImages();toast('已保存');});};
+
+/* Limits and memory */
+async function enterLimits(){await loadEngine();renderLimits();}
+function renderLimits(){
+  const ai=engine.ai,limits=ai.sendLimits||{},m=engine.memoryOptions||{};
+  $('limits-today').textContent=`今天已调用模型 ${engine.calls??0} 次，已发 ${engine.confirmed??0} 条。`;
+  $('limit-calls').value=ai.dailyLimit;$('limit-sends').value=limits.daily??100;$('limit-chat').value=limits.perChatDaily??30;$('limit-interval').value=limits.globalIntervalSeconds??3;$('limit-cooldown').value=ai.cooldownSeconds;
+  $('limit-hours').checked=ai.workHoursEnabled;fillSelect($('limit-start'),hours,hourLabel,ai.workStart??9);fillSelect($('limit-end'),hours,hourLabel,ai.workEnd??22);
+  $('limit-start').disabled=$('limit-end').disabled=!ai.workHoursEnabled;
+  $('memory-messages').value=m.messageThreshold;$('memory-characters').value=m.characterThreshold;$('memory-minutes').value=m.intervalMinutes;$('memory-budget').value=m.retrievalCharacters;
+  $('memory-state').textContent=(engine.memoryEnabled?'长期记忆已开。':'长期记忆在「功能开关」里关着。')+(engine.memoryStatus&&engine.memoryStatus!=='记忆等待新消息'?' '+engine.memoryStatus:'');
+  const names=Object.fromEntries(engine.targets.map(t=>[t.key,chatLabelOf(t)]));
+  $('memory-list').replaceChildren(...(engine.memories.length?engine.memories.map(mem=>{
+    const key=mem.key.split(':').slice(1).join(':'),reset=el('button',{type:'button',className:'btn small ghost danger'},'清空');
+    reset.onclick=()=>{if(confirmed(`清空「${names[key]||key}」的上下文和长期记忆？`))busy(reset,async()=>{await engineAction('resetMemory',{target:key});renderLimits();toast('已清空');});};
+    return el('details',{className:'memory-item'},el('summary',{},el('strong',{},names[key]||key),el('small',{className:'muted'},` ${mem.items??0} 条记忆 · ${mem.pending??0} 条待整理 · ${shortDate(mem.updatedAt)}`)),
+      el('p',{className:'small'},mem.summary||'（没有摘要）'),el('div',{className:'actions'},reset));
+  }):[el('p',{className:'empty'},'还没有记忆。')]));
+}
+$('limit-hours').onchange=()=>{$('limit-start').disabled=$('limit-end').disabled=!$('limit-hours').checked;};
+$('limits-form').onsubmit=event=>{event.preventDefault();guarded($('limits-save'),async()=>{
+  await engineAction('save',{ai:{dailyLimit:numberOf('limit-calls'),cooldownSeconds:numberOf('limit-cooldown'),workHoursEnabled:$('limit-hours').checked,workStart:Number($('limit-start').value),workEnd:Number($('limit-end').value),
+    sendLimits:{daily:numberOf('limit-sends'),perChatDaily:numberOf('limit-chat'),globalIntervalSeconds:numberOf('limit-interval')}}});renderLimits();toast('已保存');});};
+$('memory-form').onsubmit=event=>{event.preventDefault();guarded($('memory-save'),async()=>{
+  await engineAction('save',{memoryOptions:{messageThreshold:numberOf('memory-messages'),characterThreshold:numberOf('memory-characters'),intervalMinutes:numberOf('memory-minutes'),retrievalCharacters:numberOf('memory-budget')}});renderLimits();toast('已保存');});};
+
+/* Other platform panels, opened in a new window */
+document.querySelectorAll('[data-social]').forEach(button=>button.onclick=()=>busy(button,async()=>{
+  const tab=window.open('about:blank','_blank');
+  try{const {url}=await api('social',{platform:button.dataset.social});if(tab){tab.opener=null;tab.location.replace(url);}else location.assign(url);}
+  catch(error){tab?.close();throw error;}
+}));
+
+/* Embedded NapCat, full size inside the console */
 async function openEmbed(page,reload=false){
-  const frame=$(page==='qq'?'frame-qq':'frame-panel');
+  const frame=$('frame-qq');
   if(frame.src&&!reload)return;
-  const result=await api('integrations/open',{service:page==='qq'?'napcat':'bot'});
+  const result=await api('integrations/open',{service:'napcat'});
   frame.src=result.url+(reload?(result.url.includes('?')?'&':'?')+'r='+Date.now():'');
 }
 

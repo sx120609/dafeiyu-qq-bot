@@ -15,6 +15,7 @@ import {ConsoleAuth} from './auth.mjs';
 import {Autostart} from './autostart.mjs';
 import {UsageLedger} from './usage.mjs';
 import {ProviderBackoff,withDeadline} from './provider-health.mjs';
+import {VoiceSettings} from './voice.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
@@ -85,7 +86,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime})}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime})}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -138,7 +139,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     const pathname=new URL(req.url,origin).pathname;
     if(req.method==='GET'&&consoleAssets[pathname]){
       const filename=consoleAssets[pathname];
-      try{const data=await fs.readFile(path.join(root,'console',filename));res.writeHead(200,{'Content-Type':assetTypes[path.extname(filename)],'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",'Referrer-Policy':'no-referrer','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(data);}catch{send(404,{error:'控制台资源缺失'});}return;
+      try{const data=await fs.readFile(path.join(root,'console',filename));res.writeHead(200,{'Content-Type':assetTypes[path.extname(filename)],'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",'Referrer-Policy':'no-referrer','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(data);}catch{send(404,{error:'控制台资源缺失'});}return;
     }
     const consoleBearer=site.local&&req.headers.authorization==='Bearer '+config.consoleToken;
     if(pathname.startsWith('/console/api/auth')){
@@ -202,6 +203,15 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/console/api/outreach'){try{send(200,await runtimeControl.outreach());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/reactions'){try{send(200,await runtimeControl.reactions());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/agent'){try{send(200,await runtimeControl.agent());}catch(e){send(503,{error:e.message});}return;}
+      if(req.url==='/console/api/engine'){try{send(200,await runtimeControl.engineState());}catch(e){send(503,{error:e.message});}return;}
+      if(req.url==='/console/api/voice'){send(200,voice.view());return;}
+      // The engine asks whether it may send voice messages this turn.
+      if(req.url==='/v1/voice'){send(200,{enabled:voice.ready});return;}
+      if(pathname.startsWith('/console/api/engine/sticker/')){
+        try{const image=await runtimeControl.stickerImage(decodeURIComponent(pathname.slice('/console/api/engine/sticker/'.length)));
+          res.writeHead(200,{'Content-Type':image.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});res.end(image.body);}
+        catch(e){send(404,{error:e.message});}return;
+      }
       if(req.url==='/console/api/timing'){try{send(200,await runtimeControl.timing());}catch(e){send(503,{error:e.message});}return;}
       if(pathname==='/console/api/usage'){
         const days=Number(new URL(req.url,origin).searchParams.get('days'));
@@ -212,7 +222,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/console/api/autostart'){try{send(200,await autostart.status());}catch(e){fail(e);}return;}
     }
     if(req.method!=='POST'){send(404,{error:'Not found'});return;}
-    let data;try{let length=0;const chunks=[];for await(const b of req){length+=b.length;if(length>(admin?200000:24*1024*1024))throw new Error('请求过大');chunks.push(b);}data=JSON.parse(Buffer.concat(chunks).toString());}catch(e){fail(e);return;}
+    // A sticker import carries the picture itself (up to 3 MB, base64).
+    const bodyLimit=req.url==='/console/api/engine'?5_000_000:admin?200000:24*1024*1024;
+    let data;try{let length=0;const chunks=[];for await(const b of req){length+=b.length;if(length>bodyLimit)throw new Error('请求过大');chunks.push(b);}data=JSON.parse(Buffer.concat(chunks).toString());}catch(e){fail(e);return;}
     // Once a password exists, the launcher token still works for API calls but no longer opens a browser session.
     const browserSession=()=>{if(auth.passwordSet&&!session){send(401,{error:'请用密码登录控制台'});return false;}return true;};
     if(req.url==='/console/api/session'){if(!browserSession())return;auth.issue(res);send(200,{authenticated:true});return;}
@@ -224,6 +236,24 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(req.url==='/console/api/outreach'){try{send(200,await runtimeControl.outreach(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/reactions'){try{send(200,await runtimeControl.reactions(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/agent'){try{send(200,await runtimeControl.agent(data));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/engine'){
+      if(typeof data.action!=='string'){fail(new Error('缺少操作'));return;}
+      const {action,...values}=data;
+      try{send(200,await runtimeControl.engineAction(action,values));}catch(e){fail(e);}return;
+    }
+    if(req.url==='/console/api/social'){try{send(200,await runtimeControl.socialPanel(data.platform));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/voice'){try{send(200,await voice.update(data));}catch(e){fail(e);}return;}
+    // A voice line: for the engine's voice bubbles, and for the console's preview button.
+    if(req.url==='/v1/voice/speech'||req.url==='/console/api/voice/test'){
+      const preview=req.url==='/console/api/voice/test',started=Date.now(),chat=preview?'控制台试听':String(data.chat||'').slice(0,60);
+      if(!preview&&!voice.ready){send(409,{error:'语音没开'});return;}
+      try{
+        const audio=await voice.speak(data.text);
+        usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:true,ms:Date.now()-started});
+        send(200,{audio:audio.toString('base64'),type:'audio/mpeg'});
+      }catch(e){usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:false,ms:Date.now()-started});fail(e);}
+      return;
+    }
     if(req.url==='/console/api/timing'){try{send(200,await runtimeControl.timing(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/routes'){
       try{
@@ -352,7 +382,8 @@ export async function startGateway(config,configFile){
   const runtime=path.dirname(configFile);const settings=await new Settings(path.join(runtime,'providers.json')).load();
   const auth=await new ConsoleAuth({runtime,secret:config.consoleToken}).load();
   const usage=await new UsageLedger({runtime}).load();
-  const server=createGateway(config,settings,{runtime,auth,usage});
+  const voice=await new VoiceSettings({runtime}).load();
+  const server=createGateway(config,settings,{runtime,auth,usage,voice});
   await fs.writeFile(path.join(runtime,'console-url.txt'),`http://127.0.0.1:${config.port||18191}/console/#${config.consoleToken}`,{mode:0o600});
   server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();});
   return server;

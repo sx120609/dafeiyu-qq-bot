@@ -19,8 +19,11 @@ struct QQAgentPlanTests {
         """#
         let plan = try #require(QQAgentPlan.decode(raw, messages: messages, members: members, emojis: emojis, kinds: everything))
         #expect(plan.action == .reply && plan.target == "12" && plan.quote && plan.note == "接住玩笑")
-        // Only the first eight bubbles are read; three texts at most, one sticker, one reaction per message.
-        #expect(plan.bubbles == [.text("第一句"), .text("第二句"), .text("第三句"), .sticker("得意叉腰"), .reaction(message: "11", emoji: "76")])
+        // Everything offered is kept; only what was not offered (an unknown message or member) is left out.
+        #expect(plan.bubbles == [.text("第一句"), .text("第二句"), .text("第三句"), .text("第四句"), .sticker("得意叉腰"), .sticker("第二张"), .reaction(message: "11", emoji: "76"), .image("一只猫")])
+        // Past five messages, the rest joins the fifth instead of being lost.
+        let chatty = try #require(QQAgentPlan.decode(#"{"action":"reply","bubbles":[{"kind":"text","text":"1"},{"kind":"text","text":"2"},{"kind":"text","text":"3"},{"kind":"text","text":"4"},{"kind":"text","text":"5"},{"kind":"text","text":"6"}]}"#, messages: messages, members: members, emojis: emojis, kinds: everything))
+        #expect(chatty.bubbles.last == .text("5\n6"))
     }
 
     @Test func silenceWaitAndEmptyReplies() throws {
@@ -50,6 +53,28 @@ struct QQAgentPlanTests {
         #expect(!QQAgentLevel.standard.tools.contains("save_sticker") && QQAgentLevel.full.tools.isSuperset(of: QQAgentLevel.standard.tools))
         // Management is offered at every level; who may do what is checked against the person asking.
         #expect(QQAgentLevel.allCases.allSatisfy { $0.tools.contains("manage_chat") && $0.tools.contains("model_info") })
+    }
+
+    /// Mentions, taking back its own messages, reminders and likes: each only with what the program offered.
+    @Test func mentionsRecallsRemindersAndLikes() throws {
+        let raw = #"{"action":"reply","bubbles":[{"kind":"text","text":"好","at":"MEMBER_a"},{"kind":"text","text":"嗯","at":"MEMBER_zz"},{"kind":"recall","message":"501"},{"kind":"recall","message":"11"},{"kind":"later","minutes":5000,"about":"提醒 MEMBER_a 取快递","say":"快递！"},{"kind":"later","cancel":"r1"},{"kind":"later","cancel":"r9"},{"kind":"like","member":"MEMBER_a","times":30}]}"#
+        let plan = try #require(QQAgentPlan.decode(raw, messages: messages, members: members, emojis: emojis, kinds: everything, own: ["501"], reminders: ["r1"]))
+        #expect(plan.bubbles == [.text("好", at: "MEMBER_a"), .text("嗯"), .recall(message: "501"), .later(minutes: 1440, about: "提醒 MEMBER_a 取快递", say: "快递！"), .cancelLater("r1"), .like(member: "MEMBER_a", times: 10)])
+        #expect(!plan.wordless)
+        // At the basic level there are no reminders or likes; recall stays.
+        let basic = try #require(QQAgentPlan.decode(raw, messages: messages, members: members, emojis: emojis, kinds: QQAgentLevel.basic.bubbleKinds, own: ["501"], reminders: ["r1"]))
+        #expect(basic.bubbles == [.text("好", at: "MEMBER_a"), .text("嗯"), .recall(message: "501")])
+        // Silence, or only a reaction or a poke, is wordless: nobody can read anything.
+        let react = try #require(QQAgentPlan.decode(#"{"action":"reply","bubbles":[{"kind":"reaction","message":"11","emoji":"76"},{"kind":"poke","member":"MEMBER_a"}]}"#, messages: messages, members: members, emojis: emojis, kinds: everything))
+        #expect(react.wordless && QQAgentPlan(action: .silence).wordless && !QQAgentPlan(action: .wait).wordless)
+        #expect(QQAgentPlan.recheck(first: "{\"action\":\"silence\"}").contains("{\"action\":\"silence\"}"))
+        #expect(QQAgentLevel.standard.tools.isSuperset(of: ["group_info", "remember", "member_info"]) && QQAgentLevel.basic.tools.contains("member_info"))
+        #expect(QQAgentLevel.full.groupAdmin && !QQAgentLevel.standard.groupAdmin)
+        // A voice message counts as saying something; the basic level has none.
+        let voice = #"{"action":"reply","bubbles":[{"kind":"voice","text":"哼，叫我干嘛"}]}"#
+        #expect(try #require(QQAgentPlan.decode(voice, messages: messages, members: members, emojis: emojis, kinds: everything)).bubbles == [.voice("哼，叫我干嘛")])
+        #expect(!(try #require(QQAgentPlan.decode(voice, messages: messages, members: members, emojis: emojis, kinds: everything))).wordless)
+        #expect(try #require(QQAgentPlan.decode(voice, messages: messages, members: members, emojis: emojis, kinds: QQAgentLevel.basic.bubbleKinds)).action == .silence)
     }
 
     @Test func replyModeForEveryChatOrChosenOnes() throws {

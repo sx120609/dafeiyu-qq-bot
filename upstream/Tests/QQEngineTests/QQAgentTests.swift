@@ -113,14 +113,73 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         #expect(reactions.contains("\"76\"") && reactions.contains("\"1\""))
         #expect(engine.decisions.contains { $0.text.contains("红烧肉") && $0.outcome.hasPrefix("交给代理") })
         // The agent page sees the turn: what came in, what it decided, what was sent.
+        try await wait { engine.agentTurns.first?.sent.isEmpty == false }
         let turn = try #require(engine.agentTurns.first)
-        #expect(turn.decision == "reply" && turn.note == "接住两个人" && turn.batch.count == 2 && turn.sent.first == "说「第一句」")
+        #expect(turn.decision == "reply")
+        #expect(turn.note == "接住两个人")
+        #expect(turn.batch.count == 2)
+        #expect(turn.sent.first == "说「第一句」")
         // The next batch: the director stays quiet, nothing is sent, and it says why.
         try rig.batch([group(3, 54321, "你去哪个食堂"), group(4, 54322, "二食堂")])
         try await wait { engine.agentTurns.count == 2 && engine.agentTurns.last?.decision == "silence" }
         #expect(engine.agentTurns.last?.note == "他们在互相聊")
         #expect(engine.sends.confirmed == 2)
         #expect(AgentModelProtocol.calls.filter { $0.purpose == "director" }.last?.input.contains("你最近在这里做过的事") == true)
+    }
+
+    /// Someone talks to it and the director first decides to stay quiet: it is asked once more, with that pointed
+    /// out, and the revised plan (words, an @, a reminder) is carried out. Sticker sends go out as 动画表情.
+    @Test func silenceWhenCalledGetsASecondLook() async throws {
+        AgentModelProtocol.reset { purpose, messages in
+            guard purpose == "director" else { return ["content": #"{"action":"silence"}"#] }
+            let input = messages.dropFirst().compactMap { $0["content"] as? String }.joined()
+            let member = input.range(of: "MEMBER_[0-9a-f]{12}", options: .regularExpression).map { String(input[$0]) } ?? "MEMBER_x"
+            return ["content": input.contains("程序复核")
+                ? #"{"action":"reply","bubbles":[{"kind":"text","text":"在呢在呢","at":"\#(member)"},{"kind":"later","minutes":30,"about":"问问他饭吃了没","say":"饭吃了没"}],"note":"被点名了"}"#
+                : #"{"action":"silence","note":"刚回过了"}"#]
+        }
+        let rig = try await rig(); defer { rig.stop() }
+        let engine = rig.engine
+        engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
+        engine.config.targets[0].enabled = true
+        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
+        engine.start()
+        var called = group(31, 54321, " 你怎么不说话")
+        called["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": " 你怎么不说话"]]]
+        try rig.batch([called])
+        try await wait { engine.sends.confirmed >= 1 }
+        #expect(rig.payloads().first?.first == "at:")
+        #expect(rig.payloads().first?.last == "text: 在呢在呢")
+        #expect(engine.agentTurns.last?.note.hasPrefix("复核后改为出声") == true)
+        try await wait { !engine.agentReminders.isEmpty }
+        #expect(engine.agentReminders.count == 1 && engine.agentReminders.first?.about == "问问他饭吃了没")
+        #expect(AgentModelProtocol.calls.filter { $0.purpose == "director" }.count == 2)
+        #expect(QQPolicy.stickerSegment(Data([1])).description.contains("动画表情"))
+    }
+
+    /// A turn that fails is tried again by itself with the same batch, and the records survive a restart.
+    @Test func aFailedTurnIsRetriedAndTurnsAreKept() async throws {
+        var failures = 1
+        AgentModelProtocol.reset { purpose, _ in
+            guard purpose == "director" else { return ["content": #"{"action":"silence"}"#] }
+            if failures > 0 { failures -= 1; return ["content": ""] } // no decision at all: the turn throws
+            return ["content": #"{"action":"reply","bubbles":[{"kind":"text","text":"刚才卡了下，在呢"}],"note":"重试成功"}"#]
+        }
+        let rig = try await rig(); defer { rig.stop() }
+        let engine = rig.engine
+        engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
+        engine.config.targets[0].enabled = true
+        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
+        engine.start()
+        try rig.batch([group(41, 54321, "有人吗")])
+        try await wait({ engine.sends.confirmed >= 1 }, seconds: 12)
+        #expect(rig.payloads().first == ["text:刚才卡了下，在呢"])
+        #expect(engine.agentTurns.first?.note.contains("自动重试") == true)
+        try await wait { engine.agentTurns.last?.note == "重试成功" && engine.agentTurns.last?.sent.isEmpty == false }
+        #expect(engine.agentTurns.last?.batch.first?.hasSuffix("有人吗") == true)
+        // Saved with the state: a new engine on the same directory reads them back.
+        let reread = QQEngine(allowAuthenticationUI: false, storageDirectory: rig.directory)
+        #expect(reread.agentTurns.count == engine.agentTurns.count)
     }
 
     /// Private chats run in agent mode too, slash commands become requests the agent handles, and the program

@@ -769,8 +769,8 @@ private final class DelayedModelProtocol: URLProtocol, @unchecked Sendable {
             else {
                 try #require(segments.count == 2)
                 #expect(segments[1]["type"] as? String == "image")
-                let imageFile = (segments[1]["data"] as? [String: String])?["file"] ?? ""
-                #expect(imageFile.hasPrefix("base64://"))
+                let imageData = segments[1]["data"] as? [String: Any]
+                #expect((imageData?["file"] as? String)?.hasPrefix("base64://") == true)
             }
             #expect(actions.components(separatedBy: expectedAction).count - 1 == desired)
             if control == "periodicStickers" {

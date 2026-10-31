@@ -211,6 +211,9 @@ import BotCore
                 case "clearMemory":
                     guard let target = engine.config.targets.first(where: { $0.key == request.target }) else { throw AppFailure.message("会话不存在") }
                     engine.clearMemory(target.id)
+                case "resetMemory":
+                    guard let key = request.target else { throw AppFailure.message("缺少会话") }
+                    try engine.resetMemory(key)
                 case "connect":
                     guard !engine.connected, !engine.busy, !engine.runtimeBusy else { throw AppFailure.message("请先断开并等待当前操作完成") }
                     guard request.expectedSelfID == nil || request.expectedSelfID == engine.config.expectedSelfID,
@@ -300,7 +303,8 @@ import BotCore
                     var view = engine.config.effectiveReactions; view.emojis = view.effectiveEmojis; return view }())),
                 "reactionsSent": engine.reactionsSent,
                 "agentStates": engine.agentStates,
-                "agentTurns": try engine.agentTurns.suffix(60).reversed().map { try JSONSerialization.jsonObject(with: { let e = JSONEncoder(); e.dateEncodingStrategy = .secondsSince1970; return e }().encode($0)) },
+                "agentReminders": engine.agentReminders.sorted { $0.due < $1.due }.map { ["id": $0.id, "chat": $0.chat, "due": $0.due.timeIntervalSince1970, "setAt": $0.setAt.timeIntervalSince1970, "about": $0.about] as [String: Any] },
+                "agentTurns": try engine.agentTurns.suffix(QQEngine.agentTurnsKept).reversed().map { try JSONSerialization.jsonObject(with: { let e = JSONEncoder(); e.dateEncodingStrategy = .secondsSince1970; return e }().encode($0)) },
                 "interactions": engine.interactions.suffix(40).reversed().map { ["at": $0.at.timeIntervalSince1970, "chat": $0.chat, "what": $0.what, "why": $0.why] as [String: Any] },
                 "poke": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectivePoke)),
                 "settleSeconds": engine.config.effectiveSettleSeconds,

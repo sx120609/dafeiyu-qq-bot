@@ -55,19 +55,42 @@ public struct QQMemoryDelta: Decodable, Sendable {
         public let sourceID: String
         public let evidence: String
         public let days: Int
+        init(operation: String, replaces: [String], subject: String, kind: String, text: String, keywords: [String],
+             importance: Int, sourceID: String, evidence: String, days: Int) {
+            self.operation = operation; self.replaces = replaces; self.subject = subject; self.kind = kind; self.text = text
+            self.keywords = keywords; self.importance = importance; self.sourceID = sourceID; self.evidence = evidence; self.days = days
+        }
+        /// Optional fields fall back to defaults: one change missing `replaces` or `days` used to fail the whole batch.
+        init?(_ fields: [String: Any]) {
+            guard let subject = fields["subject"] as? String, let kind = fields["kind"] as? String,
+                  let sourceID = (fields["sourceID"] as? String) ?? (fields["sourceID"] as? Int).map(String.init) else { return nil }
+            operation = fields["operation"] as? String ?? "upsert"
+            replaces = fields["replaces"] as? [String] ?? []
+            self.subject = subject; self.kind = kind; self.sourceID = sourceID
+            text = fields["text"] as? String ?? ""
+            keywords = Array((fields["keywords"] as? [String] ?? []).prefix(6))
+            importance = fields["importance"] as? Int ?? 2
+            evidence = fields["evidence"] as? String ?? ""
+            days = fields["days"] as? Int ?? 90
+        }
     }
     public let summary: String
     public let changes: [Change]
+    /// Lenient on shape, strict on content: a code fence, an extra field, an over-long summary or a thirteenth change
+    /// used to reject the batch, and the same batch then failed every 60 seconds. Each change is still checked
+    /// against its evidence when it is applied.
     public static func decode(_ raw: String) throws -> Self {
         guard raw.utf8.count <= 24000 else { throw CoreError.invalid("记忆整理输出过长") }
-        let data = Data(raw.utf8)
-        guard let fields = try JSONSerialization.jsonObject(with: data) as? [String: Any], Set(fields.keys) == ["summary", "changes"] else {
-            throw CoreError.invalid("记忆整理字段无效")
+        var body = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let open = body.firstIndex(of: "{"), let close = body.lastIndex(of: "}"), open < close { body = String(body[open...close]) }
+        guard let fields = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] else {
+            throw CoreError.invalid("记忆整理输出不是 JSON：" + String(raw.prefix(60)))
         }
-        let result = try JSONDecoder().decode(Self.self, from: data)
-        guard result.summary.count <= 400, result.changes.count <= 12 else { throw CoreError.invalid("记忆整理超出条目预算") }
-        return result
+        let summary = String((fields["summary"] as? String ?? "").prefix(400))
+        let changes = (fields["changes"] as? [[String: Any]] ?? []).compactMap(Change.init).prefix(12)
+        return Self(summary: summary, changes: Array(changes))
     }
+    init(summary: String, changes: [Change]) { self.summary = summary; self.changes = changes }
 }
 
 /// One account + one private peer/group. Pending excerpts survive pause; no cross-scope search.
@@ -113,6 +136,16 @@ public struct QQMemoryBook: Codable, Equatable, Sendable {
         }
         return result
     }
+    /// A fact the agent was told to keep, written at once instead of waiting for the next consolidation. The
+    /// caller checks that `subject` and `sourceID` belong to this batch.
+    public mutating func remember(subject: String, kind: String, text: String, keywords: [String], sourceID: String, now: Date = Date()) throws {
+        let clean = Self.redact(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard ["preference", "fact", "task", "event", "cue"].contains(kind), !clean.isEmpty, clean.count <= 180 else { throw CoreError.invalid("记忆内容无效") }
+        guard !items.contains(where: { $0.subject == subject && $0.text == clean && $0.current(now) }) else { return }
+        let days = kind == "event" ? 90 : kind == "task" ? 30 : 365
+        items.append(QQMemoryItem(subject: subject, kind: kind, text: clean, keywords: keywords.prefix(6).map { Self.redact(String($0.prefix(20))) }.filter { !$0.isEmpty },
+                                  importance: kind == "cue" ? 3 : 2, sourceIDs: [sourceID], updatedAt: now, expiresAt: now.addingTimeInterval(Double(days * 86400))))
+    }
     /// Validate every mutation against supplied evidence and candidates, then apply atomically.
     public mutating func apply(_ delta: QQMemoryDelta, batch: [QQMemoryEvent], candidateIDs: Set<String>, now: Date = Date()) throws {
         let sources = Dictionary(uniqueKeysWithValues: batch.map { ($0.id, $0) })
@@ -121,16 +154,23 @@ public struct QQMemoryBook: Codable, Equatable, Sendable {
         // Each change is checked on its own: one that cites the wrong evidence or person is dropped, the
         // rest still count. Rejecting the whole batch for one slip lost memories whenever a model phrased
         // things a little differently, and retried the same batch forever.
-        let changes = delta.changes.filter { item in
-            guard ["upsert", "forget"].contains(item.operation), allowedKinds.contains(item.kind),
-                  let source = sources[item.sourceID], source.subject == item.subject,
-                  !item.evidence.isEmpty, item.evidence.count <= 200, source.text.contains(item.evidence),
-                  item.replaces.count <= 6, Set(item.replaces).isSubset(of: candidateIDs),
-                  item.replaces.allSatisfy({ id in items.contains { $0.id == id && $0.subject == item.subject && $0.current(now) } }),
-                  item.text.count <= 180, item.keywords.count <= 6, item.keywords.allSatisfy({ !$0.isEmpty && $0.count <= 20 }),
-                  (1...3).contains(item.importance), (1...365).contains(item.days),
-                  (item.operation == "forget" ? !item.replaces.isEmpty && item.text.isEmpty : !item.text.isEmpty) else { return false }
-            return true
+        // Only who it is about is strict: a fact must belong to the person whose message it came from. Everything
+        // else is repaired rather than thrown away (11-01: "把硬丢弃都拿掉"): unknown replaces are left out,
+        // lengths and numbers are clamped, a misquoted evidence line no longer costs the memory.
+        let changes = delta.changes.compactMap { item -> QQMemoryDelta.Change? in
+            guard let source = sources[item.sourceID], source.subject == item.subject else { return nil }
+            // A paraphrased quote is fine; a quote sharing almost nothing with what was said is an invented fact.
+            let said = Set(Self.squeezed(source.text)), quoted = Self.squeezed(item.evidence)
+            guard quoted.isEmpty || Self.squeezed(source.text).contains(quoted) || Double(quoted.filter(said.contains).count) >= Double(quoted.count) * 0.6 else { return nil }
+            let replaces = item.replaces.filter { id in candidateIDs.contains(id) && items.contains { $0.id == id && $0.subject == item.subject && $0.current(now) } }.prefix(6)
+            let operation = item.operation == "forget" ? "forget" : "upsert"
+            let text = String(item.text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180))
+            guard operation == "forget" ? !replaces.isEmpty : !text.isEmpty else { return nil }
+            return QQMemoryDelta.Change(operation: operation, replaces: Array(replaces), subject: item.subject,
+                                        kind: allowedKinds.contains(item.kind) ? item.kind : "fact", text: operation == "forget" ? "" : text,
+                                        keywords: item.keywords.map { String($0.prefix(20)) }.filter { !$0.isEmpty }.prefix(6).map { $0 },
+                                        importance: min(3, max(1, item.importance)), sourceID: item.sourceID,
+                                        evidence: String(item.evidence.prefix(200)), days: min(365, max(1, item.days)))
         }
         // Old versions remain marked as historical.
         for change in changes {

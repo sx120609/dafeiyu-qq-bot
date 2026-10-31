@@ -300,3 +300,25 @@ input::placeholder{color:var(--faint)}
 .turn-batch{list-style:none;margin:0;padding:6px 10px;border-radius:var(--radius-sm);background:var(--surface-2);display:flex;flex-direction:column;gap:2px;font-size:13px;overflow-wrap:anywhere}
 .turn-sent{margin:0;overflow-wrap:anywhere}
 .turn-note{margin:0;font-size:13px;overflow-wrap:anywhere}
+
+/* Pages that replaced the embedded panel */
+.chats-table td{vertical-align:middle}.chats-table select{width:auto;max-width:150px;height:30px}
+.chats-table input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--accent)}
+.block{display:block}
+.row-actions{white-space:nowrap;text-align:right}
+.btn.danger{color:var(--bad)}
+.preset-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.field.check{flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px}.field.check input{width:16px;height:16px;padding:0;accent-color:var(--accent)}.field.check small{flex-basis:100%}
+.sticker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.sticker{margin:0;display:flex;flex-direction:column;gap:4px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);min-width:0}
+.sticker img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:6px;background:var(--surface-2)}
+.sticker figcaption{display:flex;flex-direction:column;font-size:12px;min-width:0}.sticker figcaption span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-box{margin-top:10px}
+.check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 12px}
+.check-item{display:flex;align-items:center;gap:8px;font-size:13px;min-width:0}.check-item input{width:16px;height:16px;padding:0;accent-color:var(--accent);flex:none}
+.check-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inline-add{display:flex;gap:8px}
+.memory-list{display:flex;flex-direction:column}
+.memory-item{border-top:1px solid var(--border);padding:8px 0}.memory-item:first-child{border-top:none}
+.memory-item summary{cursor:pointer}.memory-item p{margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}
+@media (max-width:720px){.chats-table select{max-width:110px}.row-actions{white-space:normal}}

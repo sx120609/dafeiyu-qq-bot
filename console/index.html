@@ -25,6 +25,10 @@
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.4L20 16M20 20v-4h-4"/></symbol>
   <symbol id="i-agent" viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"/><path d="M5 20c1.2-3.5 3.8-5 7-5s5.8 1.5 7 5M19 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3.5 19c.9-3 3-4.6 5.5-4.6s4.6 1.6 5.5 4.6M15.5 6.2a3 3 0 0 1 0 5.6M17 14.6c1.8.4 3 1.9 3.5 4.4"/></symbol>
+  <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8M9 10h.01M15 10h.01"/></symbol>
+  <symbol id="i-voice" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4.5 17 4.5-4.5 3.5 3.5 2.5-2.5 4.5 4.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
 </svg>
 
@@ -51,16 +55,20 @@
     <nav class="nav" aria-label="控制台">
       <p class="nav-group">运行</p>
       <a href="#overview" data-page="overview"><svg><use href="#i-home"/></svg>总览</a>
+      <a href="#agent" data-page="agent"><svg><use href="#i-agent"/></svg>代理模式</a>
       <a href="#usage" data-page="usage"><svg><use href="#i-chart"/></svg>用量与花费</a>
       <p class="nav-group">机器人</p>
-      <a href="#model" data-page="model"><svg><use href="#i-chip"/></svg>模型</a>
-      <a href="#agent" data-page="agent"><svg><use href="#i-agent"/></svg>代理模式</a>
+      <a href="#chats" data-page="chats"><svg><use href="#i-people"/></svg>会话</a>
+      <a href="#persona" data-page="persona"><svg><use href="#i-smile"/></svg>人设与表情</a>
       <a href="#chat" data-page="chat"><svg><use href="#i-chat"/></svg>聊天行为</a>
+      <a href="#model" data-page="model"><svg><use href="#i-chip"/></svg>模型</a>
+      <a href="#images" data-page="images"><svg><use href="#i-image"/></svg>图片与插画</a>
+      <a href="#voice" data-page="voice"><svg><use href="#i-voice"/></svg>语音</a>
+      <a href="#limits" data-page="limits"><svg><use href="#i-sliders"/></svg>记忆与额度</a>
       <a href="#features" data-page="features"><svg><use href="#i-toggle"/></svg>功能开关</a>
       <a href="#moderation" data-page="moderation"><svg><use href="#i-shield"/></svg>管理员与黑名单</a>
       <p class="nav-group">QQ</p>
       <a href="#qq" data-page="qq"><svg><use href="#i-qr"/></svg>QQ 登录</a>
-      <a href="#panel" data-page="panel"><svg><use href="#i-sliders"/></svg>会话与详细设置</a>
       <p class="nav-group">其他</p>
       <a href="#activity" data-page="activity"><svg><use href="#i-pulse"/></svg>浏览记录</a>
       <a href="#settings" data-page="settings"><svg><use href="#i-gear"/></svg>设置</a>
@@ -236,7 +244,7 @@
       <div id="agent-stats" class="stats"></div>
       <div class="grid-2 wide-left">
         <div class="card section">
-          <div class="section-head"><div><h3>最近的决定</h3><p class="muted">每一批消息：收到了什么、去查了什么、最后做了什么、为什么。只在内存里，重启后清空。</p></div></div>
+          <div class="section-head"><div><h3>最近的决定</h3><p class="muted">每一批消息：收到了什么、去查了什么、最后做了什么、为什么。存在本机，保留最近 200 批，重启也在。</p></div></div>
           <div class="filters"><select id="agent-filter-chat" aria-label="按会话筛选"></select><select id="agent-filter-kind" aria-label="按结果筛选">
             <option value="">全部结果</option><option value="reply">出声的</option><option value="silence">没出声的</option><option value="failed">出错的</option></select></div>
           <div id="agent-turns" class="agent-turns"></div>
@@ -246,21 +254,197 @@
             <div class="card-head flush"><h3>各会话</h3><span class="muted small">每 5 秒刷新</span></div>
             <div id="agent-states" class="state-list"></div>
           </div>
-          <form id="agent-form" class="card section" novalidate>
+          <div class="card section">
+            <div class="card-head flush"><h3>定好的事</h3><span class="muted small">到点它会回到那个会话</span></div>
+            <div id="agent-reminders" class="state-list"></div>
+          </div>
+          <div class="card section">
             <div class="card-head flush"><h3>回复方式和权限</h3></div>
-            <label class="switch-row"><span><strong>所有会话都用代理模式</strong><small>以后新加进名单的会话也自动用；不勾的会话走旧流程。</small></span><input id="agent-all" type="checkbox" class="switch"></label>
-            <div id="agent-chats" class="state-list"></div>
-            <details class="explain"><summary>权限档和身份是怎么管的</summary>
-              <p><b>基础</b>：只在被叫到时看（@、引用它、叫名字；私聊每条都算），能说话、发表情包、贴表情。</p>
-              <p><b>标准</b>：自己决定要不要插话，另外能戳人、上网查资料、刷 B 站。</p>
-              <p><b>完全</b>：再加画图、找插画、存表情、替人通知主人。</p>
-              <p>不管哪一档，拉黑、清空群记忆、改群里性格、存表情都只认机器人管理员提的要求，由程序核对；黑名单里的人一概不理。斜杠命令也交给代理理解后执行。</p>
-              <p>两个模型在「模型 → 模型分工」里选：指挥负责看和说，助手负责查资料、看旧图、刷 B 站、挑表情包。</p>
-            </details>
-            <div class="actions end"><button id="agent-save" class="btn primary" type="submit">保存</button></div>
-          </form>
+            <p class="muted small">哪些会话用代理模式、每个会话的权限档，都在「会话」页里设。</p>
+            <div class="actions"><a class="btn small" href="#chats">去「会话」页</a></div>
+          </div>
         </div>
       </div>
+    </section>
+
+    <!-- 会话 -->
+    <section class="page" data-page="chats" hidden>
+      <form id="chats-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>会话名单</h3><p class="muted">机器人只在勾选的会话里说话。每个会话可以单独选回复方式、代理权限和性格；改完点保存。</p></div></div>
+        <label class="switch-row"><span><strong>所有会话都用代理模式</strong><small>以后新加的会话也自动用；关掉后只有下面选了“代理”的会话用。</small></span><input id="chats-agent-all" type="checkbox" class="switch"></label>
+        <div class="table-wrap"><table class="table chats-table"><thead><tr><th>启用</th><th>会话</th><th>回复方式</th><th>代理权限</th><th>性格</th><th></th></tr></thead><tbody id="chats-rows"></tbody></table></div>
+        <details class="explain"><summary>回复方式和权限档是什么</summary>
+              <p><b>代理</b>：每攒到一批新消息，由“指挥”模型自己决定回不回、怎么回、要不要动手做事；<b>旧流程</b>：按条数和关键词决定，留作备用。</p>
+              <p>代理的权限档：<b>基础</b>只在被叫到时看（@、引用它、叫名字；私聊每条都算），能说话和 @ 人、发表情包、贴表情、撤回自己刚发的话、查群友资料；<b>标准</b>自己决定要不要插话，另外能戳人、定时提醒、上网查资料、刷 B 站、看群公告和精华、当场记住别人教的事；<b>完全</b>再加画图、找插画、存表情、点赞、替人通知主人，以及按管理员要求设精华和禁言（机器人得是群管理员）。</p>
+              <p>不管哪一档，拉黑、清空群记忆、改群里性格、存表情、设精华、禁言都只认机器人管理员提的要求，由程序核对；不会禁言管理员；黑名单里的人一概不理。</p>
+            </details>
+        <div class="actions end"><button id="chats-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+      <div class="card section">
+        <div class="section-head"><div><h3>添加会话</h3><p class="muted">从机器人 QQ 的好友和群里选；管理员拉它进群时会自动加上。</p></div></div>
+        <input id="chats-search" type="search" placeholder="搜索名字或号码" autocomplete="off">
+        <div id="chats-contacts" class="state-list"></div>
+      </div>
+    </section>
+
+    <!-- 人设与表情 -->
+    <section class="page narrow" data-page="persona" hidden>
+      <form id="persona-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>默认性格</h3><p class="muted">没在「会话」页单独设性格的会话都用这个。</p></div></div>
+        <div class="fields">
+          <label class="field"><span>性格</span><select id="persona-style"></select><small id="persona-style-help" class="muted"></small></label>
+          <label class="field"><span>一次回复最多多少字</span><input id="persona-max" type="number" min="20" max="2000"></label>
+        </div>
+        <div id="persona-banter-row" class="fields"><label class="field"><span>嘴欠程度</span><select id="persona-banter">
+          <option value="0">0 · 温和俏皮</option><option value="1">1 · 偶尔小得意</option><option value="2">2 · 爱用反问逗人</option><option value="3">3 · 更主动地占口头便宜</option></select></label></div>
+        <div id="persona-custom" class="col" hidden>
+          <label class="field"><span>自定义名字</span><input id="persona-custom-name" maxlength="40" placeholder="不填就叫大肥鱼"></label>
+          <label class="field"><span>自定义性格说明</span><textarea id="persona-custom-prompt" rows="6" maxlength="4000" placeholder="写它是谁、怎么说话、喜欢什么、不碰什么"></textarea></label>
+          <div class="preset-row"><span class="muted small">快速填入：</span><button type="button" class="btn small ghost" data-preset="chat">聊天搭子</button><button type="button" class="btn small ghost" data-preset="gentle">温柔陪伴</button><button type="button" class="btn small ghost" data-preset="banter">嘴快游戏搭子</button></div>
+        </div>
+        <label class="field"><span>补充偏好</span><textarea id="persona-notes" rows="3" maxlength="2000" placeholder="想让它额外注意的事，例如称呼习惯、忌讳的话题"></textarea><small class="muted">附在人设后面，只在不冲突时采用。</small></label>
+        <div class="fields"><label class="field"><span>同一张表情包多久不重复</span><select id="persona-repeat"></select></label></div>
+        <details class="explain"><summary>旧流程的配图节奏（代理模式自己决定什么时候发表情包）</summary>
+          <div class="fields four">
+            <label class="field"><span>每隔几条回复配一张</span><input id="persona-every" type="number" min="0" max="10"><small class="muted">0 只在情绪强烈时</small></label>
+            <label class="field"><span>两张之间至少隔（秒）</span><input id="persona-interval" type="number" min="1" max="3600"></label>
+            <label class="field"><span>什么时候配图</span><select id="persona-trigger"><option value="contextual">按语境与条数</option><option value="emotions">只在指定情绪</option><option value="keywords">收到指定关键词</option></select></label>
+            <label class="field"><span>情绪 / 关键词</span><input id="persona-trigger-values" placeholder="用逗号分开"><small id="persona-trigger-help" class="muted"></small></label>
+          </div>
+        </details>
+        <div class="actions end"><button id="persona-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+      <div class="card section">
+        <div class="section-head"><div><h3>表情库</h3><p id="stickers-summary" class="muted"></p></div></div>
+        <div id="stickers-grid" class="sticker-grid"></div>
+        <div class="actions"><button id="stickers-more" class="btn small ghost" type="button" hidden>再看 24 张</button></div>
+        <details class="explain"><summary>导入表情</summary>
+          <div class="col import-box">
+            <label class="field"><span>选图片（PNG / JPEG / WebP，每张 3 MB 内，一次最多 50 张），或者一个表情资源包（.json）</span><input id="sticker-files" type="file" multiple accept="image/png,image/jpeg,image/webp,.json,application/json"></label>
+            <div class="fields">
+              <label class="field"><span>情绪</span><select id="sticker-emotion"><option value="neutral">平静</option><option value="joy">开心</option><option value="smug">得意</option><option value="annoyed">不满</option><option value="sad">难过</option><option value="sleepy">困倦</option><option value="flustered">害羞</option><option value="teasing">调侃</option></select></label>
+              <label class="field"><span>什么时候适合发</span><input id="sticker-context" maxlength="300" placeholder="例如：有人说自己好惨的时候"></label>
+            </div>
+            <div class="fields four">
+              <label class="field"><span>作者</span><input id="sticker-author" maxlength="80"></label>
+              <label class="field"><span>许可</span><input id="sticker-license" maxlength="100"></label>
+              <label class="field"><span>来源网址</span><input id="sticker-source" maxlength="500" placeholder="https://"></label>
+              <label class="field check"><span>公开分享</span><input id="sticker-public" type="checkbox"><small class="muted">需要作者、许可和来源</small></label>
+            </div>
+            <p id="sticker-import-status" class="muted small"></p>
+            <div class="actions"><button id="sticker-import" class="btn" type="button">导入</button></div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- 图片与插画 -->
+    <section class="page narrow" data-page="voice" hidden>
+      <form id="voice-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>发语音</h3><p id="voice-status" class="muted"></p></div></div>
+        <label class="switch-row"><span><strong>让它可以发语音</strong><small>代理模式里它自己决定什么时候发（标准和完全权限）；合成失败时改发文字。</small></span><input id="voice-enabled" type="checkbox" class="switch"></label>
+        <div class="fields">
+          <label class="field"><span>OpenAI API Key</span><input id="voice-key" type="password" autocomplete="off" placeholder="留空则保留已保存的"><small id="voice-key-state" class="muted"></small></label>
+          <label class="field"><span>接口地址</span><input id="voice-base" autocomplete="off" spellcheck="false"><small class="muted">默认 OpenAI 官方；兼容 /audio/speech 的中转也行</small></label>
+        </div>
+        <div class="fields">
+          <label class="field"><span>模型</span><input id="voice-model" autocomplete="off" spellcheck="false" list="voice-models"><datalist id="voice-models"><option value="gpt-4o-mini-tts"><option value="tts-1"><option value="tts-1-hd"></datalist></label>
+          <label class="field"><span>音色</span><select id="voice-voice"></select></label>
+          <label class="field"><span>语速</span><input id="voice-speed" type="number" min="0.5" max="2" step="0.05"></label>
+        </div>
+        <label class="field"><span>说话风格</span><textarea id="voice-style" rows="3" maxlength="600"></textarea><small class="muted">告诉语音模型用什么语气、声线说（tts-1 系列不支持，会忽略）。</small></label>
+        <div class="fields">
+          <label class="field"><span>试听这句</span><input id="voice-sample" value="哼，叫我干嘛？我可是很忙的大肥鱼。"></label>
+        </div>
+        <audio id="voice-player" controls hidden></audio>
+        <div class="actions end"><button id="voice-clear" class="btn small" type="button">删除 Key</button><button id="voice-test" class="btn" type="button">试听</button><button id="voice-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+    </section>
+
+    <section class="page narrow" data-page="images" hidden>
+      <p class="note small">识图、画图、找插画、每日插画分享的总开关在「功能开关」页；这里是它们的细节设置。</p>
+      <form id="vision-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>识图</h3><p id="vision-status" class="muted"></p></div></div>
+        <div class="fields"><label class="field"><span>谁来看图</span><select id="vision-provider"><option value="deepseek">聊天模型直接看图</option><option value="zhipu">智谱 GLM-4.6V-Flash 先看一遍</option></select></label></div>
+        <label class="switch-row"><span><strong>Google 以图找来源</strong><small>有人问“这图出处”时，用 Google Cloud Vision 找来源网页。</small></span><input id="vision-google" type="checkbox" class="switch"></label>
+        <div class="fields"><label class="field"><span>Google Vision API Key</span><input id="vision-google-key" type="password" autocomplete="off" placeholder="留空则保留已载入的"><small id="vision-google-state" class="muted"></small></label>
+          <label class="field check"><span>保存到本机</span><input id="vision-persist" type="checkbox"><small class="muted">不勾只在这次运行期间有效</small></label></div>
+        <div class="actions end"><button id="vision-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+      <form id="draw-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>画图</h3><p id="draw-status" class="muted"></p></div></div>
+        <div class="fields"><label class="field"><span>先用谁画</span><select id="draw-primary"><option value="codex">模型网关（云端 API 或本机 Codex）</option><option value="zhipu">智谱 CogView-3-Flash</option><option value="cloudflare">Cloudflare FLUX.1 schnell</option></select></label></div>
+        <label class="switch-row"><span><strong>画不出来时换别家再试</strong><small>按智谱、Cloudflare 的顺序，用已载入凭证的那家。</small></span><input id="draw-fallback" type="checkbox" class="switch"></label>
+        <div class="fields">
+          <label class="field"><span>智谱 API Key</span><input id="draw-zhipu" type="password" autocomplete="off" placeholder="留空则保留已载入的"></label>
+          <label class="field"><span>Cloudflare 账号 ID</span><input id="draw-account" autocomplete="off"></label>
+        </div>
+        <div class="fields">
+          <label class="field"><span>Cloudflare API Token</span><input id="draw-cloudflare" type="password" autocomplete="off" placeholder="留空则保留已载入的"><small id="draw-credentials" class="muted"></small></label>
+          <label class="field check"><span>保存到本机</span><input id="draw-persist" type="checkbox"><small class="muted">不勾只在这次运行期间有效</small></label>
+        </div>
+        <div class="actions end"><button id="draw-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+      <form id="art-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>插画（Pixiv）</h3><p id="art-status" class="muted"></p></div></div>
+        <label class="switch-row"><span><strong>聊天时可以去找现成插画</strong><small>有人想看某类图时，它会去 Pixiv 找公开作品并附作者和出处。</small></span><input id="art-agent" type="checkbox" class="switch"></label>
+        <div class="fields four">
+          <label class="field"><span>每个会话每天最多</span><input id="art-daily" type="number" min="1" max="1000"></label>
+          <label class="field"><span>每天最多请求来源</span><input id="art-network" type="number" min="10" max="2000"></label>
+          <label class="field"><span>同一张几天内不重复</span><input id="art-repeat" type="number" min="1" max="7"></label>
+          <label class="field"><span>搜索时最少收藏</span><input id="art-bookmarks" type="number" min="1" max="1000000"></label>
+        </div>
+        <p class="field-label">定时分享 <small class="muted">总开关是「功能开关」里的“每日插画分享”</small></p>
+        <div class="fields four">
+          <label class="field"><span>频率</span><select id="art-frequency"><option value="daily">每天</option><option value="hourly">每小时</option></select></label>
+          <label class="field"><span>几点</span><input id="art-hour" type="number" min="0" max="23"></label>
+          <label class="field"><span>几分</span><input id="art-minute" type="number" min="0" max="59"></label>
+          <label class="field"><span>发什么</span><select id="art-mode"><option value="hot">Pixiv 最新日榜</option><option value="featured">动漫游戏美少女精选</option></select></label>
+        </div>
+        <div class="fields"><label class="field"><span>时区</span><input id="art-zone" placeholder="Asia/Shanghai"></label></div>
+        <p class="field-label">分享到哪些会话</p>
+        <div id="art-targets" class="check-grid"></div>
+        <p class="field-label">精选画师</p>
+        <div id="art-artists" class="state-list"></div>
+        <div class="inline-add"><input id="art-artist-input" placeholder="Pixiv 主页链接或数字 ID" autocomplete="off"><button id="art-artist-add" class="btn" type="button">添加</button></div>
+        <details class="explain"><summary>更多：图片尺寸和单独授权</summary>
+          <div class="fields">
+            <label class="field"><span>长边至少（像素）</span><input id="art-long" type="number" min="0" max="4096"></label>
+            <label class="field"><span>短边至少（像素）</span><input id="art-short" type="number" min="0" max="4096"></label>
+          </div>
+          <label class="field"><span>画师单独授权（每行“画师 ID 空格 授权页 HTTPS 链接”）</span><textarea id="art-permissions" rows="3"></textarea></label>
+        </details>
+        <div class="actions end"><button id="art-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+    </section>
+
+    <!-- 记忆与额度 -->
+    <section class="page narrow" data-page="limits" hidden>
+      <form id="limits-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>额度</h3><p id="limits-today" class="muted"></p></div></div>
+        <div class="fields four">
+          <label class="field"><span>每天最多调用模型</span><input id="limit-calls" type="number" min="1" max="10000"></label>
+          <label class="field"><span>每天最多发消息</span><input id="limit-sends" type="number" min="1" max="10000"></label>
+          <label class="field"><span>每个会话每天最多发</span><input id="limit-chat" type="number" min="1" max="10000"></label>
+          <label class="field"><span>两条消息至少隔（秒）</span><input id="limit-interval" type="number" min="1" max="300"></label>
+        </div>
+        <div class="fields"><label class="field"><span>同一会话两次回复至少隔（秒）</span><input id="limit-cooldown" type="number" min="1" max="300"></label></div>
+        <label class="switch-row"><span><strong>只在工作时段回复</strong><small>时段外完全不回、不记次数。</small></span><input id="limit-hours" type="checkbox" class="switch"></label>
+        <div class="fields"><label class="field"><span>从</span><select id="limit-start"></select></label><label class="field"><span>到</span><select id="limit-end"></select></label></div>
+        <div class="actions end"><button id="limits-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+      <form id="memory-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>记忆</h3><p id="memory-state" class="muted"></p></div></div>
+        <div class="fields four">
+          <label class="field"><span>攒够几条整理一次</span><input id="memory-messages" type="number" min="4" max="100"></label>
+          <label class="field"><span>或攒够多少字</span><input id="memory-characters" type="number" min="1000" max="20000" step="1000"></label>
+          <label class="field"><span>或隔多少分钟</span><input id="memory-minutes" type="number" min="1" max="120"></label>
+          <label class="field"><span>每次回复最多翻出多少字</span><input id="memory-budget" type="number" min="600" max="4000" step="200"></label>
+        </div>
+        <div class="actions end"><button id="memory-save" class="btn primary" type="submit">保存</button></div>
+        <p class="field-label">各会话记得的东西</p>
+        <div id="memory-list" class="memory-list"></div>
+      </form>
     </section>
 
     <!-- 聊天行为 -->
@@ -361,7 +545,6 @@
     </section>
 
     <section class="page embed" data-page="qq" hidden><iframe id="frame-qq" title="NapCat QQ 登录与管理"></iframe></section>
-    <section class="page embed" data-page="panel" hidden><iframe id="frame-panel" title="机器人会话与详细设置"></iframe></section>
 
     <!-- 浏览记录 -->
     <section class="page narrow" data-page="activity" hidden>
@@ -385,6 +568,11 @@
               <span><strong>开机自启</strong><small id="autostart-hint">登录 Windows 后自动在后台启动大肥鱼，托盘里会出现图标。</small></span>
               <input id="autostart" type="checkbox" class="switch">
             </label>
+          </div>
+          <div class="card section">
+            <div class="card-head flush"><h3>其他平台</h3></div>
+            <p class="muted small">小红书、B 站的发帖助手是原项目的独立面板，在本机新窗口打开（通过隧道远程访问时打不开）。</p>
+            <div class="actions"><button class="btn small" type="button" data-social="xiaohongshu">小红书</button><button class="btn small" type="button" data-social="bilibili">B 站</button></div>
           </div>
           <div class="card">
             <div class="card-head"><h3>关于</h3></div>
