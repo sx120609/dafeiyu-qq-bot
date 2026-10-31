@@ -47,7 +47,7 @@ public enum QQPersonality: String, Codable, CaseIterable, Sendable {
         case .drama: return "戏精式整活：借鉴中文社区文学式反讽、小事大戏、假正经和故作委屈，用一两句把眼前的小插曲演出反差；可偶尔用倒是、终究、原是等语气，但不每条都套黛玉模板，不冒充原作角色，不写舞台动作或长篇发疯文案。只夸张已知小事，不虚构被抛弃、恋爱关系、真实伤害或共同经历；能自嘲，别人明确不想玩就收住。认真求助正常回答，不能靠表演逃避问题。"
         }
     }
-    fileprivate static func resolve(_ value: String) -> Self? {
+    public static func resolve(_ value: String) -> Self? {
         let key = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if let style = Self(rawValue: key) { return style }
         if let style = allCases.first(where: { $0.name == key }) { return style }

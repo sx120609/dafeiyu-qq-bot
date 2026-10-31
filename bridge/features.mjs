@@ -2,11 +2,11 @@ export class FeatureControl{
   constructor({runtimeControl,publicContent}){this.control=runtimeControl;this.public=publicContent;}
   async list(){
     const s=await this.control.panel(),c=s.config,p=s.persona;
-    const feature=(id,name,enabled,description,available=true,reason='')=>({id,name,enabled:!!enabled,description,available,reason});
+    const feature=(id,name,enabled,description,available=true,reason='',classicOnly=false)=>({id,name,enabled:!!enabled,description,available,reason,classicOnly});
     return {features:[
-      feature('fast','单轮回复优化',c.fastReplyEnabled,'普通聊天少调用一轮模型，不启用高倍率 Fast 服务。'),
-      feature('natural','自然接话',c.naturalRepliesEnabled,'支持昵称呼唤、引用消息和简短追问，不必每次精确 @。'),
-      feature('proactive','主动加入群聊',c.groupParticipationEnabled,'在白名单内观察话题，每6条普通消息判断是否适合接话。'),
+      feature('fast','单轮回复优化',c.fastReplyEnabled,'普通聊天少调用一轮模型，不启用高倍率 Fast 服务。',true,'',true),
+      feature('natural','自然接话',c.naturalRepliesEnabled,'支持昵称呼唤、引用消息和简短追问，不必每次精确 @。',true,'',true),
+      feature('proactive','主动加入群聊',c.groupParticipationEnabled,'在白名单内观察话题，每6条普通消息判断是否适合接话。',true,'',true),
       feature('loop','防机器人互聊',c.loopProtectionEnabled!==false,'只对重复闭环或高置信自动互答对象临时降温，其他人照常聊天。'),
       feature('web','联网与常用工具',c.onlineEnabled,'搜索、阅读全文、视频内容、天气、时间和计算。'),
       feature('vision','图片 / GIF 理解',c.visionEnabled,'直接理解收到的图片和表情，不编造未看到的画面。'),

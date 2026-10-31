@@ -176,9 +176,9 @@ import BotCore
                     guard let settings = request.outreach else { throw AppFailure.message("缺少主动聊天设置") }
                     try engine.saveOutreach(settings)
                     configurationSaved = true
-                case "saveAgent":
-                    guard let keys = request.agentTargets else { throw AppFailure.message("缺少代理模式设置") }
-                    try engine.saveAgentTargets(keys)
+                case "saveReplyMode":
+                    guard let forAll = request.agentForAll else { throw AppFailure.message("缺少回复方式设置") }
+                    try engine.saveReplyMode(forAll: forAll, agent: request.agentTargets ?? [], classic: request.classicTargets ?? [], levels: request.agentLevels ?? [:])
                     configurationSaved = true
                 case "savePoke":
                     guard let settings = request.poke else { throw AppFailure.message("缺少戳一戳设置") }
@@ -299,6 +299,8 @@ import BotCore
                 "reactions": try JSONSerialization.jsonObject(with: JSONEncoder().encode({ () -> QQReactionConfig in
                     var view = engine.config.effectiveReactions; view.emojis = view.effectiveEmojis; return view }())),
                 "reactionsSent": engine.reactionsSent,
+                "agentStates": engine.agentStates,
+                "agentTurns": try engine.agentTurns.suffix(60).reversed().map { try JSONSerialization.jsonObject(with: { let e = JSONEncoder(); e.dateEncodingStrategy = .secondsSince1970; return e }().encode($0)) },
                 "interactions": engine.interactions.suffix(40).reversed().map { ["at": $0.at.timeIntervalSince1970, "chat": $0.chat, "what": $0.what, "why": $0.why] as [String: Any] },
                 "poke": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectivePoke)),
                 "settleSeconds": engine.config.effectiveSettleSeconds,
@@ -357,6 +359,9 @@ import BotCore
         var outreach: QQOutreachConfig?
         var reactions: QQReactionConfig?
         var agentTargets: [String]?
+        var agentForAll: Bool?
+        var classicTargets: [String]?
+        var agentLevels: [String: String]?
         var poke: QQPokeConfig?
         var settleSeconds: Int?
         var quietHours: QQQuietHours?

@@ -11,6 +11,20 @@ extension DeepSeekClient {
     static func agentTools(online: Bool) -> [[String: Any]] {
         var tools: [[String: Any]] = [
             ["type": "function", "function": [
+                "name": "manage_chat",
+                "description": "聊天管理：开新话题(new_topic)、清空这个会话的上下文和记忆(clear_memory)、拉黑(block)/解除拉黑(unblock)某人、看黑名单(list_blocked)、看你记得的关于提要求的人的事(show_memory)、删掉关于他的某条记忆(forget_memory)、切换(set_persona)/恢复(reset_persona)/列出(list_personas)你在这里的性格。有人用斜杠命令或者直接说想做这些时用。能不能做由程序按提要求的人的身份核对，结果照实转告。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["action", "requested_by"], "properties": [
+                    "action": ["type": "string", "enum": ["new_topic", "clear_memory", "block", "unblock", "list_blocked", "show_memory", "forget_memory", "set_persona", "reset_persona", "list_personas"]],
+                    "argument": ["type": "string", "description": "拉黑/解除拉黑填 MEMBER 标签或 QQ 号；forget_memory 填关键词；set_persona 填性格名；其他留空"],
+                    "requested_by": ["type": "string", "description": "提出这个要求的那条消息编号"]
+                ]]
+            ]],
+            ["type": "function", "function": [
+                "name": "model_info",
+                "description": "查你现在实际用的是什么模型、通过什么方式调用。有人问你是什么模型、谁驱动你时用，照实回答。",
+                "parameters": ["type": "object", "additionalProperties": false, "properties": [String: Any]()]
+            ]],
+            ["type": "function", "function": [
                 "name": "search_chat_history",
                 "description": "翻这个群更早的聊天记录和关于群友的记忆，按关键词找。想知道之前聊过什么、某人说过什么、某个梗的来历时用。",
                 "parameters": ["type": "object", "additionalProperties": false, "required": ["query"], "properties": [
@@ -27,6 +41,14 @@ extension DeepSeekClient {
             ]]
         ]
         if online {
+            tools.append(["type": "function", "function": [
+                "name": "browse_bilibili",
+                "description": "去 B 站刷视频：助手刷热门（query 留空）或按关键词搜，挑一两个有意思的点开看（读字幕、看前几十秒画面），把标题、BV 号和内容告诉你。有人让你去刷视频、看看最近有什么好玩的、找某类视频时用。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["query"], "properties": [
+                    "query": ["type": "string", "description": "搜索关键词；刷热门就填空字符串"],
+                    "focus": ["type": "string", "description": "想找什么样的，例如“好笑的”“跟万圣节有关的”；可空"]
+                ]]
+            ]])
             tools.append(["type": "function", "function": [
                 "name": "ask_helper",
                 "description": "让助手去查资料（新闻近况、作品人物游戏产品价格、天气、链接和 BV 号的内容、你没把握的事实），它会自己搜索、打开网页，把要点告诉你。纯闲聊不用。",

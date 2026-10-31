@@ -194,7 +194,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
           let bot={};try{bot=JSON.parse(await plain(path.join(runtime,'status.json')));}catch{}
           const p=settings.value.profiles[settings.value.active];
           await backoff.ready;
-          send(200,{...(await runtimeControl.overview()),supervisor:bot,provider:settings.value.active,model:p.model,serviceTier:p.serviceTier||'default',availability:backoff.snapshot(settings.value.active),queue:generations.snapshot(),recentMetrics});
+          const lead=purpose=>{const r=settings.route(purpose);return {provider:r.provider,model:r.profile.model};};
+          send(200,{...(await runtimeControl.overview()),supervisor:bot,provider:settings.value.active,model:p.model,director:lead('director'),operator:lead('operator'),serviceTier:p.serviceTier||'default',availability:backoff.snapshot(settings.value.active),queue:generations.snapshot(),recentMetrics});
         }catch(e){fail(e);}return;
       }
       if(req.url==='/console/api/moderation'){try{send(200,await runtimeControl.moderation());}catch(e){send(503,{error:e.message});}return;}

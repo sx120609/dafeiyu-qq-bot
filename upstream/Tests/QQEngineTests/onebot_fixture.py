@@ -41,6 +41,8 @@ with socket.socket() as server:
                 batch_file.unlink()
                 for event in rows:
                     event.setdefault('time', time.time())
+                    if event.get('message_type') == 'private':
+                        history_rows.append(event)
                     send(conn, event)
                 injected = True
             if not injected and (directory / 'ready').exists():

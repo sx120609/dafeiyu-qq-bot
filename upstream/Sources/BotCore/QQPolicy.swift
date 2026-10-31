@@ -66,7 +66,15 @@ public struct QQConfig: Codable, Equatable, Sendable {
     public var effectiveReactions: QQReactionConfig { get { reactions ?? QQReactionConfig() } set { reactions = newValue } }
     /// Groups in agent mode (代理模式): the directing model reads every batch and decides by itself; see QQAgentPlan.
     public var agentTargets: [String]?
-    public func isAgent(_ key: String) -> Bool { (agentTargets ?? []).contains(key) && key.hasPrefix("group:") }
+    /// Agent mode for every chat, except those listed in `classicTargets`, which keep the older reply flow.
+    public var agentForAll: Bool?
+    public var classicTargets: [String]?
+    public func isAgent(_ key: String) -> Bool {
+        agentForAll == true ? !(classicTargets ?? []).contains(key) : (agentTargets ?? []).contains(key)
+    }
+    /// Permission level per chat in agent mode; chats not listed are "standard".
+    public var agentLevels: [String: String]?
+    public func agentLevel(_ key: String) -> QQAgentLevel { agentLevels?[key].flatMap(QQAgentLevel.init(rawValue:)) ?? .standard }
     public func isAdmin(_ id: String) -> Bool { effectiveAdminIDs.contains(id) }
     public func isBlocked(_ id: String) -> Bool { effectiveBlockedIDs.contains(id) }
     public var effectiveGroupParticipationEnabled: Bool { get { groupParticipationEnabled ?? false } set { groupParticipationEnabled = newValue } }
@@ -108,7 +116,13 @@ public struct QQConfig: Codable, Equatable, Sendable {
         guard Set(effectiveAdminIDs).isDisjoint(with: effectiveBlockedIDs) else { throw CoreError.invalid("管理员不能同时在黑名单中") }
         try effectiveOutreach.validate()
         try effectiveReactions.validate()
-        guard (agentTargets ?? []).count <= 20, (agentTargets ?? []).allSatisfy({ $0.hasPrefix("group:") && Self.validID(String($0.dropFirst(6))) }) else { throw CoreError.invalid("代理模式只能用在群里，最多 20 个") }
+        let chatKey: (String) -> Bool = { key in
+            (key.hasPrefix("group:") && Self.validID(String(key.dropFirst(6)))) || (key.hasPrefix("private:") && Self.validID(String(key.dropFirst(8))))
+        }
+        guard (agentTargets ?? []).count <= 20, (classicTargets ?? []).count <= 20,
+              ((agentTargets ?? []) + (classicTargets ?? [])).allSatisfy(chatKey),
+              (agentLevels ?? [:]).count <= 40, (agentLevels ?? [:]).allSatisfy({ chatKey($0.key) && QQAgentLevel(rawValue: $0.value) != nil })
+        else { throw CoreError.invalid("回复方式的会话设置无效") }
         try effectivePoke.validate()
         try effectiveQuietHours.validate()
         guard (0...30).contains(effectiveSettleSeconds) else { throw CoreError.invalid("等待对方说完的时间应为 0–30 秒") }

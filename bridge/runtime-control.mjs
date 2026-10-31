@@ -74,13 +74,22 @@ export class RuntimeControl{
       emojis:current.emojis.map(e=>({...e,weight:weights[e.id]===undefined?e.weight:int(weights[e.id],0,10)}))};
     return view(await this.panel('saveReactions',{reactions:next}));
   }
-  // Agent mode: which groups the directing model runs by itself.
+  // Agent mode: which chats the directing model runs by itself, and what it has been doing.
   async agent(settings){
-    const view=status=>({targets:status.config.agentTargets||[],groups:status.config.targets.filter(t=>t.group).map(t=>({key:'group:'+t.number,name:t.name,enabled:t.enabled}))});
+    const view=status=>{
+      const c=status.config,forAll=c.agentForAll===true,agentSet=new Set(c.agentTargets||[]),classic=new Set(c.classicTargets||[]);
+      const key=t=>(t.group?'group:':'private:')+t.number;
+      const levels=c.agentLevels||{};
+      return {forAll,chats:c.targets.map(t=>({key:key(t),name:t.name,group:t.group,enabled:t.enabled,agent:forAll?!classic.has(key(t)):agentSet.has(key(t)),level:levels[key(t)]||'standard'})),
+        states:status.agentStates||[],turns:status.agentTurns||[],running:status.running,connected:status.connected};
+    };
     if(!settings)return view(await this.panel());
-    const groups=new Set((await this.panel()).config.targets.filter(t=>t.group).map(t=>'group:'+t.number));
-    if(!Array.isArray(settings.targets)||settings.targets.some(k=>typeof k!=='string'||!groups.has(k)))throw new Error('代理模式只能选名单里的群');
-    return view(await this.panel('saveAgent',{agentTargets:[...new Set(settings.targets)]}));
+    const chats=new Set((await this.panel()).config.targets.map(t=>(t.group?'group:':'private:')+t.number));
+    const list=v=>{if(!Array.isArray(v)||v.some(k=>typeof k!=='string'||!chats.has(k)))throw new Error('只能选名单里的会话');return [...new Set(v)];};
+    if(typeof settings.forAll!=='boolean')throw new Error('回复方式设置无效');
+    const levels=settings.levels??{};
+    if(typeof levels!=='object'||Array.isArray(levels)||Object.entries(levels).some(([k,v])=>!chats.has(k)||!['basic','standard','full'].includes(v)))throw new Error('权限档设置无效');
+    return view(await this.panel('saveReplyMode',{agentForAll:settings.forAll,agentTargets:list(settings.agent??[]),classicTargets:list(settings.classic??[]),agentLevels:levels}));
   }
   // Reply pacing (wait for someone to finish typing) and answering pokes.
   async timing(settings){

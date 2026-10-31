@@ -3,8 +3,9 @@ const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
 const pages={
   overview:['总览','机器人现在的状态和最近做了什么'],
   usage:['用量与花费','这个机器人自己调用模型的次数、tokens 和花费'],
-  model:['模型','用哪种方式、哪个模型来聊天'],
-  chat:['聊天行为','回复节奏、夜间安静、戳一戳、贴表情、主动找人聊天'],
+  model:['模型','连接方式，以及每种活交给哪个模型'],
+  agent:['代理模式','它在每个会话里看了什么、做了什么、为什么，以及回复方式和权限'],
+  chat:['聊天行为','夜间安静、戳一戳、表情偏好、主动找人聊天'],
   features:['功能开关','打开或关闭机器人的能力，保存后立即生效'],
   moderation:['管理员与黑名单','谁能管机器人，谁不理'],
   qq:['QQ 登录','NapCat 管理页，扫码登录机器人的 QQ'],
@@ -104,7 +105,7 @@ function route(){
   for(const link of $$('.nav a'))link.dataset.page===page?link.setAttribute('aria-current','page'):link.removeAttribute('aria-current');
   $('page-title').textContent=pages[page][0];$('page-sub').textContent=pages[page][1];
   renderPageActions();
-  const enter={overview:refreshOverview,usage:enterUsage,model:enterModel,chat:enterChat,features:enterFeatures,moderation:enterModeration,
+  const enter={overview:refreshOverview,usage:enterUsage,model:enterModel,agent:enterAgent,chat:enterChat,features:enterFeatures,moderation:enterModeration,
     qq:()=>openEmbed('qq'),panel:()=>openEmbed('panel'),activity:enterActivity,settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
   schedulePolling();
@@ -132,9 +133,9 @@ function stopPolling(){clearTimeout(pollTimer);pollTimer=null;}
 function schedulePolling(){
   stopPolling();
   pollTimer=setTimeout(async()=>{
-    if(!document.hidden){try{if(current==='overview')await refreshOverview();else await refreshBrand();}catch{}}
+    if(!document.hidden){try{if(current==='overview')await refreshOverview();else if(current==='agent')await refreshAgent();else await refreshBrand();}catch{}}
     schedulePolling();
-  },current==='overview'?5000:20000);
+  },['overview','agent'].includes(current)?5000:20000);
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!$('app').hidden&&current==='overview')refreshOverview().catch(()=>{});});
 
@@ -165,11 +166,12 @@ async function refreshOverview(){
   $('ov-error').hidden=!issue;$('ov-error').textContent=issue;
   $('st-calls').textContent=b.calls??'–';$('st-calls-sub').textContent=b.dailyLimit?`每日上限 ${b.dailyLimit}`:'';
   $('st-sent').textContent=b.confirmed??'–';$('st-sent-sub').textContent=b.sendLimit?`每日上限 ${b.sendLimit}`:'';
-  const chats=(o.recentMetrics||[]).filter(m=>m.ok&&m.purpose==='chat').slice(0,10);
+  const chats=(o.recentMetrics||[]).filter(m=>m.ok&&['chat','director'].includes(m.purpose)).slice(0,10);
   $('st-latency').textContent=chats.length?(chats.reduce((s,m)=>s+m.ms,0)/chats.length/1000).toFixed(1)+' 秒':'–';
-  $('st-latency-sub').textContent=chats.length?`最近 ${chats.length} 次聊天回复`:'还没有聊天回复';
-  $('st-model').textContent=o.model||'–';$('st-model').title=o.model||'';
-  $('st-provider').textContent=(providerNames[o.provider]||'')+(o.provider==='codex'&&o.serviceTier==='fast'?' · Fast':'');
+  $('st-latency-sub').textContent=chats.length?`最近 ${chats.length} 次模型调用`:'还没有调用';
+  const lead=o.director||{model:o.model,provider:o.provider};
+  $('st-model').textContent=lead.model||'–';$('st-model').title=lead.model||'';
+  $('st-provider').textContent=o.director?`指挥 · ${providerNames[lead.provider]||''}${o.operator?' ｜ 助手 '+o.operator.model:''}`:(providerNames[o.provider]||'')+(o.provider==='codex'&&o.serviceTier==='fast'?' · Fast':'');
   const records=(b.records||[]).map(r=>{
     const tone={confirmed:'ok',failed:'bad',uncertain:'warn'}[r.state]||'';
     return el('li',{},el('time',{},clock(r.timestamp)),el('span',{className:'who',title:r.target},r.target||'—'),el('span',{className:'what'},el('b',{className:tone},r.title),r.detail));
@@ -208,7 +210,7 @@ for(const button of $$('[data-runtime]'))button.onclick=()=>{
 
 /* Usage and prices */
 let usageTab='stats',usageDays=7,usageMetric='tokens',usageData=null;
-const purposeNames={director:'代理·指挥',operator:'代理·助手',chat:'回复起草',rewrite:'改口吻',review:'插话校对',summary:'群聊摘要',memory:'记忆整理',react:'小动作',imageplan:'画图判断',outreach:'主动聊天',poke:'戳一戳',test:'连接测试',video:'看视频',image:'画图'};
+const purposeNames={director:'指挥',operator:'助手',chat:'回复起草',rewrite:'改口吻',review:'插话校对',summary:'群聊摘要',memory:'记忆整理',react:'小动作',imageplan:'画图判断',outreach:'主动聊天',poke:'戳一戳',test:'连接测试',video:'看视频',image:'画图'};
 const costSources={reported:'Claude Code 自报',priced:'按你填的单价',reference:'按列表价估算',unpriced:'未计价'};
 const count=n=>n>=1e8?(n/1e8).toFixed(2)+' 亿':n>=1e4?(n/1e4).toFixed(n>=1e6?0:1)+' 万':Math.round(n).toLocaleString('zh-CN');
 const dollars=v=>v===0?'$0':v<0.001?'<$0.001':v<1?'$'+v.toFixed(3):v<1000?'$'+v.toFixed(2):'$'+Math.round(v).toLocaleString('en-US');
@@ -438,25 +440,26 @@ async function refreshCatalog(){
 $('catalog-refresh').onclick=()=>busy($('catalog-refresh'),refreshCatalog);
 
 /* Model per purpose ("模型分工") */
+const routeGroups=[['agent','代理模式',true],['background','后台',true],['other','其他功能',true],['classic','旧流程（只给切回旧流程的会话用）',false]];
 const routePurposes=[
-  ['chat','回复起草','读完整段聊天、记忆和查到的资料，写出回复内容；最吃 tokens 的一步'],
-  ['director','代理模式·指挥','代理模式的群里看每一批新消息，自己决定回不回、写出要说的话；建议用最会说话的模型'],
-  ['operator','代理模式·助手','替指挥跑腿：查资料、看更早的图、挑表情包；可以用便宜的模型'],
-  ['rewrite','改成大肥鱼口吻','只读草稿和最近几句，把说法改得像它；关着就直接发起草的稿子'],
-  ['review','主动插话前的校对','群里没人叫它、它想插一句时，发出前再检查一遍'],
-  ['summary','群聊滚动摘要','把较早的群聊压成一段前情，回复时少读几十行原文'],
-  ['memory','记忆整理','后台把聊天整理成长期记忆'],
-  ['react','群里的小动作','决定贴什么表情、戳谁、要不要复读'],
-  ['imageplan','画图判断','判断是不是要画图，整理画面描述'],
-  ['poke','被戳时说的话','有人戳它时顺口回的一句'],
-  ['outreach','主动找人聊天','私聊里主动问候或跟进'],
-  ['video','看视频','看别人发的视频链接']
+  ['director','指挥','看每一批新消息，自己决定回不回、写出要说的话；建议用最会说话的模型','agent'],
+  ['operator','助手','替指挥跑腿：查资料、看更早的图、刷 B 站、挑表情包；可以用便宜的模型','agent'],
+  ['chat','回复起草','读完整段聊天、记忆和查到的资料，写出回复内容','classic'],
+  ['rewrite','改成大肥鱼口吻','只读草稿和最近几句，把说法改得像它；关着就直接发起草的稿子','classic'],
+  ['review','主动插话前的校对','群里没人叫它、它想插一句时，发出前再检查一遍','classic'],
+  ['summary','群聊滚动摘要','把较早的群聊压成一段前情，回复时少读几十行原文','background'],
+  ['memory','记忆整理','后台把聊天整理成长期记忆','background'],
+  ['react','群里的小动作','决定贴什么表情、戳谁、要不要复读','classic'],
+  ['imageplan','画图判断','判断是不是要画图，整理画面描述','background'],
+  ['poke','被戳时说的话','有人戳它时顺口回的一句','other'],
+  ['outreach','主动找人聊天','私聊里主动问候或跟进','other'],
+  ['video','看视频','看别人发的视频链接','background']
 ];
 let routesDirty=false;
 function renderRoutes(){
   if(routesDirty)return;
   const routes=modelState.routes||{},active=modelState.active,activeModel=modelState.profiles[active]?.model||'';
-  $('routes-rows').replaceChildren(...routePurposes.map(([purpose,name,help])=>{
+  const rows=routePurposes.map(([purpose,name,help,group])=>{
     const route=routes[purpose],choice=route?route.provider:(purpose==='rewrite'?'off':'default');
     const provider=el('select',{});provider.dataset.purpose=purpose;provider.setAttribute('aria-label',name+' 用的连接');
     const options=purpose==='rewrite'?[['off','不改写'],['active',`用当前连接（${providerNames[active]}）`]]:[['default',`跟随当前连接（${providerNames[active]}）`]];
@@ -473,14 +476,18 @@ function renderRoutes(){
     };
     provider.onchange=()=>{routesDirty=true;sync();};model.oninput=()=>{routesDirty=true;};
     sync();
-    return el('div',{className:'route-row'},el('div',{className:'route-name'},el('strong',{},name),el('small',{className:'muted'},help)),provider,model,list);
+    return {group,node:el('div',{className:'route-row'},el('div',{className:'route-name'},el('strong',{},name),el('small',{className:'muted'},help)),provider,model,list)};
+  });
+  $('routes-rows').replaceChildren(...routeGroups.map(([group,title,open])=>{
+    const block=el('details',{className:'route-group',open},el('summary',{},title),...rows.filter(r=>r.group===group).map(r=>r.node));
+    return block;
   }));
 }
 $('routes-form').onsubmit=event=>{
   event.preventDefault();
   busy($('routes-save'),async()=>{
     const routes={};
-    for(const select of $$('#routes-rows select')){
+    for(const select of $$('#routes-rows select')){ // folded groups still count
       const purpose=select.dataset.purpose,value=select.value;
       if(value==='default'||value==='off')continue;
       routes[purpose]=value==='active'?{provider:'active'}:{provider:value,model:$$('#routes-rows input').find(i=>i.dataset.purpose===purpose).value.trim()};
@@ -492,26 +499,87 @@ $('routes-form').onsubmit=event=>{
 
 /* Chat behaviour: pacing, quiet hours, pokes, reactions, reaching out */
 let timing=null,reactions=null,outreach=null;
-async function enterChat(){await Promise.all([loadTiming(),loadAgent(),loadReactions(),loadOutreach()]);}
-async function loadAgent(){
-  let agent;
-  try{agent=await api('agent');}catch(error){setDisabled($('agent-form'),true);$('agent-hint').textContent=error.message;return;}
-  setDisabled($('agent-form'),false);
-  const rows=agent.groups.map(group=>{
-    const box=el('input',{type:'checkbox',checked:agent.targets.includes(group.key)});box.dataset.key=group.key;box.setAttribute('aria-label','代理模式：'+group.name);
-    return el('div',{className:'chat-row'},el('label',{},box,el('span',{className:'who'},el('strong',{},group.name),el('small',{},group.enabled?(agent.targets.includes(group.key)?'代理模式':'普通模式'):'这个群没在回复'))));
-  });
-  $('agent-groups').replaceChildren(...(rows.length?rows:[el('p',{className:'empty'},'名单里还没有群。')]));
+async function enterChat(){await Promise.all([loadTiming(),loadReactions(),loadOutreach()]);}
+/* Agent mode page */
+let agentData=null,agentDirty=false;
+const agentDecisions={reply:['回复','ok'],silence:['没出声',''],wait:['等一等','accent'],failed:['出错','bad'],thinking:['正在想','warn']};
+const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人'};
+const levelNames={basic:'基础',standard:'标准',full:'完全'};
+async function enterAgent(){agentDirty=false;await refreshAgent();renderAgentForm();}
+async function refreshAgent(){
+  agentData=await api('agent');
+  renderAgentStats();renderAgentStates();renderAgentFilters();renderAgentTurns();
+  if(!agentDirty)renderAgentForm();
 }
+function renderAgentStats(){
+  const states=agentData.states||[],turns=agentData.turns||[],hour=Date.now()/1000-3600;
+  const recent=turns.filter(t=>t.at>=hour),spoke=recent.filter(t=>t.decision==='reply').length;
+  const card=(label,value,sub)=>el('div',{className:'card stat'},el('span',{},label),el('strong',{},String(value)),el('small',{},sub));
+  $('agent-stats').replaceChildren(
+    card('用代理模式的会话',states.length,`名单里共 ${agentData.chats.length} 个`),
+    card('正在想',states.filter(s=>s.thinkingSince).length,'正在看一批消息'),
+    card('在攒新消息',states.filter(s=>s.pending).length,'安静 2 秒后交给它'),
+    card('最近一小时',recent.length?`${spoke}/${recent.length}`:'0',recent.length?'出声的批次 / 看过的批次':'还没看过消息'));
+  const issue=!agentData.connected?'QQ 没连上，代理在等。到「QQ 登录」看看。':!agentData.running?'回复暂停中，代理不会出声。到「总览」开始回复。':'';
+  $('agent-banner').hidden=!issue;$('agent-banner').textContent=issue;
+}
+function renderAgentStates(){
+  const now=Date.now()/1000;
+  const rows=(agentData.states||[]).map(s=>{
+    const busy=s.thinkingSince?['正在想 '+Math.max(1,Math.round(now-s.thinkingSince))+' 秒','warn']:s.pending?['攒了 '+s.pending+' 条','accent']:null;
+    const last=s.lastAt?clock(s.lastAt)+' '+(agentDecisions[s.lastDecision]||[s.lastDecision])[0]:'还没看过';
+    return {busy:!!busy,node:el('div',{className:'state-row'+(busy?'':' idle')},el('span',{className:'name',title:s.chat},s.chat),
+      busy?el('span',{className:'badge '+busy[1]},busy[0]):el('span',{className:'muted small'},last))};
+  }).sort((x,y)=>y.busy-x.busy);
+  $('agent-states').replaceChildren(...(rows.length?rows.map(r=>r.node):[el('p',{className:'empty'},'没有会话在用代理模式。')]));
+}
+function renderAgentFilters(){
+  const select=$('agent-filter-chat'),value=select.value;
+  const names=[...new Set((agentData.turns||[]).map(t=>t.chat))];
+  select.replaceChildren(el('option',{value:''},'全部会话'),...names.map(n=>el('option',{value:n,selected:n===value},n)));
+}
+function renderAgentTurns(){
+  const chat=$('agent-filter-chat').value,kind=$('agent-filter-kind').value;
+  const turns=(agentData.turns||[]).filter(t=>(!chat||t.chat===chat)&&(!kind||t.decision===kind)).slice(0,40);
+  const open=new Set($$('#agent-turns details[open]').map(d=>d.dataset.id));
+  $('agent-turns').replaceChildren(...(turns.length?turns.map(t=>{
+    const [label,tone]=agentDecisions[t.decision]||[t.decision,''];
+    const meta=[t.decision==='thinking'?'':Math.round(t.seconds)+' 秒',t.tokens?t.tokens.toLocaleString()+' tokens':''].filter(Boolean).join(' · ');
+    const parts=[el('div',{className:'turn-head'},el('span',{className:'badge '+tone},label),el('strong',{title:t.chat},t.chat),el('time',{},clock(t.at)),el('span',{className:'muted small'},meta)),
+      el('ul',{className:'turn-batch'},...t.batch.map(line=>el('li',{},line)))];
+    if(t.errands?.length){
+      const d=el('details',{className:'turn-errands'},el('summary',{},'查了 '+t.errands.length+' 次：'+t.errands.map(e=>errandNames[e.tool]||e.tool).join('、')),
+        ...t.errands.map(e=>el('div',{className:'errand'},el('p',{},el('b',{},errandNames[e.tool]||e.tool),' ',el('span',{className:'muted small mono'},e.detail)),el('pre',{},e.result))));
+      d.dataset.id=t.id;if(open.has(t.id))d.open=true;parts.push(d);
+    }
+    if(t.sent?.length)parts.push(el('p',{className:'turn-sent'},t.sent.join('；')));
+    if(t.note)parts.push(el('p',{className:'turn-note muted'},'理由：'+t.note));
+    return el('article',{className:'turn '+(t.decision||'')},...parts);
+  }):[el('p',{className:'empty'},chat||kind?'没有符合条件的记录。':'还没有记录。会话里有新消息时它会看。')]));
+}
+$('agent-filter-chat').onchange=renderAgentTurns;$('agent-filter-kind').onchange=renderAgentTurns;
+function renderAgentForm(){
+  $('agent-all').checked=agentData.forAll;
+  $('agent-chats').replaceChildren(...(agentData.chats.length?agentData.chats.map(chat=>{
+    const box=el('input',{type:'checkbox',checked:chat.agent});box.dataset.key=chat.key;box.setAttribute('aria-label','用代理模式：'+chat.name);
+    const level=el('select',{});level.dataset.key=chat.key;level.setAttribute('aria-label','权限：'+chat.name);
+    level.append(...Object.entries(levelNames).map(([value,name])=>el('option',{value,selected:value===chat.level},name)));
+    level.disabled=!chat.agent;box.onchange=()=>{level.disabled=!box.checked;agentDirty=true;};level.onchange=()=>{agentDirty=true;};
+    return el('div',{className:'state-row'+(chat.enabled?'':' idle')},el('label',{className:'name'},box,el('span',{title:chat.name},(chat.group?'群 · ':'好友 · ')+chat.name)),level);
+  }):[el('p',{className:'empty'},'名单里还没有会话。')]));
+}
+$('agent-all').onchange=()=>{agentDirty=true;if($('agent-all').checked)for(const box of $$('#agent-chats input[type=checkbox]')){box.checked=true;box.dispatchEvent(new Event('change'));}};
 $('agent-form').onsubmit=event=>{
   event.preventDefault();
   busy($('agent-save'),async()=>{
-    await api('agent',{targets:$$('#agent-groups input[type=checkbox]').filter(x=>x.checked).map(x=>x.dataset.key)});
-    await loadAgent();toast('已保存，下一批消息起生效');
+    const boxes=$$('#agent-chats input[type=checkbox]'),forAll=$('agent-all').checked;
+    const levels=Object.fromEntries($$('#agent-chats select').map(s=>[s.dataset.key,s.value]));
+    agentData=await api('agent',{forAll,agent:boxes.filter(b=>b.checked).map(b=>b.dataset.key),classic:forAll?boxes.filter(b=>!b.checked).map(b=>b.dataset.key):[],levels});
+    agentDirty=false;renderAgentForm();renderAgentStates();renderAgentStats();toast('已保存，下一批消息起生效');
   });
 };
 async function loadTiming(){
-  try{timing=await api('timing');}catch(error){setDisabled($('timing-form'),true);toast(error.message,true);return;}
+  try{timing=await api('timing');}catch(error){setDisabled($('timing-form'),true);setDisabled($('legacy-form'),true);toast(error.message,true);return;}
   setDisabled($('timing-form'),false);
   fillSelect($('timing-settle'),[0,3,5,8,12,20],v=>v===0?'不等，收到就回':`最多等 ${v} 秒`,timing.settleSeconds);
   const quiet=timing.quietHours||{enabled:true,startHour:2,endHour:8};
@@ -522,21 +590,23 @@ async function loadTiming(){
   fillSelect($('poke-chance'),[0,25,50,75,100],v=>v===0?'只戳回去，不说话':v===100?'每次都说':`${v}%`,poke.replyChance);
   fillSelect($('poke-cooldown'),[0,10,30,60,300],secondsLabel,poke.cooldownSeconds);
 }
-$('timing-form').onsubmit=event=>{
-  event.preventDefault();
-  busy($('timing-save'),async()=>{
-    await api('timing',{settleSeconds:Number($('timing-settle').value),
-      poke:{enabled:$('poke-enabled').checked,replyChance:Number($('poke-chance').value),cooldownSeconds:Number($('poke-cooldown').value)},
-      quietHours:{enabled:$('quiet-enabled').checked,startHour:Number($('quiet-start').value),endHour:Number($('quiet-end').value)}});
-    await loadTiming();toast('已保存');
-  });
-};
-const emojiGlyph={'147':'🍭','128051':'🐳','10068':'❔','120':'👊','182':'😂','76':'👍','271':'🍉','124':'👌','319':'🫶','66':'❤️','63':'🌹','128293':'🔥','128170':'💪','8':'😴','320':'🎉'};
+const saveTiming=()=>api('timing',{settleSeconds:Number($('timing-settle').value),
+  poke:{enabled:$('poke-enabled').checked,replyChance:Number($('poke-chance').value),cooldownSeconds:Number($('poke-cooldown').value)},
+  quietHours:{enabled:$('quiet-enabled').checked,startHour:Number($('quiet-start').value),endHour:Number($('quiet-end').value)}});
+const saveReactions=()=>api('reactions',{enabled:$('reactions-enabled').checked,chance:Number($('reactions-chance').value),cooldownSeconds:Number($('reactions-cooldown').value),
+  pokeEnabled:$('reactions-poke').checked,repeatEnabled:$('reactions-repeat').checked,weights:Object.fromEntries($$('#reactions-emojis select').map(s=>[s.dataset.id,Number(s.value)]))});
+$('timing-form').onsubmit=event=>{event.preventDefault();busy($('timing-save'),async()=>{await saveTiming();await loadTiming();toast('已保存');});};
+$('emoji-form').onsubmit=event=>{event.preventDefault();busy($('emoji-save'),async()=>{await saveReactions();await loadReactions();toast('已保存');});};
+$('legacy-form').onsubmit=event=>{event.preventDefault();busy($('legacy-save'),async()=>{await saveTiming();await saveReactions();await Promise.all([loadTiming(),loadReactions()]);toast('已保存');});};
+const emojiGlyph={'147':'🍭','128051':'🐳','10068':'❔','120':'👊','182':'😂','76':'👍','271':'🍉','124':'👌','319':'🫶','66':'❤️','63':'🌹','128293':'🔥','128170':'💪','8':'😴','320':'🎉',
+  '264':'🤦','269':'👀','299':'🐮','285':'🐟','179':'🐶','106':'🥺','273':'🍋','267':'😵','262':'🤕'};
 const livelinessLabel=v=>(v<=15?'安静':v<=40?'适中':'活跃')+({10:'：只给特别值得的贴',30:'：像常在线不刷屏的群友',60:'：多贴一些'}[v]||'');
-const preferenceLabels={0:'不用',1:'偶尔',3:'普通',5:'常用',8:'最爱'};
+// The preference is 0–10; the menu offers five steps and names any other saved value by the step it is closest to.
+const preferenceSteps=[[0,'不用'],[1,'偶尔'],[2,'普通'],[5,'常用'],[8,'最爱']];
+const preferenceLabel=w=>preferenceSteps.reduce((best,step)=>Math.abs(step[0]-w)<Math.abs(best[0]-w)?step:best)[1];
 async function loadReactions(){
-  try{reactions=await api('reactions');}catch(error){setDisabled($('reactions-form'),true);$('reactions-hint').textContent=error.message;return;}
-  setDisabled($('reactions-form'),false);
+  try{reactions=await api('reactions');}catch(error){setDisabled($('emoji-form'),true);setDisabled($('legacy-form'),true);$('reactions-hint').textContent=error.message;return;}
+  setDisabled($('emoji-form'),false);setDisabled($('legacy-form'),false);
   const c=reactions.config;
   $('reactions-enabled').checked=c.enabled;
   $('reactions-poke').checked=c.pokeEnabled??true;$('reactions-repeat').checked=c.repeatEnabled??true;
@@ -544,23 +614,14 @@ async function loadReactions(){
   fillSelect($('reactions-cooldown'),[0,15,45,120,300,900],secondsLabel,c.cooldownSeconds);
   $('reactions-emojis').replaceChildren(...c.emojis.map(emoji=>{
     const select=el('select',{});select.dataset.id=emoji.id;select.setAttribute('aria-label',emoji.name+' 的偏好');
-    const levels=[...new Set([0,1,3,5,8,emoji.weight])].sort((a,b)=>a-b);
-    select.append(...levels.map(w=>el('option',{value:w,selected:w===emoji.weight},preferenceLabels[w]||`偏好 ${w}`)));
+    const levels=preferenceSteps.some(([w])=>w===emoji.weight)?preferenceSteps.map(([w])=>w):[...preferenceSteps.map(([w])=>w),emoji.weight].sort((a,b)=>a-b);
+    select.append(...levels.map(w=>el('option',{value:w,selected:w===emoji.weight},preferenceLabel(w))));
     return el('div',{className:'emoji-item',title:emoji.hint||''},el('span',{},`${emojiGlyph[emoji.id]||''} ${emoji.name}`),select);
   }));
   const log=reactions.interactions||[];
   $('reactions-log').replaceChildren(...(log.length?log.slice(0,15).map(x=>el('li',{},el('time',{},clock(x.at)),el('span',{className:'who',title:x.chat},x.chat),
     el('span',{className:'what'},el('b',{},x.what),x.why||''))):[el('li',{className:'empty'},'还没有记录；打开后，群里有新消息时它会看一看')]));
 }
-$('reactions-form').onsubmit=event=>{
-  event.preventDefault();
-  busy($('reactions-save'),async()=>{
-    const weights=Object.fromEntries($$('#reactions-emojis select').map(s=>[s.dataset.id,Number(s.value)]));
-    await api('reactions',{enabled:$('reactions-enabled').checked,chance:Number($('reactions-chance').value),cooldownSeconds:Number($('reactions-cooldown').value),
-      pokeEnabled:$('reactions-poke').checked,repeatEnabled:$('reactions-repeat').checked,weights});
-    await loadReactions();toast('已保存');
-  });
-};
 async function loadOutreach(){
   try{outreach=await api('outreach');}catch(error){setDisabled($('outreach-form'),true);$('outreach-hint').textContent=error.message;return;}
   setDisabled($('outreach-form'),false);
@@ -600,12 +661,15 @@ async function enterFeatures(){
   featureDraft=Object.fromEntries(features.map(f=>[f.id,f.enabled]));renderFeatures();
 }
 function renderFeatures(){
-  $('feature-list').replaceChildren(...features.map(f=>{
+  const row=f=>{
     const input=el('input',{type:'checkbox',className:'switch',checked:featureDraft[f.id],disabled:!f.available});
     input.setAttribute('aria-label',f.name);
     input.onchange=()=>{featureDraft[f.id]=input.checked;updateFeatureBar();};
     return el('label',{className:'list-row'},el('span',{},el('strong',{},f.name),el('small',{},f.description),f.reason?el('small',{className:'reason'},f.reason):null),input);
-  }));
+  };
+  const shared=features.filter(f=>!f.classicOnly),classic=features.filter(f=>f.classicOnly);
+  $('feature-list').replaceChildren(...shared.map(row),
+    ...(classic.length?[el('p',{className:'list-group'},'只对旧流程的会话有效（代理模式自己判断，不看这几项）'),...classic.map(row)]:[]));
   updateFeatureBar();
 }
 function updateFeatureBar(){$('feature-bar').hidden=features.every(f=>featureDraft[f.id]===f.enabled);}

@@ -24,6 +24,7 @@
   <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4M10 8l-4 4 4 4M6 12h9"/></symbol>
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.4L20 16M20 20v-4h-4"/></symbol>
+  <symbol id="i-agent" viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"/><path d="M5 20c1.2-3.5 3.8-5 7-5s5.8 1.5 7 5M19 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
 </svg>
 
@@ -53,6 +54,7 @@
       <a href="#usage" data-page="usage"><svg><use href="#i-chart"/></svg>用量与花费</a>
       <p class="nav-group">机器人</p>
       <a href="#model" data-page="model"><svg><use href="#i-chip"/></svg>模型</a>
+      <a href="#agent" data-page="agent"><svg><use href="#i-agent"/></svg>代理模式</a>
       <a href="#chat" data-page="chat"><svg><use href="#i-chat"/></svg>聊天行为</a>
       <a href="#features" data-page="features"><svg><use href="#i-toggle"/></svg>功能开关</a>
       <a href="#moderation" data-page="moderation"><svg><use href="#i-shield"/></svg>管理员与黑名单</a>
@@ -222,40 +224,59 @@
         </div>
       </div>
       <form id="routes-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>模型分工</h3><p class="muted">每种活交给哪个模型。没单独指定的跟着上面“当前使用中”的连接。省钱的做法：把“回复起草”交给便宜或订阅里的模型，再打开“改成大肥鱼口吻”让你喜欢的模型只改说法，它只读草稿和最近几句，用的 tokens 少很多。单独指定的模型出错或没额度时，这次会自动改用当前连接。</p></div></div>
+        <div class="section-head"><div><h3>模型分工</h3><p class="muted">每种活交给哪个模型；没单独指定的跟着上面“当前使用中”的连接。代理模式主要看“指挥”和“助手”两行：指挥负责看消息、拿主意、说话，用最会说话的模型；助手只跑腿，可以用便宜的。单独指定的模型出错或没额度时，这一次自动改用当前连接。</p></div></div>
         <div id="routes-rows" class="route-rows"></div>
         <div class="actions end"><button id="routes-save" class="btn primary" type="submit">保存分工</button></div>
       </form>
     </section>
 
+    <!-- 代理模式 -->
+    <section class="page" data-page="agent" hidden>
+      <div id="agent-banner" class="note warn" hidden></div>
+      <div id="agent-stats" class="stats"></div>
+      <div class="grid-2 wide-left">
+        <div class="card section">
+          <div class="section-head"><div><h3>最近的决定</h3><p class="muted">每一批消息：收到了什么、去查了什么、最后做了什么、为什么。只在内存里，重启后清空。</p></div></div>
+          <div class="filters"><select id="agent-filter-chat" aria-label="按会话筛选"></select><select id="agent-filter-kind" aria-label="按结果筛选">
+            <option value="">全部结果</option><option value="reply">出声的</option><option value="silence">没出声的</option><option value="failed">出错的</option></select></div>
+          <div id="agent-turns" class="agent-turns"></div>
+        </div>
+        <div class="col">
+          <div class="card section">
+            <div class="card-head flush"><h3>各会话</h3><span class="muted small">每 5 秒刷新</span></div>
+            <div id="agent-states" class="state-list"></div>
+          </div>
+          <form id="agent-form" class="card section" novalidate>
+            <div class="card-head flush"><h3>回复方式和权限</h3></div>
+            <label class="switch-row"><span><strong>所有会话都用代理模式</strong><small>以后新加进名单的会话也自动用；不勾的会话走旧流程。</small></span><input id="agent-all" type="checkbox" class="switch"></label>
+            <div id="agent-chats" class="state-list"></div>
+            <details class="explain"><summary>权限档和身份是怎么管的</summary>
+              <p><b>基础</b>：只在被叫到时看（@、引用它、叫名字；私聊每条都算），能说话、发表情包、贴表情。</p>
+              <p><b>标准</b>：自己决定要不要插话，另外能戳人、上网查资料、刷 B 站。</p>
+              <p><b>完全</b>：再加画图、找插画、存表情、替人通知主人。</p>
+              <p>不管哪一档，拉黑、清空群记忆、改群里性格、存表情都只认机器人管理员提的要求，由程序核对；黑名单里的人一概不理。斜杠命令也交给代理理解后执行。</p>
+              <p>两个模型在「模型 → 模型分工」里选：指挥负责看和说，助手负责查资料、看旧图、刷 B 站、挑表情包。</p>
+            </details>
+            <div class="actions end"><button id="agent-save" class="btn primary" type="submit">保存</button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
     <!-- 聊天行为 -->
     <section class="page narrow" data-page="chat" hidden>
       <form id="timing-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>回复节奏</h3><p class="muted">对方连着发几条时，等他停下再一起回。看着没说完会等满，看着说完了只等一半。</p></div></div>
-        <div class="fields"><label class="field"><span>回复前等对方说完</span><select id="timing-settle"></select></label></div>
-        <div class="section-head sub"><div><h3>夜间安静</h3><p class="muted">这段时间里不主动插群聊、不贴表情；有人 @ 它、回复它、发命令照常回。</p></div><input id="quiet-enabled" type="checkbox" class="switch" aria-label="夜间安静"></div>
+        <div class="section-head"><div><h3>夜间安静</h3><p class="muted">这段时间里不主动插群聊、不贴表情；有人 @ 它、回复它、叫它的名字照常回。</p></div><input id="quiet-enabled" type="checkbox" class="switch" aria-label="夜间安静"></div>
         <div class="fields"><label class="field"><span>从</span><select id="quiet-start"></select></label><label class="field"><span>到</span><select id="quiet-end"></select></label></div>
         <div class="section-head sub"><div><h3>回应戳一戳</h3><p class="muted">有人戳大肥鱼，会戳回去，有时再顺口说一句。</p></div><input id="poke-enabled" type="checkbox" class="switch" aria-label="回应戳一戳"></div>
         <div class="fields"><label class="field"><span>戳回去时说句话的概率</span><select id="poke-chance"></select></label><label class="field"><span>同一个人至少间隔</span><select id="poke-cooldown"></select></label></div>
         <div class="actions end"><button id="timing-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
-      <form id="agent-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>代理模式（试用）</h3><p id="agent-hint" class="muted">勾选的群不再按条数和关键词决定要不要说话：群里每攒到一批新消息（安静 2 秒、最多等 8 秒），就交给“指挥”模型看。它自己决定回、不回还是再等等；要回就一次写好一到三条话，也可以发表情包、贴表情、戳人。“助手”模型替它跑腿：查资料、看更早的图、挑表情包。两个模型在「模型 → 模型分工」里选。限速、黑名单、禁言、夜间安静照常生效。</p></div></div>
-        <div id="agent-groups" class="chat-list"></div>
-        <div class="actions end"><button id="agent-save" class="btn primary" type="submit">保存</button></div>
-      </form>
-
-      <form id="reactions-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>群里的小动作</h3><p id="reactions-hint" class="muted">在启用的群里，攒几条新消息后让模型看一眼最近的聊天：谁在说什么、在不在叫它、别人贴了什么表情、它记得的事，再决定给哪条贴什么表情、要不要戳一戳谁、要不要跟着大家复读。经常什么都不做才正常。用哪个模型在「模型 → 模型分工」里选。</p></div><input id="reactions-enabled" type="checkbox" class="switch" aria-label="群里的小动作"></div>
-        <div class="fields"><label class="field"><span>活跃程度</span><select id="reactions-chance"></select></label><label class="field"><span>同一个群至少隔多久看一次</span><select id="reactions-cooldown"></select></label></div>
-        <label class="switch-row"><span><strong>会戳一戳群友</strong><small>有人提到它却没 @、说要去睡了、在跟它斗嘴时；同一个群十分钟最多一次。</small></span><input id="reactions-poke" type="checkbox" class="switch"></label>
-        <label class="switch-row"><span><strong>会跟着复读</strong><small>两个以上的人发了一模一样的短句时，可能跟一句；同一句半小时内只跟一次。</small></span><input id="reactions-repeat" type="checkbox" class="switch"></label>
-        <p class="field-label">表情偏好 <small class="muted">告诉模型你喜欢它多用哪些；“不用”的不会出现</small></p>
+      <form id="emoji-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>表情回应偏好</h3><p id="reactions-hint" class="muted">给群友消息贴表情时能用哪些、你希望它多用哪些。“不用”的不会出现；鼠标停在表情上能看到什么时候用。</p></div></div>
         <div id="reactions-emojis" class="emoji-grid"></div>
-        <p class="field-label">最近的小动作 <small class="muted">模型每次看完做了什么、为什么</small></p>
-        <ol id="reactions-log" class="records"></ol>
-        <div class="actions end"><button id="reactions-save" class="btn primary" type="submit">保存</button></div>
+        <div class="actions end"><button id="emoji-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
       <form id="outreach-form" class="card section" novalidate>
@@ -272,6 +293,20 @@
         <div id="outreach-preview" class="note" hidden></div>
         <div class="actions end"><button id="outreach-save" class="btn primary" type="submit">保存</button></div>
       </form>
+
+      <details class="card section legacy">
+        <summary><span><strong>旧流程设置</strong><small class="muted">只给切回旧流程的会话用；全部用代理模式时这里不起作用</small></span></summary>
+        <form id="legacy-form" class="col" novalidate>
+          <div class="fields"><label class="field"><span>回复前等对方说完</span><select id="timing-settle"></select></label></div>
+          <div class="section-head sub"><div><h3>群里的小动作</h3><p class="muted">旧流程的群里，攒几条新消息后让模型看一眼，决定贴什么表情、要不要戳人、要不要跟着复读。代理模式的群由代理自己决定，不走这个。</p></div><input id="reactions-enabled" type="checkbox" class="switch" aria-label="群里的小动作"></div>
+          <div class="fields"><label class="field"><span>活跃程度</span><select id="reactions-chance"></select></label><label class="field"><span>同一个群至少隔多久看一次</span><select id="reactions-cooldown"></select></label></div>
+          <label class="switch-row"><span><strong>会戳一戳群友</strong><small>同一个群十分钟最多一次。</small></span><input id="reactions-poke" type="checkbox" class="switch"></label>
+          <label class="switch-row"><span><strong>会跟着复读</strong><small>两个以上的人发了一模一样的短句时；同一句半小时内只跟一次。</small></span><input id="reactions-repeat" type="checkbox" class="switch"></label>
+          <p class="field-label">最近的小动作</p>
+          <ol id="reactions-log" class="records"></ol>
+          <div class="actions end"><button id="legacy-save" class="btn primary" type="submit">保存</button></div>
+        </form>
+      </details>
     </section>
 
     <!-- 功能开关 -->
