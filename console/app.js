@@ -208,7 +208,7 @@ for(const button of $$('[data-runtime]'))button.onclick=()=>{
 
 /* Usage and prices */
 let usageTab='stats',usageDays=7,usageMetric='tokens',usageData=null;
-const purposeNames={chat:'回复起草',rewrite:'改口吻',review:'插话校对',summary:'群聊摘要',memory:'记忆整理',react:'小动作',imageplan:'画图判断',outreach:'主动聊天',poke:'戳一戳',test:'连接测试',video:'看视频',image:'画图'};
+const purposeNames={director:'代理·指挥',operator:'代理·助手',chat:'回复起草',rewrite:'改口吻',review:'插话校对',summary:'群聊摘要',memory:'记忆整理',react:'小动作',imageplan:'画图判断',outreach:'主动聊天',poke:'戳一戳',test:'连接测试',video:'看视频',image:'画图'};
 const costSources={reported:'Claude Code 自报',priced:'按你填的单价',reference:'按列表价估算',unpriced:'未计价'};
 const count=n=>n>=1e8?(n/1e8).toFixed(2)+' 亿':n>=1e4?(n/1e4).toFixed(n>=1e6?0:1)+' 万':Math.round(n).toLocaleString('zh-CN');
 const dollars=v=>v===0?'$0':v<0.001?'<$0.001':v<1?'$'+v.toFixed(3):v<1000?'$'+v.toFixed(2):'$'+Math.round(v).toLocaleString('en-US');
@@ -440,6 +440,8 @@ $('catalog-refresh').onclick=()=>busy($('catalog-refresh'),refreshCatalog);
 /* Model per purpose ("模型分工") */
 const routePurposes=[
   ['chat','回复起草','读完整段聊天、记忆和查到的资料，写出回复内容；最吃 tokens 的一步'],
+  ['director','代理模式·指挥','代理模式的群里看每一批新消息，自己决定回不回、写出要说的话；建议用最会说话的模型'],
+  ['operator','代理模式·助手','替指挥跑腿：查资料、看更早的图、挑表情包；可以用便宜的模型'],
   ['rewrite','改成大肥鱼口吻','只读草稿和最近几句，把说法改得像它；关着就直接发起草的稿子'],
   ['review','主动插话前的校对','群里没人叫它、它想插一句时，发出前再检查一遍'],
   ['summary','群聊滚动摘要','把较早的群聊压成一段前情，回复时少读几十行原文'],
@@ -490,7 +492,24 @@ $('routes-form').onsubmit=event=>{
 
 /* Chat behaviour: pacing, quiet hours, pokes, reactions, reaching out */
 let timing=null,reactions=null,outreach=null;
-async function enterChat(){await Promise.all([loadTiming(),loadReactions(),loadOutreach()]);}
+async function enterChat(){await Promise.all([loadTiming(),loadAgent(),loadReactions(),loadOutreach()]);}
+async function loadAgent(){
+  let agent;
+  try{agent=await api('agent');}catch(error){setDisabled($('agent-form'),true);$('agent-hint').textContent=error.message;return;}
+  setDisabled($('agent-form'),false);
+  const rows=agent.groups.map(group=>{
+    const box=el('input',{type:'checkbox',checked:agent.targets.includes(group.key)});box.dataset.key=group.key;box.setAttribute('aria-label','代理模式：'+group.name);
+    return el('div',{className:'chat-row'},el('label',{},box,el('span',{className:'who'},el('strong',{},group.name),el('small',{},group.enabled?(agent.targets.includes(group.key)?'代理模式':'普通模式'):'这个群没在回复'))));
+  });
+  $('agent-groups').replaceChildren(...(rows.length?rows:[el('p',{className:'empty'},'名单里还没有群。')]));
+}
+$('agent-form').onsubmit=event=>{
+  event.preventDefault();
+  busy($('agent-save'),async()=>{
+    await api('agent',{targets:$$('#agent-groups input[type=checkbox]').filter(x=>x.checked).map(x=>x.dataset.key)});
+    await loadAgent();toast('已保存，下一批消息起生效');
+  });
+};
 async function loadTiming(){
   try{timing=await api('timing');}catch(error){setDisabled($('timing-form'),true);toast(error.message,true);return;}
   setDisabled($('timing-form'),false);

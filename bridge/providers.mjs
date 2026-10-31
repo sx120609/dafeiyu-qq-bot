@@ -236,7 +236,7 @@ export async function dispatch(body,config,provider,profile,signal){
   for(const m of routed.messages)if(m.role==='system'&&typeof m.content==='string')m.content=m.content.replaceAll('由 GPT（本机 Codex）驱动',`由 ${provider==='claude'?'Claude':profile.model} 驱动`).replaceAll('由本机控制台所选模型驱动',`由 ${provider==='claude'?'Claude':profile.model} 驱动`);
   const search=useNativeSearch(routed,provider);
   // Conversation uses the chosen effort (default medium); background memory work stays light.
-  const background=['memory','summary','rewrite','react'].includes(body.metadata?.dafeiyu_purpose);
+  const background=['memory','summary','rewrite','react','operator'].includes(body.metadata?.dafeiyu_purpose);
   const effort=background?'low':['low','medium','high'].includes(profile.effort)?profile.effort:'medium';
   if(provider==='claude')return runClaude(search.body,config,profile,signal,{webSearch:search.webSearch,effort});
   if(provider==='cloud')return runCloud(routed,profile,signal);

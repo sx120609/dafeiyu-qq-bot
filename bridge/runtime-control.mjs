@@ -74,6 +74,14 @@ export class RuntimeControl{
       emojis:current.emojis.map(e=>({...e,weight:weights[e.id]===undefined?e.weight:int(weights[e.id],0,10)}))};
     return view(await this.panel('saveReactions',{reactions:next}));
   }
+  // Agent mode: which groups the directing model runs by itself.
+  async agent(settings){
+    const view=status=>({targets:status.config.agentTargets||[],groups:status.config.targets.filter(t=>t.group).map(t=>({key:'group:'+t.number,name:t.name,enabled:t.enabled}))});
+    if(!settings)return view(await this.panel());
+    const groups=new Set((await this.panel()).config.targets.filter(t=>t.group).map(t=>'group:'+t.number));
+    if(!Array.isArray(settings.targets)||settings.targets.some(k=>typeof k!=='string'||!groups.has(k)))throw new Error('代理模式只能选名单里的群');
+    return view(await this.panel('saveAgent',{agentTargets:[...new Set(settings.targets)]}));
+  }
   // Reply pacing (wait for someone to finish typing) and answering pokes.
   async timing(settings){
     const view=status=>({settleSeconds:status.settleSeconds??0,poke:status.poke,quietHours:status.quietHours});

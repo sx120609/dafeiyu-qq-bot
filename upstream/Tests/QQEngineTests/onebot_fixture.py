@@ -125,6 +125,10 @@ with socket.socket() as server:
                     continue
             elif action in ('group_poke', 'friend_poke', 'send_poke'):
                 data = None
+            elif action == 'set_msg_emoji_like':
+                with (directory / 'reactions').open('a') as out:
+                    out.write(json.dumps(request['params']) + '\n')
+                data = None
             elif action == 'set_group_add_request':
                 with (directory / 'invite-approvals').open('a') as out:
                     out.write(json.dumps(request['params']) + '\n')

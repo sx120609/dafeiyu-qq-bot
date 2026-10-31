@@ -64,6 +64,9 @@ public struct QQConfig: Codable, Equatable, Sendable {
     public var effectiveQuietHours: QQQuietHours { get { quietHours ?? QQQuietHours() } set { quietHours = newValue } }
     public var reactions: QQReactionConfig?
     public var effectiveReactions: QQReactionConfig { get { reactions ?? QQReactionConfig() } set { reactions = newValue } }
+    /// Groups in agent mode (代理模式): the directing model reads every batch and decides by itself; see QQAgentPlan.
+    public var agentTargets: [String]?
+    public func isAgent(_ key: String) -> Bool { (agentTargets ?? []).contains(key) && key.hasPrefix("group:") }
     public func isAdmin(_ id: String) -> Bool { effectiveAdminIDs.contains(id) }
     public func isBlocked(_ id: String) -> Bool { effectiveBlockedIDs.contains(id) }
     public var effectiveGroupParticipationEnabled: Bool { get { groupParticipationEnabled ?? false } set { groupParticipationEnabled = newValue } }
@@ -105,6 +108,7 @@ public struct QQConfig: Codable, Equatable, Sendable {
         guard Set(effectiveAdminIDs).isDisjoint(with: effectiveBlockedIDs) else { throw CoreError.invalid("管理员不能同时在黑名单中") }
         try effectiveOutreach.validate()
         try effectiveReactions.validate()
+        guard (agentTargets ?? []).count <= 20, (agentTargets ?? []).allSatisfy({ $0.hasPrefix("group:") && Self.validID(String($0.dropFirst(6))) }) else { throw CoreError.invalid("代理模式只能用在群里，最多 20 个") }
         try effectivePoke.validate()
         try effectiveQuietHours.validate()
         guard (0...30).contains(effectiveSettleSeconds) else { throw CoreError.invalid("等待对方说完的时间应为 0–30 秒") }

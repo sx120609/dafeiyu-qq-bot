@@ -24,7 +24,7 @@ const known=new Set(['codex','cloud','claude']);
 // What a model call is for. The owner can send each to its own connection and model instead of the active one
 // ("模型分工"); a purpose with no route follows the active connection. The rewrite stage (another model's draft
 // put into the bot's own voice) runs only while it has a route.
-export const purposes=['chat','rewrite','review','memory','summary','imageplan','react','poke','outreach','video'];
+export const purposes=['chat','director','operator','rewrite','review','memory','summary','imageplan','react','poke','outreach','video'];
 const background=new Set(['memory','summary','react']);
 export function validRoutes(input,profiles){
   if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('模型分工格式无效');
@@ -200,6 +200,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/console/api/moderation'){try{send(200,await runtimeControl.moderation());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/outreach'){try{send(200,await runtimeControl.outreach());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/reactions'){try{send(200,await runtimeControl.reactions());}catch(e){send(503,{error:e.message});}return;}
+      if(req.url==='/console/api/agent'){try{send(200,await runtimeControl.agent());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/timing'){try{send(200,await runtimeControl.timing());}catch(e){send(503,{error:e.message});}return;}
       if(pathname==='/console/api/usage'){
         const days=Number(new URL(req.url,origin).searchParams.get('days'));
@@ -221,6 +222,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(req.url==='/console/api/autostart'){try{send(200,await autostart.set(data.enabled));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/outreach'){try{send(200,await runtimeControl.outreach(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/reactions'){try{send(200,await runtimeControl.reactions(data));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/agent'){try{send(200,await runtimeControl.agent(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/timing'){try{send(200,await runtimeControl.timing(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/routes'){
       try{

@@ -176,6 +176,10 @@ import BotCore
                     guard let settings = request.outreach else { throw AppFailure.message("缺少主动聊天设置") }
                     try engine.saveOutreach(settings)
                     configurationSaved = true
+                case "saveAgent":
+                    guard let keys = request.agentTargets else { throw AppFailure.message("缺少代理模式设置") }
+                    try engine.saveAgentTargets(keys)
+                    configurationSaved = true
                 case "savePoke":
                     guard let settings = request.poke else { throw AppFailure.message("缺少戳一戳设置") }
                     try engine.savePoke(settings)
@@ -352,6 +356,7 @@ import BotCore
         var blockedIDs: [String]?
         var outreach: QQOutreachConfig?
         var reactions: QQReactionConfig?
+        var agentTargets: [String]?
         var poke: QQPokeConfig?
         var settleSeconds: Int?
         var quietHours: QQQuietHours?

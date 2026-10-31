@@ -59,4 +59,14 @@ test('outreach settings are validated and previews only target private chats',as
   const saved=await control.reactions({enabled:true,chance:35,cooldownSeconds:0,repeatEnabled:false,weights:{'128051':8,'999':4}});
   assert.deepEqual(sent.at(-1),['saveReactions',{reactions:{enabled:true,chance:35,cooldownSeconds:0,pokeEnabled:true,repeatEnabled:false,emojis:[{id:'147',name:'棒棒糖',weight:5},{id:'128051',name:'鲸鱼',weight:8}]}}]);
   assert.equal(saved.config.enabled,true);
+});test('agent mode only takes groups on the managed list',async()=>{
+  const sent=[];const control=new RuntimeControl({runtime:'.',integrations:{}});
+  const config={agentTargets:['group:111'],targets:[{number:'111',name:'甲群',group:true,enabled:true},{number:'222',name:'乙群',group:true,enabled:false},{number:'333',name:'好友',group:false,enabled:true}]};
+  control.panel=async(action,values)=>{sent.push([action,values]);return {config:{...config,...(values?.agentTargets?{agentTargets:values.agentTargets}:{})}};};
+  assert.deepEqual(await control.agent(),{targets:['group:111'],groups:[{key:'group:111',name:'甲群',enabled:true},{key:'group:222',name:'乙群',enabled:false}]});
+  await assert.rejects(control.agent({targets:['private:333']}),/群/);
+  await assert.rejects(control.agent({targets:'group:111'}),/群/);
+  const saved=await control.agent({targets:['group:222','group:222']});
+  assert.deepEqual(sent.at(-1),['saveAgent',{agentTargets:['group:222']}]);
+  assert.deepEqual(saved.targets,['group:222']);
 });

@@ -428,7 +428,7 @@ struct DeepSeekClient {
         return result
     }
 
-    private func request(path: String, key: String, body: Data?, timeout: TimeInterval = 45) async throws -> Data {
+    func request(path: String, key: String, body: Data?, timeout: TimeInterval = 45) async throws -> Data {
         if ProcessInfo.processInfo.environment["DAFEIYU_CODEX_URL"] != nil && base.host != "127.0.0.1" {
             throw AppFailure.message("Codex 接口必须是本机回环地址")
         }

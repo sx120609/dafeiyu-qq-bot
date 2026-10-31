@@ -240,6 +240,12 @@
         <div class="actions end"><button id="timing-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
+      <form id="agent-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>代理模式（试用）</h3><p id="agent-hint" class="muted">勾选的群不再按条数和关键词决定要不要说话：群里每攒到一批新消息（安静 2 秒、最多等 8 秒），就交给“指挥”模型看。它自己决定回、不回还是再等等；要回就一次写好一到三条话，也可以发表情包、贴表情、戳人。“助手”模型替它跑腿：查资料、看更早的图、挑表情包。两个模型在「模型 → 模型分工」里选。限速、黑名单、禁言、夜间安静照常生效。</p></div></div>
+        <div id="agent-groups" class="chat-list"></div>
+        <div class="actions end"><button id="agent-save" class="btn primary" type="submit">保存</button></div>
+      </form>
+
       <form id="reactions-form" class="card section" novalidate>
         <div class="section-head"><div><h3>群里的小动作</h3><p id="reactions-hint" class="muted">在启用的群里，攒几条新消息后让模型看一眼最近的聊天：谁在说什么、在不在叫它、别人贴了什么表情、它记得的事，再决定给哪条贴什么表情、要不要戳一戳谁、要不要跟着大家复读。经常什么都不做才正常。用哪个模型在「模型 → 模型分工」里选。</p></div><input id="reactions-enabled" type="checkbox" class="switch" aria-label="群里的小动作"></div>
         <div class="fields"><label class="field"><span>活跃程度</span><select id="reactions-chance"></select></label><label class="field"><span>同一个群至少隔多久看一次</span><select id="reactions-cooldown"></select></label></div>
