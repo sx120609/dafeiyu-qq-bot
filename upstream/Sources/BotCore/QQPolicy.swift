@@ -347,6 +347,7 @@ import CoreFoundation
 public struct QQIncomingImage: Equatable, Sendable {
     public let file: String
     public let url: String?
+    public init(file: String, url: String?) { self.file = file; self.url = url }
 }
 
 public struct QQQuotedContext: Equatable, Sendable {

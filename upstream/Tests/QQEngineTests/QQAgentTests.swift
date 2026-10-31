@@ -251,7 +251,10 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         try await wait { engine.sends.confirmed >= 2 }
         #expect(engine.config.isBlocked("77777"))
         #expect(rig.payloads().last?.contains { $0.contains("已拉黑 77777") } == true)
-        // Basic level in the group: a message that does not call the bot never reaches the director.
+        // Basic level in the group: a message that does not call the bot never reaches the director. Counted once
+        // the private chat's turn has fully finished.
+        try await wait { engine.agentStates.allSatisfy { $0["thinkingSince"] == nil } && engine.agentTurns.last?.note == "照实转告" }
+        try await Task.sleep(nanoseconds: 300_000_000)
         let before = AgentModelProtocol.calls.filter { $0.purpose == "director" }.count
         try rig.batch([group(31, 54322, "随便聊聊天气")])
         try await wait({ engine.decisions.contains { $0.text == "随便聊聊天气" } }, seconds: 3)

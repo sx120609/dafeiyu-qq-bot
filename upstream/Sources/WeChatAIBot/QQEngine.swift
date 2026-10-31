@@ -3064,9 +3064,16 @@ struct QQRuntimeCredentials: Decodable {
     ]]
     private func agentSaveSticker(_ arguments: String, pictured: [String: [QQIncomingImage]], asker: QQIncoming, target: QQTarget, epoch: UInt64) async -> String {
         guard let fields = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any],
-              let id = QQPolicy.identifier(fields["message"]), let pictures = pictured[id] ?? groupRecentInputs[target.key]?[id]?.images, !pictures.isEmpty else {
-            return "那条消息里没找到图，没存（message 要填带图的那条消息的编号，引用的那条也行）。"
+              let id = QQPolicy.identifier(fields["message"]) else { return "message 要填带图的那条消息的编号。" }
+        var pictures = pictured[id] ?? groupRecentInputs[target.key]?[id]?.images ?? []
+        // Older than what the bot keeps in memory: ask QQ for that message (11-01: "好一会儿前发的，读不到图").
+        if pictures.isEmpty, target.group, let object = (try? await connection.action("get_msg", params: ["message_id": id]))?["data"] as? [String: Any] {
+            pictures = (object["message"] as? [[String: Any]] ?? []).compactMap { segment in
+                guard segment["type"] as? String == "image", let data = segment["data"] as? [String: Any], let file = data["file"] as? String, !file.isEmpty else { return nil }
+                return QQIncomingImage(file: file, url: data["url"] as? String)
+            }
         }
+        guard !pictures.isEmpty else { return "那条消息里没找到图，没存（message 要填带图的那条消息的编号，引用的那条也行）。" }
         // The original file, so a GIF keeps moving; a decoded first frame only when the original can't be had.
         var picture: Data?
         if let reference = pictures.first, let original = try? await incomingImageLoader.download(await agentImageURL(reference)),
