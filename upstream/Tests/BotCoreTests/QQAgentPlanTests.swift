@@ -67,7 +67,13 @@ struct QQAgentPlanTests {
         // Silence, or only a reaction or a poke, is wordless: nobody can read anything.
         let react = try #require(QQAgentPlan.decode(#"{"action":"reply","bubbles":[{"kind":"reaction","message":"11","emoji":"76"},{"kind":"poke","member":"MEMBER_a"}]}"#, messages: messages, members: members, emojis: emojis, kinds: everything))
         #expect(react.wordless && QQAgentPlan(action: .silence).wordless && !QQAgentPlan(action: .wait).wordless)
-        #expect(QQAgentPlan.recheck(first: "{\"action\":\"silence\"}").contains("{\"action\":\"silence\"}"))
+        // Action tools map onto the same checked bubbles.
+        let sent = try #require(QQAgentPlan.toolBubble("send_message", #"{"text":"好","at":"MEMBER_a","quote":"11"}"#))
+        #expect(sent.quote == "11" && sent.bubble["kind"] as? String == "text" && sent.bubble["at"] as? String == "MEMBER_a")
+        #expect(QQAgentPlan.toolBubble("send_sticker", #"{"id":"local-abc"}"#)?.bubble["describe"] as? String == "local-abc")
+        #expect(QQAgentPlan.toolBubble("cancel_reminder", #"{"id":"r1"}"#)?.bubble["cancel"] as? String == "r1")
+        #expect(QQAgentPlan.toolBubble("search_chat_history", "{}") == nil)
+        #expect(QQAgentPlan.nudge.contains("send_message"))
         #expect(QQAgentLevel.standard.tools.isSuperset(of: ["group_info", "remember", "member_info"]) && QQAgentLevel.basic.tools.contains("member_info"))
         #expect(QQAgentLevel.full.groupAdmin && !QQAgentLevel.standard.groupAdmin)
         // A voice message counts as saying something; the basic level has none.
@@ -84,10 +90,10 @@ struct QQAgentPlanTests {
         try config.validate()
         #expect(config.isAgent("group:99999") && !config.isAgent("group:88888") && !config.isAgent("private:54321"))
         config.agentForAll = true; config.classicTargets = ["private:54321"]
-        config.agentLevels = ["group:99999": "basic", "group:88888": "full"]
+        config.agentLevels = ["group:99999": "basic", "group:88888": "standard"]
         try config.validate()
         #expect(config.isAgent("group:88888") && config.isAgent("private:77777") && !config.isAgent("private:54321"))
-        #expect(config.agentLevel("group:99999") == .basic && config.agentLevel("group:88888") == .full && config.agentLevel("private:77777") == .standard)
+        #expect(config.agentLevel("group:99999") == .basic && config.agentLevel("group:88888") == .standard && config.agentLevel("private:77777") == .full)
         config.agentLevels = ["group:99999": "god"]
         #expect(throws: (any Error).self) { try config.validate() }
         config.agentLevels = nil; config.classicTargets = ["channel:1"]

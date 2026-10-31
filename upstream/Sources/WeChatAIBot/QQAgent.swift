@@ -21,6 +21,35 @@ extension DeepSeekClient {
                 ]]
             ]],
             ["type": "function", "function": [
+                "name": "write_note",
+                "description": "在你自己的笔记本里记一条（每一轮开头都会给你看）：正在跟进的事、答应了还没做完的、对人和群的印象、想下次聊的。scope=chat 只在这个会话看到，global 在所有会话都看到。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["text"], "properties": [
+                    "text": ["type": "string", "description": "一句话，最多 200 字"],
+                    "scope": ["type": "string", "enum": ["chat", "global"]]
+                ]]
+            ]],
+            ["type": "function", "function": [
+                "name": "delete_note",
+                "description": "删掉笔记本里做完或过时的一条。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["id"], "properties": ["id": ["type": "string"]]]
+            ]],
+            ["type": "function", "function": [
+                "name": "read_qq_history",
+                "description": "直接从 QQ 读这个聊天更早的消息（比时间线和摘要更早、更全）。想知道之前到底说了什么、某人以前说过什么时用。",
+                "parameters": ["type": "object", "additionalProperties": false, "properties": [
+                    "before": ["type": "string", "description": "从哪条消息编号往前读；不填就从最新往前"],
+                    "count": ["type": "integer", "description": "读几条，5–80，默认 40"]
+                ]]
+            ]],
+            ["type": "function", "function": [
+                "name": "send_to_chat",
+                "description": "给名单里的另一个会话（群或好友）发一条消息。有人让你去别处说一声、转告、通知某个群时用；说清是谁让你说的。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["chat", "text"], "properties": [
+                    "chat": ["type": "string", "description": "会话名字，照程序列出的写"],
+                    "text": ["type": "string", "description": "要发的话"]
+                ]]
+            ]],
+            ["type": "function", "function": [
                 "name": "member_info",
                 "description": "查一个群友在群里的资料：群名片、昵称、头衔、群等级、入群时间、最后发言时间、是不是群主或管理员。想知道某人是谁、在群里多久了、是不是管理时用。",
                 "parameters": ["type": "object", "additionalProperties": false, "required": ["member"], "properties": [
@@ -86,11 +115,52 @@ extension DeepSeekClient {
         return tools
     }
 
-    /// The director's turn: a few rounds of errands, then the plan as one JSON object. The last round offers no
-    /// tools, so the turn always ends with a decision.
-    func directAgent(key: String, config: BotConfig, rule: ChatRule, input: String, images: [Data], tools: [[String: Any]], chat: String,
-                     handler: @escaping @MainActor @Sendable (String, String) async throws -> String,
-                     reserve: @escaping @Sendable () async throws -> Void) async throws -> (text: String, tokens: Int) {
+    /// What the agent can do in the chat, as tools that act at once (agent mode is a loop, like a person using QQ:
+    /// act, see what happened, act again). Only the kinds its permission level allows are offered.
+    static func agentActionTools(kinds: Set<String>, group: Bool) -> [[String: Any]] {
+        func tool(_ name: String, _ description: String, _ properties: [String: Any] = [:], _ required: [String] = []) -> [String: Any] {
+            ["type": "function", "function": ["name": name, "description": description,
+                "parameters": ["type": "object", "additionalProperties": false, "required": required, "properties": properties]]]
+        }
+        let text: [String: Any] = ["type": "string"]
+        var tools = [
+            tool("check_new_messages", "看看你做事这会儿聊天里有没有人又说了什么。"),
+            tool("wait", "对方话好像没说完、或者在等别人接话时，等一会儿再看；返回这期间的新消息。", ["seconds": ["type": "integer", "description": "3–60 秒"]], ["seconds"])
+        ]
+        if kinds.contains("text") {
+            var properties: [String: Any] = ["text": ["type": "string", "description": "要说的话，一条完整的一句或一段"],
+                                             "quote": ["type": "string", "description": "要引用回复的那条消息编号，可不填"]]
+            if group { properties["at"] = ["type": "string", "description": "要在开头 @ 的人的 MEMBER 标签，可不填"] }
+            tools.append(tool("send_message", "在这个聊天里发一条消息，立刻发出，返回发出去没有。要分几条说就调几次，每条之间程序会按打字速度停一下。", properties, ["text"]))
+        }
+        if kinds.contains("sticker") {
+            tools.append(tool("search_stickers", "在你的表情库里搜表情包：写画面、角色或情绪（如“奶龙 开心”“委屈 哭”），返回编号、画面和你最近发没发过。", ["query": text], ["query"]))
+            tools.append(tool("send_sticker", "按 search_stickers 给的编号发一张表情包（以动画表情发出）。", ["id": text], ["id"]))
+        }
+        if kinds.contains("reaction") { tools.append(tool("react", "给某条消息贴一个表情回应。", ["message": text, "emoji": ["type": "string", "description": "可用表情里的 id"]], ["message", "emoji"])) }
+        if kinds.contains("poke") { tools.append(tool("poke", "戳一戳某人。", ["member": ["type": "string", "description": "MEMBER 标签，私聊填 PEER"]], ["member"])) }
+        if kinds.contains("like") { tools.append(tool("like", "给某人的 QQ 资料卡点赞。", ["member": text, "times": ["type": "integer", "description": "1–10"]], ["member"])) }
+        if kinds.contains("recall") { tools.append(tool("recall", "撤回你自己两分钟内发的一条消息。", ["message": ["type": "string", "description": "你那条消息的编号"]], ["message"])) }
+        if kinds.contains("voice") { tools.append(tool("send_voice", "发一条语音，把这句话念出来。口语，一般 10–80 字，不要表情符号、颜文字、网址和括号旁白。", ["text": text], ["text"])) }
+        if kinds.contains("image") { tools.append(tool("draw_image", "画一张图发出来。只在对方明确让你画图时用。", ["prompt": ["type": "string", "description": "画面描述"]], ["prompt"])) }
+        if kinds.contains("artwork") { tools.append(tool("send_artwork", "把这一轮 find_artwork 找到的插画发出来（程序附作者和出处）。")) }
+        if kinds.contains("later") {
+            tools.append(tool("set_reminder", "定时：过一段时间程序会叫你回到这个聊天，带着 about 再看一次。提醒、回访、过会儿再来问都用它。",
+                              ["minutes": ["type": "integer", "description": "1–1440"], "about": ["type": "string", "description": "到时要做什么"],
+                               "say": ["type": "string", "description": "到时万一没法细想就直接发的一句话"]], ["minutes", "about"]))
+            tools.append(tool("cancel_reminder", "取消之前定的事。", ["id": text], ["id"]))
+        }
+        return tools
+    }
+
+    /// The director's turn as a loop: it calls tools (looking things up, or acting in the chat, each done at once and
+    /// reported back) until it stops calling them; its last words are a note for the owner, never sent. Before the
+    /// turn closes, `finish` may hand it something more to look at (new messages, or that it was spoken to and has
+    /// said nothing), and the loop goes on.
+    func operateAgent(key: String, config: BotConfig, rule: ChatRule, input: String, images: [Data], tools: [[String: Any]], chat: String,
+                      handler: @escaping @MainActor @Sendable (String, String) async throws -> String,
+                      finish: @escaping @MainActor @Sendable (String) async -> String?,
+                      reserve: @escaping @Sendable () async throws -> Void) async throws -> (note: String, tokens: Int) {
         var messages: [[String: Any]] = [["role": "system", "content": rule.prompt]]
         if images.isEmpty { messages.append(["role": "user", "content": String(input.prefix(30000))]) }
         else {
@@ -111,13 +181,12 @@ extension DeepSeekClient {
             var choices: [Choice]; var usage: TokenUsage?
         }
         var tokens = 0
-        let lastRound = tools.isEmpty ? 0 : 5
+        let lastRound = tools.isEmpty ? 0 : 20
         for round in 0...lastRound {
             let offerTools = round < lastRound
             var parameters: [String: Any] = ["model": config.model, "messages": messages, "max_tokens": max(3000, config.maxTokens), "stream": false,
                                              "thinking": ["type": "disabled"], "metadata": ["dafeiyu_purpose": "director", "dafeiyu_chat": String(chat.prefix(60))]]
             if offerTools { parameters["tools"] = tools; parameters["tool_choice"] = "auto" }
-            else { parameters["response_format"] = ["type": "json_object"] }
             let body = try JSONSerialization.data(withJSONObject: parameters)
             var response: Response?
             for attempt in 0...2 {
@@ -130,7 +199,7 @@ extension DeepSeekClient {
             }
             guard let response, let choice = response.choices.first else { throw AppFailure.message("指挥模型没有返回") }
             tokens += response.usage?.total_tokens ?? 0
-            if offerTools, let calls = choice.message.tool_calls.map({ Array($0.prefix(3)) }), !calls.isEmpty,
+            if offerTools, let calls = choice.message.tool_calls.map({ Array($0.prefix(4)) }), !calls.isEmpty,
                calls.allSatisfy({ !$0.id.isEmpty && $0.id.count <= 200 && $0.type == "function" }) {
                 var assistant: [String: Any] = ["role": "assistant", "content": choice.message.content ?? "",
                                                 "tool_calls": try JSONSerialization.jsonObject(with: JSONEncoder().encode(calls))]
@@ -143,12 +212,18 @@ extension DeepSeekClient {
                 }
                 continue
             }
-            guard let text = choice.message.content?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
-                throw AppFailure.message("指挥模型没有给出决定（\(choice.finish_reason ?? "unknown")）")
+            let note = (choice.message.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if note.isEmpty && !["stop", "end_turn"].contains(choice.finish_reason ?? "stop") {
+                throw AppFailure.message("指挥模型没有正常结束（\(choice.finish_reason ?? "unknown")）")
             }
-            return (text, tokens)
+            if offerTools, let more = await finish(note) {
+                messages.append(["role": "assistant", "content": note.isEmpty ? "（结束）" : note])
+                messages.append(["role": "user", "content": more])
+                continue
+            }
+            return (String(note.prefix(300)), tokens)
         }
-        throw AppFailure.message("指挥模型一直在查资料，没有给出决定")
+        return ("这一轮动作太多，先到这里", tokens)
     }
 
     /// The operator picks the library sticker closest to what the director asked for, or none.

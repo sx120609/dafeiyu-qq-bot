@@ -86,12 +86,19 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         while !condition() && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
     }
 
-    /// A batch of group messages goes to the director once; its plan is sent bubble by bubble (the first text
-    /// quoting the target), reactions land, and a silent plan sends nothing. No counter or keyword is involved.
-    @Test func directorDecidesEachBatchAndThePlanIsCarriedOut() async throws {
-        var plans = [#"{"action":"reply","target":"2","quote":true,"bubbles":[{"kind":"text","text":"第一句"},{"kind":"text","text":"第二句"},{"kind":"reaction","message":"1","emoji":"76"}],"note":"接住两个人"}"#,
-                     #"{"action":"silence","note":"他们在互相聊"}"#]
-        AgentModelProtocol.reset { purpose, _ in ["content": purpose == "director" && !plans.isEmpty ? plans.removeFirst() : #"{"action":"silence"}"#] }
+    /// Agent mode is a loop: the director acts through tools, each done at once and reported back, and decides the
+    /// next step from what happened. A batch goes to it once; when it stays quiet nothing is sent and it says why.
+    @Test func theAgentActsStepByStepAndSeesWhatHappened() async throws {
+        AgentModelProtocol.reset { purpose, messages in
+            guard purpose == "director" else { return ["content": "不用"] }
+            guard opening(messages).contains("这一批新消息（从旧到新）：1、2") else { return ["content": "他们在互相聊"] }
+            switch results(messages).count {
+            case 0: return call("send_message", ["text": "第一句", "quote": "2"])
+            case 1: return call("send_message", ["text": "第二句"])
+            case 2: return call("react", ["message": "1", "emoji": "76"])
+            default: return ["content": "接住两个人"]
+            }
+        }
         let rig = try await rig(); defer { rig.stop() }
         let engine = rig.engine
         engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
@@ -101,42 +108,43 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         engine.start()
         // Neither message mentions the bot; in agent mode that is the director's call, not the program's.
         try rig.batch([group(1, 54321, "今天食堂的红烧肉绝了"), group(2, 54322, "真的假的，明天去试试")])
-        try await wait { engine.sends.confirmed >= 2 }
-        try #require(engine.sends.confirmed == 2)
-        let directed = AgentModelProtocol.calls.filter { $0.purpose == "director" }
-        #expect(directed.count == 1) // both messages in one batch
-        #expect(directed.first?.input.contains("这一批新消息（从旧到新）：1、2") == true)
-        #expect(directed.first?.input.contains("标准权限") == true)
+        try await wait { engine.agentTurns.first?.note == "接住两个人" }
         #expect(rig.payloads() == [["reply:2", "text:第一句"], ["text:第二句"]])
+        let directed = AgentModelProtocol.calls.filter { $0.purpose == "director" }
+        #expect(directed.first?.input.contains("这一批新消息（从旧到新）：1、2") == true)
+        #expect(directed.first?.input.contains("完全权限") == true) // the default level
+        // Each step saw the result of the one before.
+        #expect(directed.count == 4 && directed[1].input.contains("说「第一句」") && directed[3].input.contains("贴了"))
         try await wait({ FileManager.default.fileExists(atPath: rig.directory.appendingPathComponent("reactions").path) }, seconds: 3)
         let reactions = (try? String(contentsOf: rig.directory.appendingPathComponent("reactions"), encoding: .utf8)) ?? ""
         #expect(reactions.contains("\"76\"") && reactions.contains("\"1\""))
         #expect(engine.decisions.contains { $0.text.contains("红烧肉") && $0.outcome.hasPrefix("交给代理") })
-        // The agent page sees the turn: what came in, what it decided, what was sent.
-        try await wait { engine.agentTurns.first?.sent.isEmpty == false }
         let turn = try #require(engine.agentTurns.first)
-        #expect(turn.decision == "reply")
-        #expect(turn.note == "接住两个人")
-        #expect(turn.batch.count == 2)
-        #expect(turn.sent.first == "说「第一句」")
-        // The next batch: the director stays quiet, nothing is sent, and it says why.
+        #expect(turn.decision == "reply" && turn.batch.count == 2 && turn.sent.first == "说「第一句」" && turn.errands.map(\.tool) == ["send_message", "send_message", "react"])
+        // Something it was not offered is refused, not carried out.
+        #expect(engine.agentTurns.count == 1)
+        // The next batch: it stays quiet (it had just spoken, so it is reminded once, and still keeps out of it).
         try rig.batch([group(3, 54321, "你去哪个食堂"), group(4, 54322, "二食堂")])
         try await wait { engine.agentTurns.count == 2 && engine.agentTurns.last?.decision == "silence" }
         #expect(engine.agentTurns.last?.note == "他们在互相聊")
         #expect(engine.sends.confirmed == 2)
-        #expect(AgentModelProtocol.calls.filter { $0.purpose == "director" }.last?.input.contains("你最近在这里做过的事") == true)
+        #expect(AgentModelProtocol.calls.filter { $0.purpose == "director" }.last?.input.contains("程序提醒") == true)
     }
 
-    /// Someone talks to it and the director first decides to stay quiet: it is asked once more, with that pointed
-    /// out, and the revised plan (words, an @, a reminder) is carried out. Sticker sends go out as 动画表情.
-    @Test func silenceWhenCalledGetsASecondLook() async throws {
+    /// Someone talks to it and it is about to leave without a word: it is reminded once and then answers (with an @
+    /// and a reminder for later). Sticker sends go out as 动画表情.
+    @Test func spokenToButSilentIsRemindedOnce() async throws {
         AgentModelProtocol.reset { purpose, messages in
-            guard purpose == "director" else { return ["content": #"{"action":"silence"}"#] }
-            let input = messages.dropFirst().compactMap { $0["content"] as? String }.joined()
+            guard purpose == "director" else { return ["content": "不用"] }
+            let reminded = messages.contains { ($0["content"] as? String)?.hasPrefix("程序提醒") == true }
+            guard reminded else { return ["content": "刚回过了"] }
+            let input = opening(messages)
             let member = input.range(of: "MEMBER_[0-9a-f]{12}", options: .regularExpression).map { String(input[$0]) } ?? "MEMBER_x"
-            return ["content": input.contains("程序复核")
-                ? #"{"action":"reply","bubbles":[{"kind":"text","text":"在呢在呢","at":"\#(member)"},{"kind":"later","minutes":30,"about":"问问他饭吃了没","say":"饭吃了没"}],"note":"被点名了"}"#
-                : #"{"action":"silence","note":"刚回过了"}"#]
+            switch results(messages).count {
+            case 0: return call("send_message", ["text": "在呢在呢", "at": member])
+            case 1: return call("set_reminder", ["minutes": 30, "about": "问问他饭吃了没", "say": "饭吃了没"])
+            default: return ["content": "被点名了"]
+            }
         }
         let rig = try await rig(); defer { rig.stop() }
         let engine = rig.engine
@@ -147,23 +155,22 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         var called = group(31, 54321, " 你怎么不说话")
         called["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": " 你怎么不说话"]]]
         try rig.batch([called])
-        try await wait { engine.sends.confirmed >= 1 }
+        try await wait { engine.agentTurns.last?.note.hasSuffix("被点名了") == true }
         #expect(rig.payloads().first?.first == "at:")
         #expect(rig.payloads().first?.last == "text: 在呢在呢")
-        #expect(engine.agentTurns.last?.note.hasPrefix("复核后改为出声") == true)
-        try await wait { !engine.agentReminders.isEmpty }
+        #expect(engine.agentTurns.last?.note == "提醒后出声：被点名了")
         #expect(engine.agentReminders.count == 1 && engine.agentReminders.first?.about == "问问他饭吃了没")
-        #expect(AgentModelProtocol.calls.filter { $0.purpose == "director" }.count == 2)
         #expect(QQPolicy.stickerSegment(Data([1])).description.contains("动画表情"))
     }
 
-    /// A turn that fails is tried again by itself with the same batch, and the records survive a restart.
+    /// A turn that fails before anything went out is tried again by itself with the same batch, and the records
+    /// survive a restart.
     @Test func aFailedTurnIsRetriedAndTurnsAreKept() async throws {
         var failures = 1
-        AgentModelProtocol.reset { purpose, _ in
-            guard purpose == "director" else { return ["content": #"{"action":"silence"}"#] }
-            if failures > 0 { failures -= 1; return ["content": ""] } // no decision at all: the turn throws
-            return ["content": #"{"action":"reply","bubbles":[{"kind":"text","text":"刚才卡了下，在呢"}],"note":"重试成功"}"#]
+        AgentModelProtocol.reset { purpose, messages in
+            guard purpose == "director" else { return ["content": "不用"] }
+            if failures > 0 { failures -= 1; return ["content": "", "tool_calls": "broken"] } // an unreadable reply: the turn throws
+            return results(messages).isEmpty ? call("send_message", ["text": "刚才卡了下，在呢"]) : ["content": "重试成功"]
         }
         let rig = try await rig(); defer { rig.stop() }
         let engine = rig.engine
@@ -172,10 +179,9 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
         engine.start()
         try rig.batch([group(41, 54321, "有人吗")])
-        try await wait({ engine.sends.confirmed >= 1 }, seconds: 12)
+        try await wait({ engine.agentTurns.last?.note == "重试成功" }, seconds: 12)
         #expect(rig.payloads().first == ["text:刚才卡了下，在呢"])
         #expect(engine.agentTurns.first?.note.contains("自动重试") == true)
-        try await wait { engine.agentTurns.last?.note == "重试成功" && engine.agentTurns.last?.sent.isEmpty == false }
         #expect(engine.agentTurns.last?.batch.first?.hasSuffix("有人吗") == true)
         // Saved with the state: a new engine on the same directory reads them back.
         let reread = QQEngine(allowAuthenticationUI: false, storageDirectory: rig.directory)
@@ -186,17 +192,19 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
     /// checks the asker's rights: a member cannot get someone blocked, an admin can. At the basic level the
     /// agent only looks when it is called.
     @Test func privateChatsCommandsAndPermissionLevels() async throws {
-        // The director asks manage_chat to block 77777 on behalf of message 21, then repeats what the tool said.
+        // The agent asks manage_chat to block 77777 on behalf of the message, then tells the person what the tool said.
         AgentModelProtocol.reset { purpose, messages in
-            guard purpose == "director" else { return ["content": #"{"action":"silence"}"#] }
-            if let tool = messages.last(where: { $0["role"] as? String == "tool" })?["content"] as? String {
-                let said = tool.components(separatedBy: "\n").dropFirst().joined(separator: " ")
-                return ["content": String(decoding: try! JSONSerialization.data(withJSONObject: ["action": "reply", "bubbles": [["kind": "text", "text": said]], "note": "照实转告"]), as: UTF8.self)]
+            guard purpose == "director" else { return ["content": "不用"] }
+            let seen = results(messages)
+            switch seen.count {
+            case 0:
+                let asked = opening(messages).contains("\"message\":\"22\"") ? "22" : "21"
+                return call("manage_chat", ["action": "block", "argument": "77777", "requested_by": asked])
+            case 1:
+                let said = seen[0].components(separatedBy: "\n").dropFirst().joined(separator: " ")
+                return call("send_message", ["text": said])
+            default: return ["content": "照实转告"]
             }
-            let input = messages.dropFirst().compactMap { $0["content"] as? String }.joined()
-            let asked = input.contains("\"message\":\"22\"") ? "22" : "21"
-            return ["content": "", "tool_calls": [["id": "call-\(asked)", "type": "function",
-                    "function": ["name": "manage_chat", "arguments": #"{"action":"block","argument":"77777","requested_by":"\#(asked)"}"#]]]]
         }
         let rig = try await rig(); defer { rig.stop() }
         let engine = rig.engine
@@ -209,6 +217,7 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         try await wait { engine.sends.confirmed >= 1 }
         #expect(!engine.config.isBlocked("77777"))
         #expect(rig.payloads().last?.contains { $0.contains("只有管理员") } == true)
+        try await wait { engine.agentTurns.last?.note == "照实转告" }
         #expect(engine.agentTurns.last?.errands.first?.tool == "manage_chat")
         // The same request from an admin goes through.
         engine.config.adminIDs = ["54321"]
@@ -225,3 +234,13 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         #expect(AgentModelProtocol.calls.filter { $0.purpose == "director" }.count == before)
     }
 }
+
+    /// One tool call as the scripted model's reply.
+fileprivate func call(_ name: String, _ arguments: [String: Any]) -> [String: Any] {
+    ["content": "", "tool_calls": [["id": "call-" + UUID().uuidString, "type": "function",
+        "function": ["name": name, "arguments": String(decoding: try! JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)]]]]
+    }
+    /// The tool results the model has seen so far in this turn, and the turn's first input.
+fileprivate func results(_ messages: [[String: Any]]) -> [String] { messages.filter { $0["role"] as? String == "tool" }.compactMap { $0["content"] as? String } }
+fileprivate func opening(_ messages: [[String: Any]]) -> String { messages.dropFirst().first?["content"] as? String ?? "" }
+

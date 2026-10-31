@@ -506,12 +506,16 @@ async function enterChat(){await Promise.all([loadTiming(),loadReactions(),loadO
 /* Agent mode page */
 let agentData=null;
 const agentDecisions={reply:['回复','ok'],silence:['没出声',''],wait:['等一等','accent'],failed:['出错','bad'],thinking:['正在想','warn']};
-const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来'};
+const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来',read_qq_history:'翻聊天记录',send_to_chat:'去别处说',write_note:'记笔记',delete_note:'删笔记',send_message:'发消息',search_stickers:'搜表情包',send_sticker:'发表情包',react:'贴表情',poke:'戳一戳',like:'点赞',recall:'撤回',send_voice:'发语音',draw_image:'画图',send_artwork:'发插画',set_reminder:'定时',cancel_reminder:'取消定时',check_new_messages:'看新消息',wait:'等一等'};
 const levelNames={basic:'基础',standard:'标准',full:'完全'};
 async function enterAgent(){await refreshAgent();}
 async function refreshAgent(){
   agentData=await api('agent');
-  renderAgentStats();renderAgentStates();renderAgentReminders();renderAgentFilters();renderAgentTurns();
+  renderAgentStats();renderAgentStates();renderAgentReminders();renderAgentNotes();renderAgentFilters();renderAgentTurns();
+}
+function renderAgentNotes(){
+  const rows=(agentData.notes||[]).map(n=>el('div',{className:'state-row'},el('span',{className:'name',title:n.text},n.text),el('span',{className:'muted small'},n.chat)));
+  $('agent-notes').replaceChildren(...(rows.length?rows:[el('p',{className:'empty'},'还没有。它会把要跟进的事、对人和群的印象记在这里。')]));
 }
 function renderAgentReminders(){
   const rows=(agentData.reminders||[]).map(r=>el('div',{className:'state-row'},el('span',{className:'name',title:r.chat+'：'+r.about},r.about),
@@ -555,7 +559,7 @@ function renderAgentTurns(){
     const parts=[el('div',{className:'turn-head'},el('span',{className:'badge '+tone},label),el('strong',{title:t.chat},t.chat),el('time',{},clock(t.at)),el('span',{className:'muted small'},meta)),
       el('ul',{className:'turn-batch'},...t.batch.map(line=>el('li',{},line)))];
     if(t.errands?.length){
-      const d=el('details',{className:'turn-errands'},el('summary',{},'查了 '+t.errands.length+' 次：'+t.errands.map(e=>errandNames[e.tool]||e.tool).join('、')),
+      const d=el('details',{className:'turn-errands'},el('summary',{},'做了 '+t.errands.length+' 步：'+t.errands.map(e=>errandNames[e.tool]||e.tool).join('、')),
         ...t.errands.map(e=>el('div',{className:'errand'},el('p',{},el('b',{},errandNames[e.tool]||e.tool),' ',el('span',{className:'muted small mono'},e.detail)),el('pre',{},e.result))));
       d.dataset.id=t.id;if(open.has(t.id))d.open=true;parts.push(d);
     }
@@ -715,7 +719,7 @@ function renderChats(){
   const modes=new Map(agentData.chats.map(c=>[c.key,c]));
   const styles=[{id:'',name:'跟随默认'},...engine.personalities];
   $('chats-rows').replaceChildren(...(engine.targets.length?engine.targets.map(t=>{
-    const agent=modes.get(t.key)||{agent:false,level:'standard'};
+    const agent=modes.get(t.key)||{agent:false,level:'full'};
     const enabled=el('input',{type:'checkbox',checked:t.enabled});enabled.dataset.key=t.key;enabled.className='chat-enabled';enabled.setAttribute('aria-label','启用：'+t.name);
     const mode=el('select',{className:'chat-mode'},el('option',{value:'agent',selected:agent.agent},'代理'),el('option',{value:'classic',selected:!agent.agent},'旧流程'));mode.dataset.key=t.key;
     const level=el('select',{className:'chat-level',disabled:!agent.agent},...Object.entries(levelNames).map(([v,n])=>el('option',{value:v,selected:v===agent.level},n)));level.dataset.key=t.key;

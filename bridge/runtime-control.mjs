@@ -130,8 +130,8 @@ export class RuntimeControl{
       const c=status.config,forAll=c.agentForAll===true,agentSet=new Set(c.agentTargets||[]),classic=new Set(c.classicTargets||[]);
       const key=t=>(t.group?'group:':'private:')+t.number;
       const levels=c.agentLevels||{};
-      return {forAll,chats:c.targets.map(t=>({key:key(t),name:t.name,group:t.group,enabled:t.enabled,agent:forAll?!classic.has(key(t)):agentSet.has(key(t)),level:levels[key(t)]||'standard'})),
-        states:status.agentStates||[],turns:status.agentTurns||[],reminders:status.agentReminders||[],running:status.running,connected:status.connected};
+      return {forAll,chats:c.targets.map(t=>({key:key(t),name:t.name,group:t.group,enabled:t.enabled,agent:forAll?!classic.has(key(t)):agentSet.has(key(t)),level:levels[key(t)]||'full'})),
+        states:status.agentStates||[],turns:status.agentTurns||[],reminders:status.agentReminders||[],notes:status.agentNotes||[],running:status.running,connected:status.connected};
     };
     if(!settings)return view(await this.panel());
     const chats=new Set((await this.panel()).config.targets.map(t=>(t.group?'group:':'private:')+t.number));

@@ -74,7 +74,7 @@ public struct QQConfig: Codable, Equatable, Sendable {
     }
     /// Permission level per chat in agent mode; chats not listed are "standard".
     public var agentLevels: [String: String]?
-    public func agentLevel(_ key: String) -> QQAgentLevel { agentLevels?[key].flatMap(QQAgentLevel.init(rawValue:)) ?? .standard }
+    public func agentLevel(_ key: String) -> QQAgentLevel { agentLevels?[key].flatMap(QQAgentLevel.init(rawValue:)) ?? .full }
     public func isAdmin(_ id: String) -> Bool { effectiveAdminIDs.contains(id) }
     public func isBlocked(_ id: String) -> Bool { effectiveBlockedIDs.contains(id) }
     public var effectiveGroupParticipationEnabled: Bool { get { groupParticipationEnabled ?? false } set { groupParticipationEnabled = newValue } }
@@ -178,7 +178,7 @@ public enum QQPolicy {
     }
     /// What the model is told about a segment it cannot read itself: its kind, plus whatever plain summary QQ
     /// gives (a market sticker's name, a card's title, a file name). Never the raw payload.
-    static func placeholder(_ kind: String, _ data: [String: Any]) -> String {
+    public static func placeholder(_ kind: String, _ data: [String: Any]) -> String {
         func field(_ key: String) -> String? {
             (data[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ").prefix(80).description
         }

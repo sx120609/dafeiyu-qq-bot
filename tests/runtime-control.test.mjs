@@ -65,7 +65,7 @@ test('outreach settings are validated and previews only target private chats',as
   control.panel=async(action,values)=>{sent.push([action,values]);if(values)config={...config,...values};return {config,agentStates:[{key:'group:111',pending:2}],agentTurns:[{chat:'群·甲群',decision:'reply'}],running:true,connected:true};};
   const first=await control.agent();
   assert.equal(first.forAll,false);
-  assert.deepEqual(first.chats.map(c=>[c.key,c.agent,c.level]),[['group:111',true,'standard'],['group:222',false,'standard'],['private:333',false,'standard']]);
+  assert.deepEqual(first.chats.map(c=>[c.key,c.agent,c.level]),[['group:111',true,'full'],['group:222',false,'full'],['private:333',false,'full']]);
   assert.equal(first.turns[0].decision,'reply');assert.equal(first.states[0].pending,2);
   await assert.rejects(control.agent({forAll:true,classic:['private:999']}),/会话/);
   await assert.rejects(control.agent({forAll:'yes'}),/无效/);
