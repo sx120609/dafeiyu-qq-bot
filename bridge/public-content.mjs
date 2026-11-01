@@ -81,7 +81,28 @@ export class PublicContent{
   async load(){try{const value=JSON.parse(await fs.readFile(path.join(this.runtime,'public-activity.json'),'utf8'));this.items=value.items||[];this.options={...this.options,...value.options};}catch{}return this;}
   async persist(){const file=path.join(this.runtime,'public-activity.json'),value=JSON.stringify({items:this.items.slice(0,30),options:this.options});this.writing=this.writing.catch(()=>{}).then(async()=>{await fs.writeFile(file+'.tmp',value,{mode:0o600});await fs.rename(file+'.tmp',file);});return this.writing;}
   async record(item,scope='public-exploration'){this.items=this.items.filter(x=>!(x.url===item.url&&x.scope===scope));this.items.unshift({...item,scope,at:new Date().toISOString()});this.items=this.items.slice(0,30);await this.persist();}
-  async json(url){const response=await publicFetch(url,{limit:2_000_000,headers:bilibiliHost(new URL(url).hostname)?bilibiliHeaders:{}});return JSON.parse(response.body.toString());}
+  // Bilibili's search (and at times its other web APIs) answers 412 to a request without a visitor cookie
+  // (buvid3/buvid4), which its own pages get from finger/spi (11-02: "B站直播页给我返回412"). One is fetched,
+  // kept for a day, and fetched again when Bilibili still refuses.
+  async bilibiliCookie(fresh=false){
+    if(!fresh&&this.biliCookie&&Date.now()<this.biliCookie.until)return this.biliCookie.value;
+    const response=await publicFetch('https://api.bilibili.com/x/frontend/finger/spi',{limit:64000,headers:bilibiliHeaders});
+    const data=JSON.parse(response.body.toString()).data||{};
+    if(typeof data.b_3!=='string'||!data.b_3)throw new Error('没拿到 B 站访客标识');
+    this.biliCookie={value:'buvid3='+data.b_3+(data.b_4?'; buvid4='+encodeURIComponent(data.b_4):''),until:Date.now()+86400000};
+    return this.biliCookie.value;
+  }
+  async json(url){
+    if(!bilibiliHost(new URL(url).hostname))return JSON.parse((await publicFetch(url,{limit:2_000_000})).body.toString());
+    const read=async fresh=>{
+      const cookie=await this.bilibiliCookie(fresh).catch(()=>'');
+      return JSON.parse((await publicFetch(url,{limit:2_000_000,headers:cookie?{...bilibiliHeaders,Cookie:cookie}:bilibiliHeaders})).body.toString());
+    };
+    let value;
+    try{value=await read(false);}catch(error){if(!/HTTP 412/.test(error.message))throw error;return read(true);}
+    // Some of its APIs say the same with HTTP 200 and code -412.
+    return value?.code===-412?read(true):value;
+  }
   async readPage(url,scope){
     // A Bilibili video page is drawn by scripts; its title, description, subtitles and frames come from the video reader.
     if(bilibiliVideoLink(new URL(url)))return this.video(url,scope);
