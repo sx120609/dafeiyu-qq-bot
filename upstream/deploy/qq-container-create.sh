@@ -25,8 +25,15 @@ sudo test -s config/onebot11.json
 sudo test -s config/napcat.json
 test -s qq-container-entrypoint.sh
 mkdir -p plugins
+# One network address for good: Docker 25+ gives a container a new random MAC every time it starts, and QQ takes
+# each one for a new computer (no quick login, "new device" on every password login, more risk checks).
+if [[ ! -s mac-address ]]; then
+  printf '02:%02x:%02x:%02x:%02x:%02x\n' $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) > mac-address
+fi
+MAC=$(tr -d '[:space:]' < mac-address)
+[[ "$MAC" =~ ^[0-9a-f][26ae](:[0-9a-f]{2}){5}$ ]] || { echo 'mac-address must be a local unicast address like 02:12:34:56:78:9a' >&2; exit 1; }
 sudo docker pull "$IMAGE"
-sudo docker create --name qq-ai --hostname qq-ai-runtime --init \
+sudo docker create --name qq-ai --hostname qq-ai-runtime --init --mac-address "$MAC" \
   --restart=no --memory=2g --cpus=2 --pids-limit=512 \
   --security-opt=no-new-privileges:true \
   -p 127.0.0.1:6099:6099 -p 127.0.0.1:3001:3001 \
