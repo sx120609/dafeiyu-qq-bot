@@ -5,6 +5,7 @@ import FoundationNetworking
 
 struct QQCompanionTools {
     static let entries: [(String, String, String, Bool)] = [
+        ("watch_bilibili_live", "输入直播间号或主播名，读取B站公开直播状态、标题、分区和人气，尝试截取一帧并读取最近弹幕样本。", "query", true),
         ("browse_web", "根据简短关键词搜索并阅读公开内容，可用于找资料、新鲜事和聊天话题。关键词不包含私人聊天或身份资料。", "query", true),
         ("read_webpage", "打开并阅读一个公开网页的正文，比如对方发的链接或搜索结果里的页面。", "url", true),
         ("browse_videos", "浏览公开视频列表，空关键词为热门列表。此操作仅看列表与简介，不等于看过视频内容。", "query", false),

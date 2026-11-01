@@ -1,3 +1,4 @@
+import {watchBilibiliLive,captureLiveFrame} from './bilibili-live.mjs';
 import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns/promises';
@@ -17,7 +18,7 @@ export function publicAddress(address){
   }
   return net.isIP(a)===6&&/^[23]/.test(a)&&!/^2001:db8:|^2002:/.test(a);
 }
-export async function publicFetch(raw,{limit=1_000_000,timeout=15000,headers={},redirects=3}={}){
+export async function publicFetch(raw,{limit=1_000_000,timeout=15000,headers={},redirects=3,prefix=false}={}){
   const url=new URL(raw);
   // The address check below is the boundary (no loopback or LAN); any port on a public host is fine.
   if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.href.length>2500)throw new Error('只支持公开网页地址');
@@ -46,10 +47,13 @@ export async function publicFetch(raw,{limit=1_000_000,timeout=15000,headers={},
       headers:{'User-Agent':'Mozilla/5.0 DafeiyuPublicReader/1.0','Accept-Encoding':'identity',...headers},
       lookup:(_host,options,callback)=>options.all?callback(null,addresses):callback(null,addresses[0].address,addresses[0].family)
     },res=>{
-      if([301,302,303,307,308].includes(res.statusCode)&&res.headers.location){res.resume();if(redirects<=0){reject(new Error('网页跳转过多'));return;}publicFetch(new URL(res.headers.location,url).href,{limit,timeout,headers,redirects:redirects-1}).then(resolve,reject);return;}
+      if([301,302,303,307,308].includes(res.statusCode)&&res.headers.location){res.resume();if(redirects<=0){reject(new Error('网页跳转过多'));return;}publicFetch(new URL(res.headers.location,url).href,{limit,timeout,headers,redirects:redirects-1,prefix}).then(resolve,reject);return;}
       if(res.statusCode<200||res.statusCode>=300){res.resume();reject(new Error('公开页面返回 HTTP '+res.statusCode));return;}
       let size=0;const chunks=[];
-      res.on('data',b=>{size+=b.length;if(size>limit){res.destroy(new Error('公开内容超过读取上限'));}else chunks.push(b);});
+      const finishPrefix=()=>{resolve({url:url.href,body:Buffer.concat(chunks),type:res.headers['content-type']||''});res.destroy();};
+      const deadline=prefix?setTimeout(finishPrefix,timeout):null;
+      res.on('close',()=>clearTimeout(deadline));
+      res.on('data',b=>{if(prefix){chunks.push(b.subarray(0,Math.max(0,limit-size)));size+=b.length;if(size>=limit)finishPrefix();}else{size+=b.length;if(size>limit){res.destroy(new Error('公开内容超过读取上限'));}else chunks.push(b);}});
       res.on('end',()=>resolve({url:url.href,body:Buffer.concat(chunks),type:res.headers['content-type']||''}));res.on('error',reject);
     });
     req.setTimeout(timeout,()=>req.destroy(new Error('公开内容读取超时')));req.on('error',reject);req.end();
@@ -177,6 +181,7 @@ export class PublicContent{
     if(name==='read_webpage')return this.readPage(args.url,scope);
     if(name==='browse_videos')return this.videos(args.query||'',scope);
     if(name==='inspect_video')return this.video(args.video,scope);
+    if(name==='watch_bilibili_live')return watchBilibiliLive(args.query,{json:url=>this.json(url),capture:(media,referer)=>captureLiveFrame(media,referer,{runtime:this.runtime,fetch:publicFetch,analyze:this.analyze})});
     if(name==='get_recent_activity')return {items:this.items.filter(x=>x.scope===scope||x.scope==='public-exploration').slice(0,4).map(({scope,...item})=>item)};
     throw new Error('未知公开内容工具');
   }

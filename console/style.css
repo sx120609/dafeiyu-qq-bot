@@ -278,6 +278,20 @@ input[type=file]{height:auto;padding:8px 10px}
 .chip-link.off{color:var(--ink-2)}
 .ability{scroll-margin-top:88px}
 
+/* Tools */
+.tool-list{display:flex;flex-direction:column;gap:12px}
+.tool-card{display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.tool-card.off{opacity:.6}
+.tool-card h3{font-size:14px}
+.tool-card .section-head p{color:var(--ink);margin-top:2px}
+.tool-card .section-head small{font-size:12px;margin-top:2px}
+.tool-last{font-size:12.5px;color:var(--ink-2);overflow-wrap:anywhere;max-height:84px;overflow:hidden}
+.tool-last b{color:var(--ink);font-weight:600}
+.tool-code,.tool-output{margin:8px 0 0;padding:10px 12px;border-radius:var(--r-sm);background:var(--surface-2);white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,"Cascadia Mono",Consolas,monospace;max-height:320px;overflow:auto}
+.tool-output.ok{background:var(--ok-soft)}.tool-output.bad{background:var(--bad-soft);color:var(--bad)}
+.tools-table td.wrap{white-space:normal;min-width:280px;color:var(--ink-2);font-size:12.5px}
+.tools-table td small{font-size:11.5px}
+
 /* Persona: stickers and reactions */
 .sticker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
 .sticker{margin:0;display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:12px;background:var(--surface-2);min-width:0}

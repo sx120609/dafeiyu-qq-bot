@@ -98,6 +98,13 @@ extension DeepSeekClient {
         ]
         if online {
             tools.append(["type": "function", "function": [
+                "name": "watch_bilibili_live",
+                "description": "查看B站直播。输入直播间号或主播名，返回开播状态、标题、分区、人气及可取得的一帧画面观察和最近弹幕摘要。人气不是准确在线人数；同名候选先询问，未取得的内容不能编造。",
+                "parameters": ["type": "object", "additionalProperties": false, "required": ["query"], "properties": [
+                    "query": ["type": "string", "description": "直播间号或主播名，最多80字"]
+                ]]
+            ]])
+            tools.append(["type": "function", "function": [
                 "name": "browse_bilibili",
                 "description": "去 B 站刷视频：助手刷热门（query 留空）或按关键词搜，挑一两个有意思的点开看（读字幕、看前几十秒画面），把标题、BV 号和内容告诉你。有人让你去刷视频、看看最近有什么好玩的、找某类视频时用。",
                 "parameters": ["type": "object", "additionalProperties": false, "required": ["query"], "properties": [
@@ -159,8 +166,21 @@ extension DeepSeekClient {
     }
 
     /// Tools that only look something up: several in one reply run at the same time.
-    static let agentLookups: Set<String> = ["look_at_image", "ask_helper", "browse_bilibili", "search_chat_history", "read_qq_history",
+    static let agentLookups: Set<String> = ["look_at_image", "ask_helper", "browse_bilibili", "watch_bilibili_live", "search_chat_history", "read_qq_history",
                                             "member_info", "group_info", "model_info", "search_stickers", "search_reactions", "find_artwork"]
+
+    /// Writing a new tool for itself; the gateway test-runs it in a sandbox and keeps it when it works.
+    static let createToolDefinition: [String: Any] = ["type": "function", "function": [
+        "name": "create_tool",
+        "description": "给自己写一个新工具。现有工具做不到、但靠访问公开网页或接口能做到的事（查某个网站的数据、调公开 API、换算、整理格式……），就写一个：程序先用 test_arguments 在沙箱里跑一遍，跑通了就加进你的工具列表、当场能调用，以后每一轮都在；跑不通会把错误给你，改好再调用一次。code 是一个 async JavaScript 函数的函数体，能用的变量只有 args（调用时传进来的参数）和 tools：用 fetch(url, {method, headers, body})（或 tools.fetch）访问外网，返回值有 ok、status、text()、json()；只能访问公网，一次最多 20 个请求；console.log 写日志；最后 return 一个字符串或对象作为结果。没有文件、没有子进程、不能引入本地模块，60 秒内要跑完。名字以 my_ 开头，同名会覆盖旧的。不写骚扰、刷量、攻击别人或绕过限制的工具。",
+        "parameters": ["type": "object", "additionalProperties": false, "required": ["name", "description", "parameters", "code", "test_arguments"], "properties": [
+            "name": ["type": "string", "description": "my_ 开头，小写字母、数字、下划线，例如 my_exchange_rate"],
+            "description": ["type": "string", "description": "这个工具做什么、什么时候用、返回什么；以后你就靠这段话决定用不用它"],
+            "parameters": ["type": "object", "description": "调用参数的 JSON Schema：{\"type\":\"object\",\"properties\":{...},\"required\":[...]}，每个参数写 type 和 description"],
+            "code": ["type": "string", "description": "async 函数的函数体，例如：const r = await fetch('https://api.example.com/x?q=' + encodeURIComponent(args.q)); const j = await r.json(); return j.answer;"],
+            "test_arguments": ["type": "object", "description": "测试用的参数，要能真实跑通"]
+        ]]
+    ]]
 
     /// Super mode: the owner's own computer, through the local Codex.
     static let computerTool: [String: Any] = ["type": "function", "function": [
@@ -176,7 +196,9 @@ extension DeepSeekClient {
     /// reported back) until it stops calling them; its last words are a note for the owner, never sent. Before the
     /// turn closes, `finish` may hand it something more to look at (new messages, or that it was spoken to and has
     /// said nothing), and the loop goes on.
+    /// `extraTools` is asked every round, so a tool the agent writes during the turn can be called right away.
     func operateAgent(key: String, config: BotConfig, rule: ChatRule, input: String, images: [Data], tools: [[String: Any]], chat: String,
+                      extraTools: @escaping @MainActor @Sendable () -> [[String: Any]] = { [] },
                       handler: @escaping @MainActor @Sendable (String, String) async throws -> String,
                       finish: @escaping @MainActor @Sendable (String) async -> String?,
                       reserve: @escaping @Sendable () async throws -> Void) async throws -> (note: String, tokens: Int) {
@@ -205,7 +227,7 @@ extension DeepSeekClient {
             let offerTools = round < lastRound
             var parameters: [String: Any] = ["model": config.model, "messages": messages, "max_tokens": max(3000, config.maxTokens), "stream": false,
                                              "thinking": ["type": "disabled"], "metadata": ["dafeiyu_purpose": "director", "dafeiyu_chat": String(chat.prefix(60))]]
-            if offerTools { parameters["tools"] = tools; parameters["tool_choice"] = "auto" }
+            if offerTools { parameters["tools"] = tools + (await extraTools()); parameters["tool_choice"] = "auto" }
             let body = try JSONSerialization.data(withJSONObject: parameters)
             var response: Response?
             for attempt in 0...2 {

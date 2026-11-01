@@ -289,6 +289,7 @@ import BotCore
                     var view = engine.config.effectiveReactions; view.emojis = view.effectiveEmojis; return view }())),
                 "reactionsSent": engine.reactionsSent,
                 "agentStates": engine.agentStates,
+                "agentToolCatalog": engine.agentToolCatalog,
                 "agentNotes": engine.agentNotes.map { note in ["id": note.id, "chat": note.key.isEmpty ? "所有会话" : (engine.config.targets.first { $0.key == note.key }.map { ($0.group ? "群·" : "好友·") + $0.name } ?? note.key), "at": note.at.timeIntervalSince1970, "text": note.text] as [String: Any] },
                 "agentReminders": engine.agentReminders.sorted { $0.due < $1.due }.map { ["id": $0.id, "chat": $0.chat, "due": $0.due.timeIntervalSince1970, "setAt": $0.setAt.timeIntervalSince1970, "about": $0.about] as [String: Any] },
                 "agentTurns": try engine.agentTurns.suffix(QQEngine.agentTurnsKept).reversed().map { try JSONSerialization.jsonObject(with: { let e = JSONEncoder(); e.dateEncodingStrategy = .secondsSince1970; return e }().encode($0)) },

@@ -23,7 +23,8 @@ enum QQComputer {
     /// Runs one task; `needsConfirmation` carries what Codex wants to do when it stopped to ask.
     static func run(_ task: String, confirmed: Bool, requester: String, key: String) async throws -> (needsConfirmation: Bool, output: String) {
         guard let url = endpoint("/computer/run") else { throw AppFailure.message("超级模式接口不可用") }
-        var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 660
+        // No time limit on the task (it runs in the background); a day only guards against a lost connection.
+        var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 86400
         request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["task": String(task.prefix(2000)), "confirmed": confirmed, "requester": requester])

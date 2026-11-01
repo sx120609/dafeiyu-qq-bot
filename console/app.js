@@ -9,6 +9,7 @@ const pages={
   chats:['会话','在哪些好友和群里说话，各自的权限和性格'],
   persona:['人设与表情','性格、表情包和常用的贴表情'],
   abilities:['能力','它会做的事：每一项的开关和细节都在这里，开关一点就生效'],
+  tools:['工具','代理能用的全部工具，和它自己写的'],
   rhythm:['节奏与额度','什么时候说话、主动找谁、一天能发多少'],
   model:['模型','连接方式，以及每种活交给哪个模型'],
   moderation:['管理员','谁能管机器人，谁不理'],
@@ -117,7 +118,7 @@ function route(){
   renderPageActions();
   $('app').querySelector('.main').scrollTop=0;
   const enter={overview:refreshOverview,activity:enterActivity,usage:enterUsage,chats:enterChats,persona:enterPersona,abilities:enterAbilities,
-    rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:()=>openEmbed(),settings:enterSettings}[page];
+    tools:enterTools,rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:()=>openEmbed(),settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
   schedulePolling();
 }
@@ -134,7 +135,7 @@ function renderPageActions(){
   const actions=$('page-actions');actions.replaceChildren();
   const button=(label,handler,name)=>{const b=el('button',{type:'button',className:'btn small ghost'},...(name?[icon(name)]:[]),label);b.onclick=()=>busy(b,handler);actions.append(b);};
   if(current==='qq'){button('重新连接',()=>openEmbed(true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
-  if(['activity','usage','abilities','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,abilities:enterAbilities,rhythm:enterRhythm}[current],'refresh');
+  if(['activity','usage','abilities','tools','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,abilities:enterAbilities,tools:enterTools,rhythm:enterRhythm}[current],'refresh');
 }
 
 /* Polling: the overview and activity refresh every 5 s while visible, the sidebar status every 20 s. */
@@ -214,7 +215,7 @@ for(const button of $$('[data-runtime]'))button.onclick=()=>{
 /* Activity: what the agent did, where each message went, what it read */
 let agentData=null,activityTab='turns';
 const agentDecisions={reply:['出声','ok'],silence:['没出声',''],wait:['等一等','accent'],failed:['出错','bad'],thinking:['正在想','warn']};
-const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来',read_qq_history:'翻 QQ 记录',send_to_chat:'去别处说',computer_task:'操作电脑',write_note:'记笔记',delete_note:'删笔记',send_message:'发消息',search_stickers:'搜表情包',send_sticker:'发表情包',react:'贴表情',search_reactions:'搜贴表情',poke:'戳一戳',like:'点赞',recall:'撤回',send_voice:'发语音',draw_image:'画图',send_artwork:'发插画',set_reminder:'定时',cancel_reminder:'取消定时',check_new_messages:'看新消息',wait:'等一等'};
+const errandNames={search_chat_history:'翻聊天记录',look_at_image:'看图',ask_helper:'查资料',browse_bilibili:'刷 B 站',watch_bilibili_live:'看 B 站直播',create_tool:'写新工具',manage_chat:'聊天管理',model_info:'查模型',find_artwork:'找插画',save_sticker:'存表情',notify_owner:'通知主人',member_info:'查群友',group_info:'看群资料',remember:'记下来',read_qq_history:'翻 QQ 记录',send_to_chat:'去别处说',computer_task:'操作电脑',write_note:'记笔记',delete_note:'删笔记',send_message:'发消息',search_stickers:'搜表情包',send_sticker:'发表情包',react:'贴表情',search_reactions:'搜贴表情',poke:'戳一戳',like:'点赞',recall:'撤回',send_voice:'发语音',draw_image:'画图',send_artwork:'发插画',set_reminder:'定时',cancel_reminder:'取消定时',check_new_messages:'看新消息',wait:'等一等'};
 const levelNames={basic:'基础',standard:'标准',full:'完全'};
 async function enterActivity(){await refreshActivity(true);}
 async function refreshActivity(all=false){
@@ -700,6 +701,43 @@ function renderComputer(){
   $('computer-history').replaceChildren(...(rows.length?rows:[empty('还没让它操作过电脑。')]));
 }
 onSubmit($('computer-form'),async()=>{computerConfig=await api('computer',{enabled:$('computer-enabled').checked,owner:$('computer-owner').value});renderComputer();renderAbilityIndex();toast('已保存');});
+
+/* Tools: the built-in ones, and the ones it wrote for itself */
+const levelBadges={basic:['基础起','ok'],standard:['标准起','accent'],full:['完全','warn'],super:['超级模式','bad']};
+let builtinTools=[];
+async function enterTools(){const data=await api('tools');builtinTools=data.builtin||[];renderTools(data);}
+function renderTools(data){
+  const mine=data.tools||[];
+  $('tools-count').textContent=mine.length?`${mine.filter(t=>t.enabled).length} / ${mine.length} 个在用`:'';
+  $('custom-tools').replaceChildren(...(mine.length?mine.slice().reverse().map(toolCard):[empty('还没有。它遇到现有工具做不到的事时，会自己写一个。')]));
+  table('builtin-tools',['工具','做什么','权限'],builtinTools.map(t=>{
+    const [label,tone]=levelBadges[t.level]||[t.level,''];
+    return el('tr',{},el('td',{},el('strong',{},errandNames[t.name]||t.name),el('small',{className:'mono'},t.name)),el('td',{className:'wrap'},t.description),el('td',{},el('span',{className:'badge '+tone},label)));
+  }),'读不到引擎的工具清单（引擎没在运行？）');
+}
+function toolCard(t){
+  const toggle=el('input',{type:'checkbox',className:'switch',checked:t.enabled});toggle.setAttribute('aria-label','启用 '+t.name);
+  toggle.onchange=()=>busy(toggle,async()=>{renderTools(await api('tools',{name:t.name,enabled:toggle.checked}));toast(toggle.checked?'已启用':'已停用');});
+  const remove=el('button',{type:'button',className:'btn small ghost danger'},'删除');
+  remove.onclick=()=>{if(confirm(`删除 ${t.name}？它以后就不能用了，需要时会重新写。`))busy(remove,async()=>{renderTools(await api('tools',{name:t.name,remove:true}));toast('已删除');});};
+  const example=Object.fromEntries(Object.entries(t.parameters?.properties||{}).map(([k,v])=>[k,v.type==='number'||v.type==='integer'?0:v.type==='boolean'?false:v.type==='array'?[]:v.type==='object'?{}:'']));
+  const args=el('textarea',{rows:3,className:'mono',value:JSON.stringify(example)});args.setAttribute('aria-label','试跑参数');
+  const result=el('pre',{className:'tool-output',hidden:true});
+  const run=el('button',{type:'button',className:'btn small'},'试跑');
+  run.onclick=()=>busy(run,async()=>{
+    let value;try{value=JSON.parse(args.value||'{}');}catch{throw new Error('参数要是 JSON');}
+    const {result:r}=await api('tools',{name:t.name,test:true,arguments:value},{timeout:90000});
+    result.hidden=false;result.className='tool-output '+(r.ok?'ok':'bad');
+    result.textContent=(r.ok?r.output:'出错：'+r.error)+(r.logs?.length?'\n\n日志：\n'+r.logs.join('\n'):'')+`\n\n（${(r.ms/1000).toFixed(1)} 秒，请求外网 ${r.fetches||0} 次）`;
+  });
+  const meta=[t.chat?'在 '+t.chat+' 写的':'',`更新于 ${new Date(t.updatedAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`,`用了 ${t.runs||0} 次`+(t.failures?`，出错 ${t.failures} 次`:'')].filter(Boolean).join(' · ');
+  const params=Object.entries(t.parameters?.properties||{}).map(([k,v])=>`${k}（${v.type}${(t.parameters.required||[]).includes(k)?'，必填':''}）${v.description?'：'+v.description:''}`).join('\n');
+  return el('article',{className:'tool-card'+(t.enabled?'':' off')},
+    el('div',{className:'section-head'},el('div',{},el('h3',{className:'mono'},t.name),el('p',{},t.description),el('small',{className:'muted'},meta)),toggle),
+    t.lastOutput?el('p',{className:'tool-last'},el('b',{},'上次结果：'),t.lastOutput):null,
+    el('details',{className:'explain'},el('summary',{},'参数和代码'),el('pre',{className:'tool-code'},(params?'参数：\n'+params+'\n\n':'')+t.code)),
+    el('details',{className:'explain'},el('summary',{},'试跑'),el('div',{className:'col gap-top'},args,el('div',{className:'actions'},run,remove),result)));
+}
 
 /* Rhythm: when it talks, whom it reaches out to, how much it may send */
 let timing=null,outreach=null;

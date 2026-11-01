@@ -50,6 +50,7 @@ struct QQAgentPlanTests {
         #expect(standard.bubbles == [.text("好"), .poke(member: "MEMBER_a"), .reaction(message: "11", emoji: "76")])
         #expect(QQAgentLevel.basic.answersOnlyWhenCalled && !QQAgentLevel.standard.answersOnlyWhenCalled)
         #expect(!QQAgentLevel.basic.tools.contains("ask_helper") && QQAgentLevel.standard.tools.contains("browse_bilibili"))
+        #expect(!QQAgentLevel.basic.tools.contains("watch_bilibili_live") && QQAgentLevel.standard.tools.contains("watch_bilibili_live"))
         #expect(!QQAgentLevel.standard.tools.contains("save_sticker") && QQAgentLevel.full.tools.isSuperset(of: QQAgentLevel.standard.tools))
         // Management is offered at every level; who may do what is checked against the person asking.
         #expect(QQAgentLevel.allCases.allSatisfy { $0.tools.contains("manage_chat") && $0.tools.contains("model_info") })

@@ -17,6 +17,7 @@
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3.5 19c.9-3 3-4.6 5.5-4.6s4.6 1.6 5.5 4.6M15.5 6.2a3 3 0 0 1 0 5.6M17 14.6c1.8.4 3 1.9 3.5 4.4"/></symbol>
   <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8M9 10h.01M15 10h.01"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5 5.1 1.9-5.1 1.9-1.9 5.2-1.9-5.2L5 10.4l5.1-1.9z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3l7.5-7.5a4 4 0 0 1-2-2z"/><path d="M14.5 6.5 17 4"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
   <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
@@ -57,6 +58,7 @@
       <a href="#chats" data-page="chats"><svg><use href="#i-people"/></svg>会话</a>
       <a href="#persona" data-page="persona"><svg><use href="#i-smile"/></svg>人设与表情</a>
       <a href="#abilities" data-page="abilities"><svg><use href="#i-spark"/></svg>能力</a>
+      <a href="#tools" data-page="tools"><svg><use href="#i-wrench"/></svg>工具</a>
       <a href="#rhythm" data-page="rhythm"><svg><use href="#i-clock"/></svg>节奏与额度</a>
       <a href="#model" data-page="model"><svg><use href="#i-chip"/></svg>模型</a>
       <a href="#moderation" data-page="moderation"><svg><use href="#i-shield"/></svg>管理员</a>
@@ -436,6 +438,18 @@
         <p class="field-label">最近几次</p>
         <div id="computer-history" class="state-list"></div>
       </article>
+    </section>
+
+    <!-- 工具 -->
+    <section class="page narrow" data-page="tools" hidden>
+      <div class="card section">
+        <div class="section-head"><div><h3>它自己写的工具</h3><p class="muted">现有工具做不到的事，它会自己写一个（完全权限的会话里）。程序先用它给的测试参数在沙箱里跑一遍，跑通了才加进来，当场就能用。沙箱读不了文件、开不了程序，只能访问公网，每次最多 60 秒。</p></div><span id="tools-count" class="badge"></span></div>
+        <div id="custom-tools" class="tool-list"></div>
+      </div>
+      <div class="card section">
+        <div class="section-head"><div><h3>内置工具</h3><p class="muted">代理每一轮能用哪些，看会话的权限档；有的还要在「能力」里打开对应功能。</p></div></div>
+        <div class="table-wrap"><table class="table tools-table" id="builtin-tools"></table></div>
+      </div>
     </section>
 
     <!-- 节奏与额度 -->

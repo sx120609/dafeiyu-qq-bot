@@ -90,7 +90,7 @@ export async function runCodex(body, config, signal, launch=spawn) {
     return await new Promise((resolve,reject) => {
       const child = launch(config.codex,args,{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,TEMP:toWindows(config.tempRoot),TMP:toWindows(config.tempRoot)}});
       let buffer='',last='',usage={},failure='',done=false,total=0,stderr='';
-      const finish = (err,result) => {if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);err?reject(err):resolve(result);};
+      const finish = (err,result) => {if(done)return;done=true;signal?.removeEventListener('abort',abort);err?reject(err):resolve(result);};
       const kill = () => {
         // A Windows process launched through WSL must be terminated on Windows too.
         if (process.platform !== 'win32' && config.codex.endsWith('.exe')) {
@@ -99,7 +99,7 @@ export async function runCodex(body, config, signal, launch=spawn) {
         } else child.kill();
       };
       const abort = () => {kill();finish(signal?.reason||new Error('请求已取消'));};
-      const timer = setTimeout(()=>{kill();finish(new Error('Codex timed out'));},600000);
+      // No time limit of its own: the caller's signal ends a request it no longer waits for.
       if(signal?.aborted) {abort();return;}
       signal?.addEventListener('abort',abort,{once:true});
       child.on('error',e=>finish(e));

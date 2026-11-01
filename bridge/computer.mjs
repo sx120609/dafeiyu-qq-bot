@@ -64,10 +64,9 @@ function codex(prompt){
     const child=spawn('/mnt/c/Windows/System32/cmd.exe',['/c','codex','exec','--skip-git-repo-check','-s','danger-full-access','-c','approval_policy="never"','-C',work,'-o',outWin,'-'],
       {cwd:workWsl,stdio:['pipe','ignore','pipe']});
     let stderr='';child.stderr.on('data',d=>{stderr=(stderr+d).slice(-2000);});
-    const timer=setTimeout(()=>{child.kill('SIGKILL');reject(new Error('做了 10 分钟还没做完，停下了'));},600_000);
-    child.on('error',e=>{clearTimeout(timer);reject(e);});
+    // No time limit: a long job (installing, building, a big download) runs as long as it takes.
+    child.on('error',e=>reject(e));
     child.on('close',async code=>{
-      clearTimeout(timer);
       try{const text=await fs.readFile(out,'utf8');await fs.rm(out,{force:true});resolve(text);}
       catch{reject(new Error('Codex 没给出结果'+(code?`（退出码 ${code}）`:'')+(stderr?'：'+stderr.trim().split('\n').pop().slice(0,200):'')));}
     });

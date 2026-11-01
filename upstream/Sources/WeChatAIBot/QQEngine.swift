@@ -83,6 +83,11 @@ struct QQAgentJob {
     let started = Date()
     var result = ""
 }
+/// The tools the agent wrote for itself, as offered in one turn; refreshed when it writes another.
+@MainActor final class QQAgentToolBox {
+    var definitions: [[String: Any]] = []
+    var names: Set<String> { Set(definitions.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }) }
+}
 /// Lets only the first of several racing callers through.
 @MainActor final class QQAgentGate {
     private var used = false
@@ -1362,8 +1367,8 @@ struct QQRuntimeCredentials: Decodable {
     private var agentJobsDone: [String: [QQAgentJob]] = [:]
     /// How long a slow tool may hold up its turn before it goes on in the background. Drawing and the computer go
     /// almost at once (a refusal or a bad argument still comes back in time); lookups get longer.
-    var agentPatience: [String: Double] = ["draw_image": 3, "computer_task": 3, "browse_bilibili": 20, "ask_helper": 25,
-                                           "look_at_image": 20, "send_voice": 20, "find_artwork": 20]
+    var agentPatience: [String: Double] = ["draw_image": 3, "computer_task": 3, "browse_bilibili": 20, "watch_bilibili_live": 20, "ask_helper": 25,
+                                           "look_at_image": 20, "send_voice": 20, "find_artwork": 20, "create_tool": 30]
     static let agentRetryDelays: [Double] = [3, 10]
     /// Checked on the connection's ten-second tick: a reminder that is due wakes its chat's agent.
     private func scheduleReminders(now: Date = Date()) {
@@ -1384,6 +1389,20 @@ struct QQRuntimeCredentials: Decodable {
             if (try? await agentSend(target, segments: [["type": "text", "data": ["text": reminder.say]]], text: reminder.say, answering: nil, epoch: epoch)) != nil {
                 noteAgent(target, "到点发了定好的话「\(String(reminder.say.prefix(30)))」", why: reminder.about)
             }
+        }
+    }
+    /// Every tool the agent can be offered and the lowest permission level that has it, for the console's tool page.
+    var agentToolCatalog: [[String: Any]] {
+        let kindOf = ["send_message": "text", "send_sticker": "sticker", "search_stickers": "sticker", "react": "reaction", "search_reactions": "reaction",
+                      "poke": "poke", "like": "like", "recall": "recall", "send_voice": "voice", "draw_image": "image", "send_artwork": "artwork",
+                      "set_reminder": "later", "cancel_reminder": "later"]
+        let all = DeepSeekClient.agentTools(online: true) + DeepSeekClient.agentActionTools(kinds: QQAgentLevel.full.bubbleKinds, group: true) +
+            [Self.agentSaveStickerDefinition, Self.notifyOwnerDefinition, QQArtworkLibrary.definition, DeepSeekClient.createToolDefinition, DeepSeekClient.computerTool]
+        return all.compactMap { tool in
+            guard let function = tool["function"] as? [String: Any], let name = function["name"] as? String else { return nil }
+            let level = name == "computer_task" ? "super" : ["check_new_messages", "wait"].contains(name) ? "basic"
+                : QQAgentLevel.allCases.first { $0.tools.contains(name) || kindOf[name].map($0.bubbleKinds.contains) == true }?.rawValue ?? "full"
+            return ["name": name, "description": function["description"] as? String ?? "", "level": level]
         }
     }
     /// Each agent chat right now: messages waiting, or thinking since when.
@@ -1658,6 +1677,9 @@ struct QQRuntimeCredentials: Decodable {
             if canNotifyOwner { tools.append(Self.notifyOwnerDefinition) }
             if artworkOn { tools.append(QQArtworkLibrary.definition) }
             if superMode { tools.append(DeepSeekClient.computerTool) }
+            if level.tools.contains("create_tool") { tools.append(DeepSeekClient.createToolDefinition) }
+            let customTools = QQAgentToolBox()
+            if level.tools.contains("my_tools") { customTools.definitions = await QQCustomTools.definitions(key: credential) }
             let turnID = turn.id
             var kinds = level.bubbleKinds
             if !stickersOn { kinds.remove("sticker") }
@@ -1670,7 +1692,7 @@ struct QQRuntimeCredentials: Decodable {
             state.members = members; state.inputs = inputs; state.calling = calling
             let spokeLately = botMessageIDs.contains { $0.key.hasPrefix(scope + ":") && nowSeconds - $0.value < 180 }
             let result = try await modelClient.operateAgent(key: credential, config: config.ai, rule: rule, input: input, images: images,
-                tools: tools, chat: chatLabel(target),
+                tools: tools, chat: chatLabel(target), extraTools: { customTools.definitions },
                 handler: { [weak self] name, arguments in
                     guard let self else { throw CancellationError() }
                     try self.check(epoch, scope: key, target: target)
@@ -1713,6 +1735,11 @@ struct QQRuntimeCredentials: Decodable {
                             output = await self.agentGroupAdmin(groupAction, arguments: arguments, level: level, fresh: fresh, inputs: state.inputs, members: state.members, events: events, target: target)
                         } else if name == "manage_chat" {
                             output = try self.agentManage(arguments, fresh: fresh + state.consumed, inputs: state.inputs, members: state.members, target: target)
+                        } else if name == "create_tool", level.tools.contains("create_tool") {
+                            output = await QQCustomTools.create(arguments, chat: self.chatLabel(target), key: credential)
+                            customTools.definitions = await QQCustomTools.definitions(key: credential)
+                        } else if name.hasPrefix("my_"), customTools.names.contains(name) {
+                            output = await QQCustomTools.run(name, arguments: arguments, key: credential)
                         } else if name == "computer_task", superMode, let owner = computerOwner {
                             output = await self.agentComputer(arguments, owner: owner, state: state, fresh: fresh, key: key, credential: credential, target: target)
                         } else if name == "write_note" || name == "delete_note", level.tools.contains(name) {
@@ -1747,7 +1774,7 @@ struct QQRuntimeCredentials: Decodable {
                     }
                     // A slow one holds the turn only so long, then carries on in the background (agentSettle).
                     var output: String
-                    if let patience = self.agentPatience[name] {
+                    if let patience = self.agentPatience[name] ?? (name.hasPrefix("my_") ? 20 : nil) {
                         output = try await self.agentSettle(work, within: patience, tool: name, arguments: arguments, target: target, epoch: epoch)
                     } else { output = try await work() }
                     // Whatever came in meanwhile goes along with every result, as it would to someone holding the phone.
@@ -2464,6 +2491,10 @@ struct QQRuntimeCredentials: Decodable {
             let frames = await agentFrames(message.images, limit: 6, epoch: epoch, target: target)
             guard !frames.isEmpty else { return "图片下载不下来，看不了。" }
             return try await modelClient.describeForAgent(key: key, config: config.ai, images: frames, question: (fields["question"] as? String) ?? "这张图是什么", chat: chatLabel(target), reserve: reserve)
+        case "watch_bilibili_live":
+            guard config.effectiveOnlineEnabled else { return "联网没开。" }
+            let result = try await QQCompanionTools.execute(name: name, arguments: arguments, key: key, scope: scope, sourceText: "")
+            return result.content
         case "browse_bilibili":
             guard config.effectiveOnlineEnabled else { return "联网没开。" }
             let query = String(((fields["query"] as? String) ?? "").prefix(60)), focus = String(((fields["focus"] as? String) ?? "").prefix(100))
