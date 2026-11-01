@@ -32,7 +32,8 @@ if [[ ! -s mac-address ]]; then
 fi
 MAC=$(tr -d '[:space:]' < mac-address)
 [[ "$MAC" =~ ^[0-9a-f][26ae](:[0-9a-f]{2}){5}$ ]] || { echo 'mac-address must be a local unicast address like 02:12:34:56:78:9a' >&2; exit 1; }
-sudo docker pull "$IMAGE"
+# Docker Hub is not always reachable from here; an image already pulled (and checked) is used as it is.
+sudo docker image inspect "$IMAGE" >/dev/null 2>&1 || sudo docker pull "$IMAGE"
 sudo docker create --name qq-ai --hostname qq-ai-runtime --init --mac-address "$MAC" \
   --restart=no --memory=2g --cpus=2 --pids-limit=512 \
   --security-opt=no-new-privileges:true \
