@@ -5,9 +5,7 @@ import Testing
 struct QQReactionsTests {
     @Test func savedPreferencesFillTheCatalogueAndBadSettingsAreRejected() throws {
         var config = QQReactionConfig()
-        #expect(!config.enabled)
         try config.validate()
-        #expect(config.effectivePokeEnabled && config.effectiveRepeatEnabled)
         // An older saved list (nine faces) still gets the rest of the catalogue, with its own weights kept.
         config.emojis = [QQReactionEmoji(id: "128051", name: "鲸鱼", weight: 9), QQReactionEmoji(id: "999", name: "自定义", weight: 3)]
         let effective = config.effectiveEmojis
@@ -15,34 +13,13 @@ struct QQReactionsTests {
         #expect(effective.first { $0.id == "128051" }?.weight == 9)
         #expect(effective.first { $0.id == "128051" }?.hint?.isEmpty == false)
         #expect(effective.last?.id == "999")
-        config.chance = 101
+        config.emojis[0].weight = 11
         #expect(throws: (any Error).self) { try config.validate() }
         config = QQReactionConfig(); config.emojis[0].id = "abc"
         #expect(throws: (any Error).self) { try config.validate() }
-        // Settings saved before the model-driven version decode, and liveliness sets how often groups are looked at.
+        // Settings saved by the old small-moves version still decode; only the favourites are kept.
         let old = try JSONDecoder().decode(QQReactionConfig.self, from: Data(#"{"enabled":true,"chance":20,"cooldownSeconds":45,"emojis":[{"id":"147","name":"棒棒糖","weight":5}]}"#.utf8))
-        #expect(old.enabled && old.pokeEnabled == nil && old.looksPerHour == 6)
-        config.chance = 10; #expect(config.looksPerHour < QQReactionConfig().looksPerHour)
-    }
-
-    @Test func onlyOfferedMessagesEmojisAndMembersSurviveThePlan() {
-        let text = #"{"actions":[{"type":"react","message":"m1","emoji":"147"},{"type":"react","message":"m1","emoji":"76"},{"type":"react","message":"old","emoji":"147"},{"type":"react","message":"m2","emoji":"666"},{"type":"react","message":"m3","emoji":76},{"type":"poke","member":"MEMBER_a"},{"type":"poke","member":"MEMBER_b"},{"type":"repeat","message":"m3"},{"type":"run","message":"m1"}],"why":"好笑"}"#
-        let plan = QQInteractionPlan.decode(text, candidates: ["m1", "m2", "m3"], repeatable: [], members: ["MEMBER_a", "MEMBER_b"], emojis: ["147", "76"])
-        #expect(plan.actions == [.react(message: "m1", emoji: "147"), .react(message: "m3", emoji: "76"), .poke(member: "MEMBER_a")])
-        #expect(plan.why == "好笑")
-        #expect(QQInteractionPlan.decode("不是 JSON", candidates: ["m1"], repeatable: [], members: [], emojis: ["147"]).actions.isEmpty)
-        let repeated = QQInteractionPlan.decode(#"{"actions":[{"type":"repeat","message":"m3"}],"why":""}"#, candidates: [], repeatable: ["m3"], members: [], emojis: [])
-        #expect(repeated.actions == [.repeatMessage(message: "m3")])
-    }
-
-    @Test func aRepeatChainNeedsTwoPeopleAndNoBot() {
-        let now = Date()
-        func event(_ id: String, _ subject: String, _ text: String) -> QQMemoryEvent { QQMemoryEvent(id: id, subject: subject, text: text, at: now) }
-        #expect(QQInteractionPlan.repeatable([event("1", "MEMBER_a", "聊点别的"), event("2", "MEMBER_b", "zdjd"), event("3", "MEMBER_c", "zdjd")]) == "3")
-        #expect(QQInteractionPlan.repeatable([event("2", "MEMBER_b", "zdjd"), event("3", "MEMBER_b", "zdjd")]) == nil)
-        #expect(QQInteractionPlan.repeatable([event("1", "BOT", "zdjd"), event("2", "MEMBER_b", "zdjd"), event("3", "MEMBER_c", "zdjd")]) == nil)
-        #expect(QQInteractionPlan.repeatable([event("2", "MEMBER_b", "看 https://x.cn"), event("3", "MEMBER_c", "看 https://x.cn")]) == nil)
-        #expect(QQInteractionPlan.repeatable([event("2", "MEMBER_b", "这是一句非常非常非常非常非常非常非常长的话呀"), event("3", "MEMBER_c", "这是一句非常非常非常非常非常非常非常长的话呀")]) == nil)
+        #expect(old.emojis.map(\.id) == ["147"])
     }
 
     @Test func olderLinesGiveWayToTheRollingSummary() throws {
@@ -68,5 +45,26 @@ struct QQReactionsTests {
         #expect(short.count < full.count)
         // A summary that ends outside this timeline is not used.
         #expect(!context.context(characters: 20000, summary: QQTimelineSummary(text: "别处", throughID: "gone", at: Date())).contains("前情摘要"))
+    }
+
+    /// The agent reacts with any QQ face or emoji, written by name; favourites come first and a 0 keeps one out.
+    @Test func everyFaceAndEmojiCanBeNamed() {
+        let saved = QQPolicy.faceNames
+        defer { QQPolicy.faceNames = saved }
+        QQPolicy.faceNames = ["271": "吃瓜", "264": "捂脸", "356": "666", "179": "doge", "8": "睡"]
+        let favourites = [QQReactionEmoji(id: "128051", name: "鲸鱼", weight: 5, hint: "打招呼"), QQReactionEmoji(id: "8", name: "睡", weight: 0)]
+        let items = QQReactionCatalog.all(favourites: favourites)
+        #expect(items.first?.id == "128051" && !items.contains { $0.id == "8" })
+        #expect(items.filter { $0.id == "128051" }.count == 1) // the emoji list has it too, under another name
+        #expect(QQReactionCatalog.resolve("吃瓜", among: items)?.id == "271")
+        #expect(QQReactionCatalog.resolve("[捂脸]", among: items)?.id == "264")
+        #expect(QQReactionCatalog.resolve("🔥", among: items)?.id == "128293")
+        #expect(QQReactionCatalog.resolve("火", among: items)?.id == "128293")
+        #expect(QQReactionCatalog.resolve("DOGE", among: items)?.id == "179")
+        #expect(QQReactionCatalog.resolve("356", among: items)?.id == "356")
+        #expect(QQReactionCatalog.resolve("睡", among: items) == nil)
+        #expect(QQReactionCatalog.resolve("不存在的表情", among: items) == nil)
+        #expect(QQReactionCatalog.search("吃瓜", among: items).first?.id == "271")
+        #expect(QQReactionCatalog.search("打招呼", among: items).first?.id == "128051")
     }
 }

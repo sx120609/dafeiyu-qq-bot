@@ -33,8 +33,6 @@ struct QQReplyForm: Equatable {
     var visionEnabled: Bool
     var memoryEnabled: Bool
     var memoryOptions: QQMemoryOptions
-    var groupParticipationEnabled: Bool
-    var groupParticipationEvery: Int
     init(_ config: QQConfig) {
         ai = config.ai; persona = config.effectivePersona; targets = config.targets
         dailyLimit = String(config.ai.dailyLimit)
@@ -42,8 +40,6 @@ struct QQReplyForm: Equatable {
         perChatDaily = String(config.ai.effectiveSendLimits.perChatDaily)
         onlineEnabled = config.effectiveOnlineEnabled; visionEnabled = config.effectiveVisionEnabled
         memoryEnabled = config.effectiveMemoryEnabled; memoryOptions = config.effectiveMemoryOptions
-        groupParticipationEnabled = config.effectiveGroupParticipationEnabled
-        groupParticipationEvery = config.effectiveGroupParticipationEvery
     }
     func validatedAI() throws -> BotConfig {
         var updated = ai

@@ -9,7 +9,7 @@ import BotCore
         let html = try String(contentsOf: root.appendingPathComponent("Resources/QQControl/index.html"), encoding: .utf8)
         let config = QQConfig(), persona = QQPersona(), memory = QQMemoryOptions(), art = QQArtworkConfig(), limits = SendLimits()
         let values = ["maxCharacters": persona.maxCharacters, "stickerEveryReplies": persona.effectiveStickerEveryReplies,
-                      "stickerIntervalSeconds": persona.stickerIntervalSeconds, "groupParticipationEvery": config.effectiveGroupParticipationEvery,
+                      "stickerIntervalSeconds": persona.stickerIntervalSeconds,
                       "daily": config.ai.dailyLimit, "cooldown": config.ai.cooldownSeconds, "sendDaily": limits.daily,
                       "chatDaily": limits.perChatDaily, "globalInterval": limits.globalIntervalSeconds,
                       "workStart": config.ai.workStart, "workEnd": config.ai.workEnd,

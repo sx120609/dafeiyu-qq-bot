@@ -26,18 +26,4 @@ struct QQConversationFlowTests {
         let humanSilenced = flow.shouldSilence(scope: "group:test", sender: "human", text: "怎么导入图片？", now: 151)
         #expect(!humanSilenced)
     }
-    @Test func nameQuotesAndBoundedFollowupsWorkWithoutFakeMentions() {
-        var flow = QQConversationFlow()
-        #expect(flow.naturalInvitation(scope: "g", sender: "u", text: "大肥鱼看看这个", replyTo: nil, names: ["大肥鱼"], now: 100))
-        #expect(flow.naturalInvitation(scope: "g", sender: "x", text: "我觉得大肥鱼说得对", replyTo: nil, names: ["大肥鱼"], now: 100))
-        #expect(!flow.naturalInvitation(scope: "g", sender: "x", text: "今天吃鱼", replyTo: nil, names: ["大肥鱼"], now: 100))
-        flow.sent(scope: "g", sender: "u", text: "回复", messageID: "abc", implicit: false, now: 100)
-        // Any next message from the person just answered continues the conversation, no keyword needed.
-        #expect(flow.naturalInvitation(scope: "g", sender: "u", text: "那接下来呢", replyTo: nil, names: ["大肥鱼"], now: 110))
-        #expect(flow.naturalInvitation(scope: "g", sender: "u", text: "好吧我懂了", replyTo: nil, names: [], now: 110))
-        #expect(flow.naturalInvitation(scope: "g", sender: "u", text: "再说点", replyTo: "abc", names: [], now: 110))
-        #expect(!flow.naturalInvitation(scope: "g", sender: "u", text: "好吧我懂了", replyTo: nil, names: [], now: 110, allowFollowup: false))
-        #expect(!flow.naturalInvitation(scope: "g", sender: "u", text: "好吧我懂了", replyTo: nil, names: [], now: 200))
-        #expect(!flow.naturalInvitation(scope: "g", sender: "someone-else", text: "那接下来呢", replyTo: nil, names: [], now: 110))
-    }
 }

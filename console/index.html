@@ -276,8 +276,8 @@
             <div id="agent-reminders" class="state-list"></div>
           </div>
           <div class="card section">
-            <div class="card-head flush"><h3>回复方式和权限</h3></div>
-            <p class="muted small">哪些会话用代理模式、每个会话的权限档，都在「会话」页里设。</p>
+            <div class="card-head flush"><h3>权限</h3></div>
+            <p class="muted small">所有会话都由代理处理；每个会话的权限档在「会话」页里设。</p>
             <div class="actions"><a class="btn small" href="#chats">去「会话」页</a></div>
           </div>
         </div>
@@ -287,12 +287,11 @@
     <!-- 会话 -->
     <section class="page" data-page="chats" hidden>
       <form id="chats-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>会话名单</h3><p class="muted">机器人只在勾选的会话里说话。每个会话可以单独选回复方式、代理权限和性格；改完点保存。</p></div></div>
-        <label class="switch-row"><span><strong>所有会话都用代理模式</strong><small>以后新加的会话也自动用；关掉后只有下面选了“代理”的会话用。</small></span><input id="chats-agent-all" type="checkbox" class="switch"></label>
-        <div class="table-wrap"><table class="table chats-table"><thead><tr><th>启用</th><th>会话</th><th>回复方式</th><th>代理权限</th><th>性格</th><th></th></tr></thead><tbody id="chats-rows"></tbody></table></div>
-        <details class="explain"><summary>回复方式和权限档是什么</summary>
-              <p><b>代理</b>：每攒到一批新消息，由“指挥”模型自己决定回不回、怎么回、要不要动手做事；<b>旧流程</b>：按条数和关键词决定，留作备用。</p>
-              <p>代理的权限档：<b>基础</b>只在被叫到时看（@、引用它、叫名字；私聊每条都算），能说话和 @ 人、发表情包、贴表情、撤回自己刚发的话、查群友资料；<b>标准</b>自己决定要不要插话，另外能戳人、定时提醒、上网查资料、刷 B 站、看群公告和精华、当场记住别人教的事；<b>完全</b>再加画图、找插画、存表情、点赞、替人通知主人，以及按管理员要求设精华和禁言（机器人得是群管理员）。</p>
+        <div class="section-head"><div><h3>会话名单</h3><p class="muted">机器人只在勾选的会话里说话，每个会话都由代理自己决定回不回、怎么回。每个会话可以单独选代理权限和性格；改完点保存。</p></div></div>
+        <div class="table-wrap"><table class="table chats-table"><thead><tr><th>启用</th><th>会话</th><th>代理权限</th><th>性格</th><th></th></tr></thead><tbody id="chats-rows"></tbody></table></div>
+        <details class="explain"><summary>权限档是什么</summary>
+              <p>每攒到一批新消息，由“指挥”模型自己决定回不回、怎么回、要不要动手做事；有人戳它、给它的话贴表情、它定的事到点、后台的事做完，也会叫它来看。</p>
+              <p>权限档：<b>基础</b>只在被叫到时看（@、引用它、叫名字；私聊每条都算），能说话和 @ 人、发表情包、贴表情、撤回自己刚发的话、查群友资料；<b>标准</b>自己决定要不要插话，另外能戳人、定时提醒、上网查资料、刷 B 站、看群公告和精华、当场记住别人教的事；<b>完全</b>再加画图、找插画、存表情、点赞、替人通知主人，以及按管理员要求设精华和禁言（机器人得是群管理员）。</p>
               <p>不管哪一档，拉黑、清空群记忆、改群里性格、存表情、设精华、禁言都只认机器人管理员提的要求，由程序核对；不会禁言管理员；黑名单里的人一概不理。</p>
             </details>
         <div class="actions end"><button id="chats-save" class="btn primary" type="submit">保存</button></div>
@@ -321,14 +320,6 @@
         </div>
         <label class="field"><span>补充偏好</span><textarea id="persona-notes" rows="3" maxlength="2000" placeholder="想让它额外注意的事，例如称呼习惯、忌讳的话题"></textarea><small class="muted">附在人设后面，只在不冲突时采用。</small></label>
         <div class="fields"><label class="field"><span>同一张表情包多久不重复</span><select id="persona-repeat"></select></label></div>
-        <details class="explain"><summary>旧流程的配图节奏（代理模式自己决定什么时候发表情包）</summary>
-          <div class="fields four">
-            <label class="field"><span>每隔几条回复配一张</span><input id="persona-every" type="number" min="0" max="10"><small class="muted">0 只在情绪强烈时</small></label>
-            <label class="field"><span>两张之间至少隔（秒）</span><input id="persona-interval" type="number" min="1" max="3600"></label>
-            <label class="field"><span>什么时候配图</span><select id="persona-trigger"><option value="contextual">按语境与条数</option><option value="emotions">只在指定情绪</option><option value="keywords">收到指定关键词</option></select></label>
-            <label class="field"><span>情绪 / 关键词</span><input id="persona-trigger-values" placeholder="用逗号分开"><small id="persona-trigger-help" class="muted"></small></label>
-          </div>
-        </details>
         <div class="actions end"><button id="persona-save" class="btn primary" type="submit">保存</button></div>
       </form>
       <div class="card section">
@@ -481,19 +472,17 @@
       <form id="timing-form" class="card section" novalidate>
         <div class="section-head"><div><h3>夜间安静</h3><p class="muted">这段时间里不主动插群聊、不贴表情；有人 @ 它、回复它、叫它的名字照常回。</p></div><input id="quiet-enabled" type="checkbox" class="switch" aria-label="夜间安静"></div>
         <div class="fields"><label class="field"><span>从</span><select id="quiet-start"></select></label><label class="field"><span>到</span><select id="quiet-end"></select></label></div>
-        <div class="section-head sub"><div><h3>回应戳一戳</h3><p class="muted">有人戳大肥鱼，会戳回去，有时再顺口说一句。</p></div><input id="poke-enabled" type="checkbox" class="switch" aria-label="回应戳一戳"></div>
-        <div class="fields"><label class="field"><span>戳回去时说句话的概率</span><select id="poke-chance"></select></label><label class="field"><span>同一个人至少间隔</span><select id="poke-cooldown"></select></label></div>
         <div class="actions end"><button id="timing-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
       <form id="emoji-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>表情回应偏好</h3><p id="reactions-hint" class="muted">给群友消息贴表情时能用哪些、你希望它多用哪些。“不用”的不会出现；鼠标停在表情上能看到什么时候用。</p></div></div>
+        <div class="section-head"><div><h3>常用表情</h3><p id="reactions-hint" class="muted">QQ 自带的所有表情和常见 emoji 它都能贴；这里是你希望它多用的几个，设成“不用”的不会贴。鼠标停在表情上能看到什么时候用。</p></div></div>
         <div id="reactions-emojis" class="emoji-grid"></div>
         <div class="actions end"><button id="emoji-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
       <form id="outreach-form" class="card section" novalidate>
-        <div class="section-head"><div><h3>主动找人聊天</h3><p class="muted">只在私聊里：隔一段时间没聊，大肥鱼会根据记得的事主动问候或跟进。没有由头就不发；对方没回上一条不会再发；免打扰时段不发。</p></div><input id="outreach-enabled" type="checkbox" class="switch" aria-label="主动聊天"></div>
+        <div class="section-head"><div><h3>主动找人聊天</h3><p class="muted">只在私聊里：隔一段时间没聊，会叫代理看看有没有由头主动问候或跟进。没有由头就不发；对方没回上一条不会再发；免打扰时段不发。</p></div><input id="outreach-enabled" type="checkbox" class="switch" aria-label="主动聊天"></div>
         <p id="outreach-hint" class="muted small"></p>
         <div class="fields four">
           <label class="field"><span>多久没聊后考虑</span><select id="outreach-idle"></select></label>
@@ -501,25 +490,11 @@
           <label class="field"><span>免打扰从</span><select id="outreach-quiet-start"></select></label>
           <label class="field"><span>到</span><select id="outreach-quiet-end"></select></label>
         </div>
-        <p class="field-label">参与的私聊 <small class="muted">取消勾选的人不会被主动找；“预览”只生成不发送</small></p>
+        <p class="field-label">参与的私聊 <small class="muted">取消勾选的人不会被主动找</small></p>
         <div id="outreach-chats" class="chat-list"></div>
-        <div id="outreach-preview" class="note" hidden></div>
         <div class="actions end"><button id="outreach-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
-      <details class="card section legacy">
-        <summary><span><strong>旧流程设置</strong><small class="muted">只给切回旧流程的会话用；全部用代理模式时这里不起作用</small></span></summary>
-        <form id="legacy-form" class="col" novalidate>
-          <div class="fields"><label class="field"><span>回复前等对方说完</span><select id="timing-settle"></select></label></div>
-          <div class="section-head sub"><div><h3>群里的小动作</h3><p class="muted">旧流程的群里，攒几条新消息后让模型看一眼，决定贴什么表情、要不要戳人、要不要跟着复读。代理模式的群由代理自己决定，不走这个。</p></div><input id="reactions-enabled" type="checkbox" class="switch" aria-label="群里的小动作"></div>
-          <div class="fields"><label class="field"><span>活跃程度</span><select id="reactions-chance"></select></label><label class="field"><span>同一个群至少隔多久看一次</span><select id="reactions-cooldown"></select></label></div>
-          <label class="switch-row"><span><strong>会戳一戳群友</strong><small>同一个群十分钟最多一次。</small></span><input id="reactions-poke" type="checkbox" class="switch"></label>
-          <label class="switch-row"><span><strong>会跟着复读</strong><small>两个以上的人发了一模一样的短句时；同一句半小时内只跟一次。</small></span><input id="reactions-repeat" type="checkbox" class="switch"></label>
-          <p class="field-label">最近的小动作</p>
-          <ol id="reactions-log" class="records"></ol>
-          <div class="actions end"><button id="legacy-save" class="btn primary" type="submit">保存</button></div>
-        </form>
-      </details>
     </section>
 
     <!-- 功能开关 -->
@@ -554,7 +529,7 @@
         <button id="moderation-save" class="btn primary" type="button">保存</button>
       </div>
       <div class="card">
-        <div class="card-head"><h3>聊天命令</h3><span class="muted small">都不调用模型，单独发一条即可</span></div>
+        <div class="card-head"><h3>聊天命令</h3><span class="muted small">代理看懂后去做，也可以直接用话说；谁能做由程序核对</span></div>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>命令</th><th>作用</th><th>谁能用</th></tr></thead>
           <tbody>
@@ -567,7 +542,7 @@
             <tr><td><code>/解除拉黑 QQ号</code></td><td>移出黑名单</td><td>管理员</td></tr>
             <tr><td><code>/黑名单</code></td><td>查看已拉黑的 QQ</td><td>管理员</td></tr>
             <tr><td><code>/model</code></td><td>回答当前使用的具体模型</td><td>所有人</td></tr>
-            <tr><td><code>/persona</code></td><td>查看或切换本会话的性格</td><td>所有人</td></tr>
+            <tr><td><code>/性格</code></td><td>查看或切换本会话的性格</td><td>查看所有人；群里切换仅管理员</td></tr>
           </tbody>
         </table></div>
       </div>

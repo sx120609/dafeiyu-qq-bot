@@ -270,9 +270,10 @@ with tempfile.TemporaryDirectory(prefix='dafeiyu-panel-test-') as folder:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 queued = json.loads(request('/api/status', headers)[1])
-                if queued['queued'] == 9 and queue_control.get('history_requests') == 1: break
+                if queue_control.get('history_requests') == 1: break
                 time.sleep(0.05)
-            assert queued['running'] and queued['queued'] == 9 and queue_control.get('history_requests') == 1, {
+            # The ten messages make one batch for the agent; its turn waits on the held history request.
+            assert queued['running'] and queued['queued'] == 0 and queue_control.get('history_requests') == 1, {
                 'running':queued['running'],'queued':queued['queued'],'history_requests':queue_control.get('history_requests'),
                 'rejected':queued['rejected'],'error':queued['error']}
             assert queued['calls'] == 0 and queued['confirmed'] == 0
@@ -292,7 +293,7 @@ with tempfile.TemporaryDirectory(prefix='dafeiyu-panel-test-') as folder:
             action({'action':'pause'})
             cleared = action({'action':'clear'})
             assert not cleared['connected'] and not cleared['running']
-        print('PASS: ten synthetic events produce nine queued replies; pause clears queue, restart ignores late history, zero model/send calls')
+        print('PASS: ten synthetic events make one agent batch; pause stops it, restart ignores late history, zero model/send calls')
         assert request('/api/status', headers)[0] == 200
         print('PASS: assets, authentication, Origin/Host, malformed requests, connection/reply persistence, stale editor rejection, stale pause, unknown scope rejection, independent image/vision/artwork persistence, invalid tool configuration rollback, identity/online rejection, saved-config start, pause/clear lifecycle, isolated zero-send state')
     finally:

@@ -283,11 +283,6 @@ input::placeholder{color:var(--faint)}
 .route-group{border-top:1px solid var(--border)}.route-group:first-child{border-top:none}
 .route-group summary{cursor:pointer;padding:10px 0 4px;font-weight:500;color:var(--muted);font-size:13px}
 .route-group .route-row:first-of-type{border-top:none}
-.legacy summary{cursor:pointer;list-style:none}.legacy summary::-webkit-details-marker{display:none}
-.legacy summary span{display:flex;flex-direction:column;gap:3px}
-.legacy summary::after{content:"展开";float:right;margin-top:-34px;font-size:12px;color:var(--accent)}
-.legacy[open] summary::after{content:"收起"}
-.legacy[open] summary{margin-bottom:12px}
 .list-group{margin:0;padding:12px 0 4px;color:var(--muted);font-size:12px;border-top:1px solid var(--border)}
 .inline-check{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
 .inline-check input{width:14px;height:14px;padding:0;accent-color:var(--accent)}

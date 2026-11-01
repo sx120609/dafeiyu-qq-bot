@@ -102,7 +102,7 @@ export class RuntimeControl{
   }
   // Starting private conversations: settings, per-chat state, and a preview that is never sent.
   async outreach(settings){
-    const view=status=>({config:status.outreach,chats:status.outreachChats||[],preview:status.outreachPreview||null,memoryEnabled:!!status.config.memoryEnabled,running:status.running});
+    const view=status=>({config:status.outreach,chats:status.outreachChats||[],memoryEnabled:!!status.config.memoryEnabled,running:status.running});
     if(!settings)return view(await this.panel());
     const hours=(v,min,max)=>{if(!Number.isInteger(v)||v<min||v>max)throw new Error('主动聊天设置的数值不在允许范围内');return v;};
     const current=(await this.panel()).outreach;
@@ -111,57 +111,41 @@ export class RuntimeControl{
       excluded:Array.isArray(settings.excluded)?settings.excluded.filter(x=>typeof x==='string'&&/^private:\d{5,12}$/.test(x)):[]};
     return view(await this.panel('saveOutreach',{outreach:next}));
   }
-  // The bot's small moves in groups (reacting, poking, joining a repeat chain), decided by the model.
+  // The owner's favourite reactions: the agent may use any QQ face or emoji, these first.
   async reactions(settings){
-    const view=status=>({config:status.reactions,sent:status.reactionsSent||0,interactions:status.interactions||[]});
+    const view=status=>({config:{emojis:status.reactions.emojis},sent:status.reactionsSent||0});
     if(!settings)return view(await this.panel());
     const int=(v,min,max)=>{if(!Number.isInteger(v)||v<min||v>max)throw new Error('贴表情设置的数值不在允许范围内');return v;};
     const current=(await this.panel()).reactions;
     const weights=settings.weights&&typeof settings.weights==='object'?settings.weights:{};
-    const next={...current,enabled:settings.enabled===true,chance:int(settings.chance,0,100),cooldownSeconds:int(settings.cooldownSeconds,0,3600),
-      pokeEnabled:settings.pokeEnabled===undefined?current.pokeEnabled??true:settings.pokeEnabled===true,
-      repeatEnabled:settings.repeatEnabled===undefined?current.repeatEnabled??true:settings.repeatEnabled===true,
-      emojis:current.emojis.map(e=>({...e,weight:weights[e.id]===undefined?e.weight:int(weights[e.id],0,10)}))};
+    const next={emojis:current.emojis.map(e=>({...e,weight:weights[e.id]===undefined?e.weight:int(weights[e.id],0,10)}))};
     return view(await this.panel('saveReactions',{reactions:next}));
   }
-  // Agent mode: which chats the directing model runs by itself, and what it has been doing.
+  // Agent mode runs every chat; per chat, its permission level, and what it has been doing.
   async agent(settings){
     const view=status=>{
-      const c=status.config,forAll=c.agentForAll===true,agentSet=new Set(c.agentTargets||[]),classic=new Set(c.classicTargets||[]);
-      const key=t=>(t.group?'group:':'private:')+t.number;
-      const levels=c.agentLevels||{};
-      return {forAll,chats:c.targets.map(t=>({key:key(t),name:t.name,group:t.group,enabled:t.enabled,agent:forAll?!classic.has(key(t)):agentSet.has(key(t)),level:levels[key(t)]||'full'})),
+      const c=status.config,key=t=>(t.group?'group:':'private:')+t.number,levels=c.agentLevels||{};
+      return {chats:c.targets.map(t=>({key:key(t),name:t.name,group:t.group,enabled:t.enabled,level:levels[key(t)]||'full'})),
         states:status.agentStates||[],turns:status.agentTurns||[],reminders:status.agentReminders||[],notes:status.agentNotes||[],running:status.running,connected:status.connected};
     };
     if(!settings)return view(await this.panel());
     const chats=new Set((await this.panel()).config.targets.map(t=>(t.group?'group:':'private:')+t.number));
-    const list=v=>{if(!Array.isArray(v)||v.some(k=>typeof k!=='string'||!chats.has(k)))throw new Error('只能选名单里的会话');return [...new Set(v)];};
-    if(typeof settings.forAll!=='boolean')throw new Error('回复方式设置无效');
     const levels=settings.levels??{};
     if(typeof levels!=='object'||Array.isArray(levels)||Object.entries(levels).some(([k,v])=>!chats.has(k)||!['basic','standard','full'].includes(v)))throw new Error('权限档设置无效');
-    return view(await this.panel('saveReplyMode',{agentForAll:settings.forAll,agentTargets:list(settings.agent??[]),classicTargets:list(settings.classic??[]),agentLevels:levels}));
+    return view(await this.panel('saveAgentLevels',{agentLevels:levels}));
   }
-  // Reply pacing (wait for someone to finish typing) and answering pokes.
+  // Night hours: the agent keeps out of group talk unless someone calls it.
   async timing(settings){
-    const view=status=>({settleSeconds:status.settleSeconds??0,poke:status.poke,quietHours:status.quietHours});
+    const view=status=>({quietHours:status.quietHours});
     if(!settings)return view(await this.panel());
-    const int=(v,min,max)=>{if(!Number.isInteger(v)||v<min||v>max)throw new Error('回复节奏设置的数值不在允许范围内');return v;};
+    const int=(v,min,max)=>{if(!Number.isInteger(v)||v<min||v>max)throw new Error('安静时段设置的数值不在允许范围内');return v;};
     let status=await this.panel();
-    if(settings.settleSeconds!==undefined)status=await this.panel('saveSettle',{settleSeconds:int(settings.settleSeconds,0,30)});
-    if(settings.poke){
-      const poke={...status.poke,enabled:settings.poke.enabled===true,replyChance:int(settings.poke.replyChance,0,100),cooldownSeconds:int(settings.poke.cooldownSeconds,0,3600)};
-      status=await this.panel('savePoke',{poke});
-    }
     if(settings.quietHours){
       const q=settings.quietHours;
       const quietHours={...status.quietHours,enabled:q.enabled===true,startHour:int(q.startHour,0,23),endHour:int(q.endHour,0,23)};
       status=await this.panel('saveQuietHours',{quietHours});
     }
     return view(status);
-  }
-  async previewOutreach(target){
-    if(typeof target!=='string'||!/^private:\d{5,12}$/.test(target))throw new Error('请选择一个私聊');
-    return (await this.panel('previewOutreach',{target},{timeout:300000})).outreachPreview;
   }
   async action(name){
     const actions=new Set(['napcat-start','napcat-stop','napcat-restart','bot-pause','bot-resume','bot-restart']);

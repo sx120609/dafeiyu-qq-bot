@@ -104,9 +104,12 @@ struct QQStickerLibrary {
         return data
     }
 
+    /// What an import may start from. Kept files stay within 3 MB: an animated GIF over that is shrunk (smaller
+    /// frames, then fewer) so it still moves (11-01: a 3.6 MB 动画表情 was saved as its first frame).
+    static let importBytes = 16_000_000
     mutating func importImage(_ bytes: Data, title: String, emotion: QQEmotion, context: String, source: String, author: String, license: String, publicSharing: Bool) throws {
-        guard let localDirectory, (1...3_000_000).contains(bytes.count), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              title.count <= 80, context.count <= 300, source.count <= 500, author.count <= 80, license.count <= 100 else { throw AppFailure.message("图片最多 3 MB；名称 1–80 字，情境最多 300 字") }
+        guard let localDirectory, (1...Self.importBytes).contains(bytes.count), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              title.count <= 80, context.count <= 300, source.count <= 500, author.count <= 80, license.count <= 100 else { throw AppFailure.message("图片最多 16 MB（存下来不超过 3 MB）；名称 1–80 字，情境最多 300 字") }
         let sourceURL = URL(string: source)
         guard source.isEmpty || (sourceURL?.scheme == "https" && sourceURL?.host != nil && sourceURL?.user == nil && sourceURL?.password == nil && sourceURL?.query == nil && sourceURL?.fragment == nil) else { throw AppFailure.message("来源请填写不含凭证、查询参数的公开 HTTPS 网页") }
         guard !publicSharing || (!author.isEmpty && !license.isEmpty && !source.isEmpty) else { throw AppFailure.message("公开分享需要作者、许可和来源；未确认的图片请仅保存在本机") }

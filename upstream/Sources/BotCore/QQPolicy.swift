@@ -38,13 +38,7 @@ public struct QQConfig: Codable, Equatable, Sendable {
     public var memoryEnabled: Bool?
     public var memoryOptions: QQMemoryOptions?
     public var effectiveMemoryOptions: QQMemoryOptions { get { memoryOptions ?? QQMemoryOptions() } set { memoryOptions = newValue } }
-    public var groupParticipationEnabled: Bool?
-    public var groupParticipationEvery: Int?
-    public var fastReplyEnabled: Bool?
-    public var naturalRepliesEnabled: Bool?
     public var loopProtectionEnabled: Bool?
-    public var effectiveFastReplyEnabled: Bool { fastReplyEnabled ?? false }
-    public var effectiveNaturalRepliesEnabled: Bool { naturalRepliesEnabled ?? false }
     public var effectiveLoopProtectionEnabled: Bool { loopProtectionEnabled ?? true }
     /// QQ numbers allowed to run moderation commands in any managed conversation.
     public var adminIDs: [String]?
@@ -54,31 +48,17 @@ public struct QQConfig: Codable, Equatable, Sendable {
     public var effectiveBlockedIDs: [String] { blockedIDs ?? [] }
     public var outreach: QQOutreachConfig?
     public var effectiveOutreach: QQOutreachConfig { get { outreach ?? QQOutreachConfig() } set { outreach = newValue } }
-    /// Seconds to wait for someone to finish a run of messages before answering; 0 answers at once.
-    public var settleSeconds: Int?
-    public var effectiveSettleSeconds: Int { settleSeconds ?? 0 }
-    public var poke: QQPokeConfig?
-    public var effectivePoke: QQPokeConfig { get { poke ?? QQPokeConfig() } set { poke = newValue } }
     /// Night hours in which the bot does not join group talk or react on its own; being @ still gets a reply.
     public var quietHours: QQQuietHours?
     public var effectiveQuietHours: QQQuietHours { get { quietHours ?? QQQuietHours() } set { quietHours = newValue } }
     public var reactions: QQReactionConfig?
     public var effectiveReactions: QQReactionConfig { get { reactions ?? QQReactionConfig() } set { reactions = newValue } }
-    /// Groups in agent mode (代理模式): the directing model reads every batch and decides by itself; see QQAgentPlan.
-    public var agentTargets: [String]?
-    /// Agent mode for every chat, except those listed in `classicTargets`, which keep the older reply flow.
-    public var agentForAll: Bool?
-    public var classicTargets: [String]?
-    public func isAgent(_ key: String) -> Bool {
-        agentForAll == true ? !(classicTargets ?? []).contains(key) : (agentTargets ?? []).contains(key)
-    }
-    /// Permission level per chat in agent mode; chats not listed are "standard".
+    /// Every chat is run by the agent (代理模式; see QQAgentPlan). Its permission level per chat; chats not listed
+    /// have full permissions.
     public var agentLevels: [String: String]?
     public func agentLevel(_ key: String) -> QQAgentLevel { agentLevels?[key].flatMap(QQAgentLevel.init(rawValue:)) ?? .full }
     public func isAdmin(_ id: String) -> Bool { effectiveAdminIDs.contains(id) }
     public func isBlocked(_ id: String) -> Bool { effectiveBlockedIDs.contains(id) }
-    public var effectiveGroupParticipationEnabled: Bool { get { groupParticipationEnabled ?? false } set { groupParticipationEnabled = newValue } }
-    public var effectiveGroupParticipationEvery: Int { get { groupParticipationEvery ?? 10 } set { groupParticipationEvery = newValue } }
     public var effectiveVisionEnabled: Bool { get { visionEnabled ?? false } set { visionEnabled = newValue } }
     public var effectiveMemoryEnabled: Bool { get { memoryEnabled ?? false } set { memoryEnabled = newValue } }
     public var onlineEnabled: Bool?
@@ -108,7 +88,6 @@ public struct QQConfig: Codable, Equatable, Sendable {
         }
         try effectiveMemoryOptions.validate()
         try effectiveImageGeneration.validate()
-        guard (1...1000).contains(effectiveGroupParticipationEvery) else { throw CoreError.invalid("群主动接话间隔应为 1 至 1000 条消息") }
         guard effectiveAdminIDs.count <= 20, effectiveAdminIDs.allSatisfy(Self.validID),
               Set(effectiveAdminIDs).count == effectiveAdminIDs.count else { throw CoreError.invalid("管理员最多 20 个，QQ 号必须有效且不重复") }
         guard effectiveBlockedIDs.count <= 1000, effectiveBlockedIDs.allSatisfy(Self.validID),
@@ -119,13 +98,9 @@ public struct QQConfig: Codable, Equatable, Sendable {
         let chatKey: (String) -> Bool = { key in
             (key.hasPrefix("group:") && Self.validID(String(key.dropFirst(6)))) || (key.hasPrefix("private:") && Self.validID(String(key.dropFirst(8))))
         }
-        guard (agentTargets ?? []).count <= 20, (classicTargets ?? []).count <= 20,
-              ((agentTargets ?? []) + (classicTargets ?? [])).allSatisfy(chatKey),
-              (agentLevels ?? [:]).count <= 40, (agentLevels ?? [:]).allSatisfy({ chatKey($0.key) && QQAgentLevel(rawValue: $0.value) != nil })
-        else { throw CoreError.invalid("回复方式的会话设置无效") }
-        try effectivePoke.validate()
+        guard (agentLevels ?? [:]).count <= 40, (agentLevels ?? [:]).allSatisfy({ chatKey($0.key) && QQAgentLevel(rawValue: $0.value) != nil })
+        else { throw CoreError.invalid("代理权限的会话设置无效") }
         try effectiveQuietHours.validate()
-        guard (0...30).contains(effectiveSettleSeconds) else { throw CoreError.invalid("等待对方说完的时间应为 0–30 秒") }
     }
     public static func validID(_ s: String) -> Bool { Int64(s).map { $0 > 0 && String($0) == s } ?? false }
 }
@@ -147,26 +122,12 @@ public struct QQIncoming: Equatable, Sendable {
     public var name: String?
     public var key: String { "\(group ? "group" : "private"):\(target)" }
     public var dedupKey: String { "\(key):\(id)" }
-    /// Several messages a person sent in a row, answered as one turn: texts in order, every image,
-    /// and the latest message's ID and time.
-    public func merging(earlier: [QQIncoming]) -> QQIncoming {
-        guard !earlier.isEmpty else { return self }
-        var merged = QQIncoming(id: id, sender: sender, target: target, group: group,
-                                text: (earlier.map(\.text) + [text]).filter { !$0.isEmpty }.joined(separator: "\n"),
-                                time: time, replyTo: replyTo ?? earlier.compactMap(\.replyTo).last,
-                                images: earlier.flatMap(\.images) + images)
-        merged.mentionsSelf = mentionsSelf || earlier.contains(where: \.mentionsSelf)
-        merged.isOwner = isOwner
-        merged.mentionedUsers = Array(Set(mentionedUsers + earlier.flatMap(\.mentionedUsers))).sorted()
-        merged.role = role; merged.name = name
-        return merged
-    }
-    /// How long to wait for the next message before answering: a message that looks finished
-    /// (ends like a sentence, or is long) waits less than a fragment like “帮我找个”.
-    public static func settleDelay(after text: String, base: Double) -> Double {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finished = trimmed.count >= 30 || trimmed.range(of: #"[。！？!?~～…]$|[吗呢吧啊呀哦嘛]$"#, options: .regularExpression) != nil
-        return finished ? max(1.5, base / 2) : base
+}
+extension QQIncoming {
+    /// A message made by the program, e.g. to stand for "now" when the agent is woken without one.
+    public init(id: String, sender: String, target: String, group: Bool, text: String, time: Double, replyTo: String?, images: [QQIncomingImage]) {
+        self.id = id; self.sender = sender; self.target = target; self.group = group
+        self.text = text; self.time = time; self.replyTo = replyTo; self.images = images
     }
 }
 public enum QQPolicy {

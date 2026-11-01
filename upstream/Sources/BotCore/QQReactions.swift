@@ -12,39 +12,76 @@ public struct QQReactionEmoji: Codable, Equatable, Sendable {
     public init(id: String, name: String, weight: Int, hint: String? = nil) { self.id = id; self.name = name; self.weight = weight; self.hint = hint }
 }
 
-/// When someone pokes the bot (QQ 戳一戳): poke back, and sometimes say something short.
-public struct QQPokeConfig: Codable, Equatable, Sendable {
-    public var enabled = false
-    /// Chance, in percent, of also saying something after poking back.
-    public var replyChance = 50
-    /// Pokes from the same person within this many seconds are ignored.
-    public var cooldownSeconds = 30
-    public init() {}
-    public func validate() throws {
-        guard (0...100).contains(replyChance), (0...3600).contains(cooldownSeconds) else {
-            throw CoreError.invalid("戳一戳：说话概率 0–100%，间隔 0–3600 秒")
+/// Everything the agent can react with: QQ's own faces (faces.json, loaded into `QQPolicy.faceNames`) and the
+/// emoji QQ offers as reactions, picked by name. The owner's favourites come first and keep their hints.
+public enum QQReactionCatalog {
+    /// QQ's emoji-type reactions, with names to search by.
+    public static let emoji: [(id: String, name: String)] = [
+        ("9728", "晴天☀"), ("9749", "咖啡☕"), ("9786", "可爱☺"), ("10024", "闪光✨"), ("10060", "错误❌"), ("10068", "问号❓"),
+        ("127801", "玫瑰🌹"), ("127817", "西瓜🍉"), ("127822", "苹果🍎"), ("127827", "草莓🍓"), ("127836", "拉面🍜"), ("127838", "面包🍞"),
+        ("127847", "刨冰🍧"), ("127866", "啤酒🍺"), ("127867", "干杯🍻"), ("127881", "庆祝🎉"), ("128027", "虫🐛"), ("128046", "牛🐮"),
+        ("128051", "鲸鱼🐳"), ("128053", "猴🐵"), ("128074", "拳头👊"), ("128076", "好的👌"), ("128077", "厉害👍"), ("128079", "鼓掌👏"),
+        ("128147", "爱心💓"), ("128157", "礼物💝"), ("128164", "睡觉💤"), ("128166", "水💦"), ("128168", "吹气💨"), ("128170", "肌肉💪"),
+        ("128293", "火🔥"), ("128513", "呲牙😁"), ("128514", "笑哭😂"), ("128516", "高兴😄"), ("128522", "嘿嘿😊"), ("128524", "羞涩😌"),
+        ("128527", "哼哼😏"), ("128530", "不屑😒"), ("128531", "汗😓"), ("128532", "失落😔"), ("128536", "飞吻😘"), ("128538", "亲亲😚"),
+        ("128540", "淘气😜"), ("128541", "吐舌😝"), ("128557", "大哭😭"), ("128560", "紧张😰"), ("128563", "瞪眼😳")
+    ]
+
+    /// The favourites (weight above 0), then every other face and emoji; ones the owner set to 0 are left out.
+    public static func all(favourites: [QQReactionEmoji]) -> [QQReactionEmoji] {
+        let never = Set(favourites.filter { $0.weight <= 0 }.map(\.id))
+        var seen = never, items: [QQReactionEmoji] = []
+        for item in favourites where item.weight > 0 && seen.insert(item.id).inserted { items.append(item) }
+        for (id, name) in QQPolicy.faceNames.sorted(by: { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }) where seen.insert(id).inserted {
+            items.append(QQReactionEmoji(id: id, name: name, weight: 0))
+        }
+        for (id, name) in emoji where seen.insert(id).inserted { items.append(QQReactionEmoji(id: id, name: name, weight: 0)) }
+        return items
+    }
+
+    /// What the agent wrote (a name, an emoji, or an id) as one of `items`.
+    public static func resolve(_ written: String, among items: [QQReactionEmoji]) -> QQReactionEmoji? {
+        var text = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        for wrapper in ["[", "]", "【", "】", "/", "QQ表情：", "表情："] { text = text.replacingOccurrences(of: wrapper, with: "") }
+        text = text.replacingOccurrences(of: "\u{FE0F}", with: "").trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        if let item = items.first(where: { $0.id == text }) { return item }
+        let lowered = text.lowercased()
+        if let item = items.first(where: { $0.name.lowercased() == lowered }) { return item }
+        // An emoji typed as itself: by its code point, or by the name it carries in the list (鲸鱼🐳).
+        if text.unicodeScalars.count == 1, let scalar = text.unicodeScalars.first, scalar.value > 1000 {
+            if let item = items.first(where: { $0.id == String(scalar.value) || $0.name.hasSuffix(text) }) { return item }
+        }
+        // The name without the emoji the list adds to it.
+        return items.first { item in
+            let bare = item.name.unicodeScalars.filter { $0.value < 0x2000 || (0x4E00...0x9FFF).contains($0.value) }
+            return String(String.UnicodeScalarView(bare)).lowercased() == lowered
         }
     }
-    public static let prompt = """
-        刚才有人在 QQ 里戳了戳你（双击头像的那种“戳一戳”）。你已经戳回去了，现在顺口回一句很短的话，像被戳时的小反应：可以俏皮、可以假装嫌弃、可以问问对方找你干嘛，结合你们最近聊的事更好。一句话，别长。
-        只输出一个 JSON 对象：{"text":"要说的话","emotion":"neutral","intensity":1}
-        """
+
+    /// Names that match `query`: whole word first, then those sharing the most characters with it.
+    public static func search(_ query: String, among items: [QQReactionEmoji], limit: Int = 20) -> [QQReactionEmoji] {
+        let words = query.lowercased().split(whereSeparator: { $0.isWhitespace || $0 == "，" || $0 == "," }).map(String.init).filter { !$0.isEmpty }
+        guard !words.isEmpty else { return Array(items.prefix(limit)) }
+        let scored = items.compactMap { item -> (QQReactionEmoji, Int)? in
+            let name = item.name.lowercased(), hint = (item.hint ?? "").lowercased()
+            var score = 0
+            for word in words {
+                if name == word { score += 100 } else if name.contains(word) || word.contains(name) { score += 40 }
+                if hint.contains(word) { score += 30 }
+                score += Set(word).intersection(Set(name)).count * 5
+            }
+            return score > 0 ? (item, score + min(item.weight, 10)) : nil
+        }
+        return scored.sorted { $0.1 > $1.1 }.prefix(limit).map(\.0)
+    }
 }
 
-/// The bot's small moves in a group ("小动作"): reacting to messages, poking someone, joining a repeat chain.
-/// The model decides all of them after reading the recent timeline; nothing here is random.
+/// The owner's favourite reactions ("常用表情"): the agent may react with any QQ face or emoji
+/// (QQReactionCatalog), and these come first, with the owner's preference and a hint for when they fit.
 public struct QQReactionConfig: Codable, Equatable, Sendable {
-    public var enabled = false
-    /// How lively the bot is, 0–100: the guidance the model gets and how often it looks at a group.
-    public var chance = 30
-    /// Minimum seconds between two looks at the same group.
-    public var cooldownSeconds = 45
     /// The owner's saved preferences; `effectiveEmojis` fills in the rest of the catalogue.
     public var emojis: [QQReactionEmoji] = QQReactionConfig.catalog
-    public var pokeEnabled: Bool?
-    public var repeatEnabled: Bool?
-    public var effectivePokeEnabled: Bool { pokeEnabled ?? true }
-    public var effectiveRepeatEnabled: Bool { repeatEnabled ?? true }
     public init() {}
 
     /// What the bot can react with. The owner's favourites (棒棒糖, 鲸鱼, 问号, 拳头) weigh most.
@@ -85,81 +122,10 @@ public struct QQReactionConfig: Codable, Equatable, Sendable {
         return listed + emojis.filter { !known.contains($0.id) }
     }
 
-    /// How many times an hour the bot may look at one group.
-    public var looksPerHour: Int { chance <= 15 ? 3 : chance <= 40 ? 6 : 12 }
-    public var liveliness: String {
-        chance <= 15 ? "安静：大多数时候什么都不做，只给特别好笑、特别值得的消息贴一个"
-            : chance <= 40 ? "适中：像一个常在线但不刷屏的群友，看到有意思的才贴"
-            : "活跃：可以多贴一些，但还是要贴在点上，别每条都贴"
-    }
-
     public func validate() throws {
-        guard (0...100).contains(chance), (0...3600).contains(cooldownSeconds), emojis.count <= 60,
+        guard emojis.count <= 60,
               emojis.allSatisfy({ (0...10).contains($0.weight) && (1...7).contains($0.id.count) && $0.id.allSatisfy(\.isNumber) && $0.name.count <= 20 && ($0.hint?.count ?? 0) <= 40 }) else {
-            throw CoreError.invalid("群里的小动作：活跃度 0–100，间隔 0–3600 秒，最多 60 个表情，偏好 0–10")
+            throw CoreError.invalid("常用表情：最多 60 个，偏好 0–10")
         }
     }
-}
-
-/// What the model decided to do in a group this time. Anything it names that the program did not offer is dropped.
-public struct QQInteractionPlan: Equatable, Sendable {
-    public enum Action: Equatable, Sendable {
-        case react(message: String, emoji: String)
-        case poke(member: String)
-        case repeatMessage(message: String)
-    }
-    public var actions: [Action]
-    public var why: String
-
-    public static func decode(_ text: String, candidates: Set<String>, repeatable: Set<String>, members: Set<String>, emojis: Set<String>) -> QQInteractionPlan {
-        guard let data = text.data(using: .utf8), data.count <= 8000,
-              let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return QQInteractionPlan(actions: [], why: "") }
-        let why = String(((fields["why"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
-        var actions: [Action] = [], reacted = Set<String>(), poked = false, repeated = false
-        for item in (fields["actions"] as? [[String: Any]] ?? []).prefix(8) {
-            let message = (item["message"] as? String) ?? (item["message"] as? NSNumber)?.stringValue ?? ""
-            switch item["type"] as? String {
-            case "react":
-                let emoji = (item["emoji"] as? String) ?? (item["emoji"] as? NSNumber)?.stringValue ?? ""
-                guard reacted.count < 3, candidates.contains(message), emojis.contains(emoji), !reacted.contains(message) else { continue }
-                reacted.insert(message); actions.append(.react(message: message, emoji: emoji))
-            case "poke":
-                guard !poked, let member = item["member"] as? String, members.contains(member) else { continue }
-                poked = true; actions.append(.poke(member: member))
-            case "repeat":
-                guard !repeated, repeatable.contains(message) else { continue }
-                repeated = true; actions.append(.repeatMessage(message: message))
-            default: continue
-            }
-        }
-        return QQInteractionPlan(actions: actions, why: why)
-    }
-
-    /// The latest message, when it ends a run of the same short line from at least two different members the bot
-    /// has not joined: the classic QQ 复读 chain.
-    public static func repeatable(_ events: [QQMemoryEvent]) -> String? {
-        guard let last = events.last, !["BOT", "OWNER", "SYSTEM"].contains(last.subject) else { return nil }
-        let text = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (1...20).contains(text.count), !text.contains("（"), !text.contains("["), !text.lowercased().contains("http"), !text.hasPrefix("/") else { return nil }
-        var speakers = Set<String>()
-        for event in events.reversed() {
-            guard event.text.trimmingCharacters(in: .whitespacesAndNewlines) == text else { break }
-            if ["BOT", "OWNER"].contains(event.subject) { return nil }
-            speakers.insert(event.subject)
-        }
-        return speakers.count >= 2 ? last.id : nil
-    }
-
-    public static let prompt = """
-        [QQ_INTERACTIONS] 现在不是让你说话，是决定你在群里顺手做的小动作：像真人刷群时给消息点个表情回应、戳一戳某个人、偶尔跟着大家复读。你只决定做不做、对哪条做什么，不写聊天内容。
-        输入是 JSON：群名、当前时间、活跃度、最近的群时间线（每行有 message 编号；new=true 的是这次可以回应的新消息；reactions 是别人已经贴上的表情和人数；botReacted 是你已经贴过的；toBot 表示在跟你说话或提到你；repeatable=true 表示大家正在复读这句）、相关记忆、你最近做过的小动作、可用的表情（id、名字、什么时候用、主人设的偏好 1–10，越高越常用）、这次允许的动作类型。
-        怎么做：
-        - 先看懂每条新消息在说什么、谁对谁说、群里气氛如何，再决定。贴表情要贴在点上、贴得有意思：好笑的、在说你或叫你的、有人分享好消息成果或图片、别人都在贴的（跟着贴同一个最自然）、在跟你斗嘴的，都可以贴。平淡的打卡、长段严肃讨论、别人吵架、伤心求助（安慰类的爱心之类除外）一般不贴。
-        - 一条消息最多一个表情，一次最多贴 3 条，按活跃度来，经常一条都不贴才正常。不要老用同一个表情，也不要盯着同一个人贴；偏好高的表情合适时优先，但不合适就别硬用。
-        - 戳一戳：只有真有由头才戳，比如有人提到你却没 @、有人说要去睡了或说要走、有人在念叨你或跟你斗嘴。一次最多戳一个人；你最近戳过的人别再戳。
-        - 复读：只能对 repeatable=true 的那条，跟着复读一次；内容不合适（涉政、色情、骂人、广告、刷屏）就不复读。
-        - 涉及政治、色情、违法、人身攻击的消息不贴表情、不互动。
-        - 什么都不做完全可以，actions 给空数组。
-        只输出 JSON：{"actions":[{"type":"react","message":"消息编号","emoji":"表情id"},{"type":"poke","member":"MEMBER_xxx"},{"type":"repeat","message":"消息编号"}],"why":"一句话，告诉主人你为什么这么做或为什么没做"}
-        """
 }

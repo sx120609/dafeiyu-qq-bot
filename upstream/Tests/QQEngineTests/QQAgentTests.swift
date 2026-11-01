@@ -12,7 +12,9 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var respond: (String, [[String: Any]]) -> [String: Any] = { _, _ in ["content": #"{"action":"silence"}"#] }
     nonisolated(unsafe) private static var seen: [(purpose: String, input: String)] = []
-    static func reset(_ script: @escaping (String, [[String: Any]]) -> [String: Any]) { lock.lock(); respond = script; seen = []; lock.unlock() }
+    /// Seconds before an answer to anything but the director arrives (a slow helper), without holding up other requests.
+    nonisolated(unsafe) static var helperDelay = 0.0
+    static func reset(_ script: @escaping (String, [[String: Any]]) -> [String: Any]) { lock.lock(); respond = script; seen = []; helperDelay = 0; lock.unlock() }
     static var calls: [(purpose: String, input: String)] { lock.lock(); defer { lock.unlock() }; return seen }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -30,8 +32,12 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         Self.lock.lock(); Self.seen.append((purpose, input)); let script = Self.respond; Self.lock.unlock()
         let message = script(purpose, messages)
         let result: [String: Any] = ["choices": [["message": message, "finish_reason": message["tool_calls"] == nil ? "stop" : "tool_calls"]], "usage": ["total_tokens": 10]]
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: result)); client?.urlProtocolDidFinishLoading(self)
+        let body = try! JSONSerialization.data(withJSONObject: result), delay = purpose == "director" ? 0 : Self.helperDelay
+        let answer = { [self] in
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: body); client?.urlProtocolDidFinishLoading(self)
+        }
+        if delay > 0 { DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: answer) } else { answer() }
     }
 }
 
@@ -103,8 +109,8 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         let engine = rig.engine
         engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
         engine.config.targets[0].enabled = true
-        try engine.saveReplyMode(forAll: false, agent: ["group:99999", "group:12121"], classic: [], levels: [:]) // a chat not on the list is dropped
-        #expect(engine.config.agentTargets == ["group:99999"])
+        try engine.saveAgentLevels(["group:99999": "full", "group:12121": "basic"]) // full is the default; a chat not on the list is dropped
+        #expect(engine.config.agentLevels?.isEmpty == true)
         engine.start()
         // Neither message mentions the bot; in agent mode that is the director's call, not the program's.
         try rig.batch([group(1, 54321, "今天食堂的红烧肉绝了"), group(2, 54322, "真的假的，明天去试试")])
@@ -150,7 +156,6 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         let engine = rig.engine
         engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
         engine.config.targets[0].enabled = true
-        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
         engine.start()
         var called = group(31, 54321, " 你怎么不说话")
         called["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": " 你怎么不说话"]]]
@@ -175,7 +180,6 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         let engine = rig.engine
         engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
         engine.config.targets[0].enabled = true
-        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
         engine.start()
         var called = group(51, 54321, " 在吗")
         called["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": " 在吗"]]]
@@ -187,6 +191,43 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         try await wait({ engine.agentTurns.last?.note == "回应了表情" }, seconds: 12)
         #expect(engine.agentTurns.last?.batch.first?.hasPrefix("[表情]") == true)
         #expect(rig.payloads().last == ["text:被夸了，得意"])
+    }
+
+    /// A slow tool does not hold up the chat: past its patience it carries on in the background, the agent answers
+    /// meanwhile and ends the turn, and the result wakes it again (11-01: "画图就会等到画图完成才接着回应").
+    /// Lookups called together run side by side, and a reaction is written by name.
+    @Test func aSlowToolCarriesOnInTheBackground() async throws {
+        AgentModelProtocol.reset { purpose, messages in
+            if purpose != "director" { return ["content": "查到了：明天晴"] }
+            // The result comes in whenever it is ready: into the running turn, or as a turn of its own.
+            let seenAll = messages.compactMap { $0["content"] as? String }.joined(separator: "\n")
+            if seenAll.contains("说「查到了，明天晴」") { return ["content": "说了结果"] }
+            if seenAll.contains("[后台做完] ask_helper") || seenAll.contains("转到后台的事做完了") { return call("send_message", ["text": "查到了，明天晴"]) }
+            let seen = results(messages)
+            switch seen.count {
+            case 0: return call("ask_helper", ["task": "明天天气"])
+            case 1: return seen[0].contains("转到后台") ? call("react", ["message": "61", "emoji": "赞"]) : ["content": "没转后台"]
+            case 2: return call("send_message", ["text": "我查查"])
+            default: return ["content": "先回了一句"]
+            }
+        }
+        AgentModelProtocol.helperDelay = 1.5
+        let rig = try await rig(); defer { rig.stop() }
+        let engine = rig.engine
+        engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
+        engine.config.targets[0].enabled = true
+        engine.config.effectiveOnlineEnabled = true
+        engine.agentPatience["ask_helper"] = 0.3
+        engine.start()
+        var called = group(61, 54321, " 明天天气怎么样")
+        called["message"] = [["type": "at", "data": ["qq": "12345"]], ["type": "text", "data": ["text": " 明天天气怎么样"]]]
+        try rig.batch([called])
+        try await wait({ engine.agentTurns.contains { $0.note == "说了结果" } }, seconds: 15)
+        #expect(rig.payloads().compactMap(\.last) == ["text:我查查", "text:查到了，明天晴"], "\(engine.agentTurns.map { ($0.batch, $0.errands.map { $0.tool + "→" + $0.result }) })")
+        #expect(engine.agentTurns.contains { $0.batch.contains { $0.hasPrefix("[后台做完] ask_helper") } })
+        let first = try #require(engine.agentTurns.first)
+        #expect(first.errands.prefix(3).map(\.tool) == ["ask_helper", "react", "send_message"])
+        #expect(first.errands[0].result.contains("转到后台") && first.errands[1].result.contains("贴了"))
     }
 
     /// A turn that fails before anything went out is tried again by itself with the same batch, and the records
@@ -202,7 +243,6 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         let engine = rig.engine
         engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
         engine.config.targets[0].enabled = true
-        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: [:])
         engine.start()
         try rig.batch([group(41, 54321, "有人吗")])
         try await wait({ engine.agentTurns.last?.note == "重试成功" }, seconds: 12)
@@ -237,7 +277,7 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         engine.add(try #require(engine.contacts.first { $0.number == "54321" && !$0.group }))
         engine.add(try #require(engine.contacts.first { $0.number == "99999" }))
         for index in engine.config.targets.indices { engine.config.targets[index].enabled = true }
-        try engine.saveReplyMode(forAll: true, agent: [], classic: [], levels: ["group:99999": "basic"])
+        try engine.saveAgentLevels(["group:99999": "basic"])
         engine.start()
         try rig.batch([friend(21, "/拉黑 77777")])
         try await wait { engine.sends.confirmed >= 1 }

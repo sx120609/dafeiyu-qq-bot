@@ -5,40 +5,7 @@ import Vision
 import Security
 
 setbuf(stdout, nil)
-if CommandLine.arguments.contains("--qq-semantic-check") || CommandLine.arguments.contains("--qq-sticker-check") || CommandLine.arguments.contains("--qq-personalities-check") { SecKeychainSetUserInteractionAllowed(false) }
-// Legacy macOS keychain items can otherwise wait indefinitely for an invisible prompt.
-if (CommandLine.arguments.contains("--qq-persona-check") || CommandLine.arguments.contains("--qq-online-check") || CommandLine.arguments.contains("--qq-memory-vision-check")) || CommandLine.arguments.contains("--qq-connect-check") || CommandLine.arguments.contains("--qq-accept-one") || CommandLine.arguments.contains("--qq-control-check") || CommandLine.arguments.contains("--qq-control-panel") || CommandLine.arguments.contains("--social-panel") || CommandLine.arguments.contains("--xiaohongshu-panel") || CommandLine.arguments.contains("--test-api") {
-    SecKeychainSetUserInteractionAllowed(false)
-}
-
-private func readQQCredentials() -> QQRuntimeCredentials? {
-    guard CommandLine.arguments.contains("--credentials-stdin") else { return nil }
-    guard let line = readLine(), line.utf8.count <= 16384,
-          let credentials = try? JSONDecoder().decode(QQRuntimeCredentials.self, from: Data(line.utf8)),
-          !credentials.oneBotToken.isEmpty, !credentials.deepSeekKey.isEmpty else {
-        print("临时凭证输入无效；未连接、保存或发送"); exit(1)
-    }
-    return credentials
-}
-private var controlServer: QQControlServer?
-private var socialServer: SocialControlServer?
-
-if CommandLine.arguments.contains("--qq-semantic-check") || CommandLine.arguments.contains("--qq-sticker-check") || CommandLine.arguments.contains("--qq-personalities-check") {
-    let credentials = readQQCredentials()
-    Task { @MainActor in
-        do {
-            let key = try credentials?.deepSeekKey ?? Keychain.load(allowAuthenticationUI: false)
-            let args = CommandLine.arguments
-            let directory = args.firstIndex(of: "--semantic-image-directory").flatMap { $0 + 1 < args.count ? URL(fileURLWithPath: args[$0 + 1]) : nil }
-            let caseNames = args.firstIndex(of: "--semantic-cases").flatMap { $0 + 1 < args.count ? Set(args[$0 + 1].split(separator: ",").map(String.init)) : nil } ?? []
-            if args.contains("--qq-personalities-check") { try await QQSemanticCheck.runPersonalities(key: key, caseNames: caseNames) }
-            else if args.contains("--qq-sticker-check") { try await QQSemanticCheck.runStickers(key: key) }
-            else { try await QQSemanticCheck.run(key: key, imageDirectory: directory, caseNames: caseNames) }
-            exit(0)
-        } catch { print(error.localizedDescription); exit(1) }
-    }
-    RunLoop.main.run()
-} else if (CommandLine.arguments.contains("--qq-persona-check") || CommandLine.arguments.contains("--qq-online-check") || CommandLine.arguments.contains("--qq-memory-vision-check")) {
+if (CommandLine.arguments.contains("--qq-persona-check") || CommandLine.arguments.contains("--qq-online-check") || CommandLine.arguments.contains("--qq-memory-vision-check")) {
     let credentials = readQQCredentials()
     Task { @MainActor in
         do {

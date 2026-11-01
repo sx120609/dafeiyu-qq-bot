@@ -83,14 +83,4 @@ public struct QQOutreachLedger: Codable, Equatable, Sendable {
               now - (lastConsidered[key] ?? 0) >= retry else { return false }
         return !config.quiet(at: Date(timeIntervalSince1970: now))
     }
-
-    /// Instructions for the model when it considers writing first. It may decline.
-    public static func prompt(idleHours: Int) -> String {
-        """
-        现在不是在回复消息：你在考虑要不要主动给这位好友发一条私聊。你们已经大约 \(idleHours) 小时没聊了。
-        下面是你记得的关于 TA 的事和你们最近的聊天。如果有自然的由头就发，比如之前提到的考试、面试、答辩、生病、出行、搬家、在追的番或游戏、说过要做的事，可以问问后来怎么样了；也可以是轻松的问候，结合当前时间（早上、饭点、周末、节假日）。没有合适的由头，或者对方上次明显想结束聊天、心情很差需要空间，就不发。
-        像熟人随手发来的消息：一两句，最多问一个问题。不要说“好久不见我是 AI”，不要客服腔，不要一次问一串问题，不要编造你们没聊过的事。
-        只输出一个 JSON 对象：{"send":true,"text":"要发的内容","emotion":"neutral","intensity":1}。不发就输出 {"send":false,"text":"","emotion":"neutral","intensity":0}。
-        """
-    }
 }

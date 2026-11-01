@@ -20,7 +20,6 @@ struct QQView: View {
         do {
             engine.saveReplySettings(ai: try value.validatedAI(), persona: value.persona, onlineEnabled: value.onlineEnabled,
                 visionEnabled: value.visionEnabled, memoryEnabled: value.memoryEnabled,
-                groupParticipationEnabled: value.groupParticipationEnabled, groupParticipationEvery: value.groupParticipationEvery,
                 memoryOptions: value.memoryOptions, enabledTargets: Set(value.targets.filter(\.enabled).map(\.key)))
             if engine.error == nil { editor.replyDraft.reset(QQReplyForm(engine.config)) }
         } catch { engine.error = error.localizedDescription }
@@ -359,18 +358,6 @@ struct QQView: View {
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } label: { HStack { Text("人设与表情"); HelpHint("性格按会话独立覆盖。配图结合语境，无合适图不硬配；配图间隔为 0 时仅考虑强烈情绪。") } }
-                    .disabled(engine.running || engine.busy || engine.runtimeBusy)
-                GroupBox {
-                    HStack(alignment: .center, spacing: 24) {
-                        Toggle("启用主动接话", isOn: $editor.replyDraft.value.groupParticipationEnabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        PanelNumberField("主动接话触发条数", value: $editor.replyDraft.value.groupParticipationEvery, in: 1...1000, unit: "条")
-                            .frame(maxWidth: .infinity)
-                    }
-                    ForEach(engine.config.targets.filter { $0.enabled && $0.group }) { target in
-                        Text("\(target.name)：\(engine.groupMessageCounts[target.key, default: 0]) / \(editor.replyDraft.value.groupParticipationEvery) 条").font(.caption)
-                    }
-                } label: { HStack { Text("群聊主动接话"); HelpHint("每群独立计数，包含主人手动发言，@ 不重置计数。达到条数只评估是否接话，可以选择保持安静。") } }
                     .disabled(engine.running || engine.busy || engine.runtimeBusy)
                 GroupBox {
                     VStack(alignment: .leading, spacing: 20) {

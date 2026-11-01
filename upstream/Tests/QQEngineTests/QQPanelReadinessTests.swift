@@ -41,13 +41,11 @@ import BotCore
         #expect(!engine.running && engine.sends.attempts == 0)
     }
 
-    @Test func scheduleAndParticipationRequireEnabledTargets() {
+    @Test func scheduleRequiresEnabledTargets() {
         let engine = QQEngine(preview: true, allowAuthenticationUI: false)
         engine.config.effectiveArtwork.scheduleEnabled = true
-        engine.config.effectiveGroupParticipationEnabled = true
         #expect(engine.configurationHints.contains { $0.contains("插画功能未启用") })
         #expect(engine.configurationHints.contains { $0.contains("没有已启用的目标") })
-        #expect(engine.configurationHints.contains { $0.contains("没有已启用的群") })
         var group = QQTarget(number: "99999", name: "合成群", group: true); group.enabled = true
         let friend = QQTarget(number: "54321", name: "合成好友", group: false)
         engine.config.targets = [group, friend]

@@ -2,11 +2,8 @@ export class FeatureControl{
   constructor({runtimeControl,publicContent}){this.control=runtimeControl;this.public=publicContent;}
   async list(){
     const s=await this.control.panel(),c=s.config,p=s.persona;
-    const feature=(id,name,enabled,description,available=true,reason='',classicOnly=false)=>({id,name,enabled:!!enabled,description,available,reason,classicOnly});
+    const feature=(id,name,enabled,description,available=true,reason='')=>({id,name,enabled:!!enabled,description,available,reason});
     return {features:[
-      feature('fast','单轮回复优化',c.fastReplyEnabled,'普通聊天少调用一轮模型，不启用高倍率 Fast 服务。',true,'',true),
-      feature('natural','自然接话',c.naturalRepliesEnabled,'支持昵称呼唤、引用消息和简短追问，不必每次精确 @。',true,'',true),
-      feature('proactive','主动加入群聊',c.groupParticipationEnabled,'在白名单内观察话题，每6条普通消息判断是否适合接话。',true,'',true),
       feature('loop','防机器人互聊',c.loopProtectionEnabled!==false,'只对重复闭环或高置信自动互答对象临时降温，其他人照常聊天。'),
       feature('web','联网与常用工具',c.onlineEnabled,'搜索、阅读全文、视频内容、天气、时间和计算。'),
       feature('vision','图片 / GIF 理解',c.visionEnabled,'直接理解收到的图片和表情，不编造未看到的画面。'),
@@ -29,8 +26,7 @@ export class FeatureControl{
     try{
       const persona={...old.persona,stickersEnabled:selected.stickers};
       await this.control.panel('save',{onlineEnabled:selected.web,visionEnabled:selected.vision,memoryEnabled:selected.memory,
-        fastReplyEnabled:selected.fast,naturalRepliesEnabled:selected.natural,loopProtectionEnabled:selected.loop,
-        groupParticipationEnabled:selected.proactive,groupParticipationEvery:6,persona});
+        loopProtectionEnabled:selected.loop,persona});
       const artwork={...old.artwork,enabled:selected.artwork,scheduleEnabled:selected.daily&&selected.artwork,scheduleTimeZone:'Asia/Singapore',
         scheduleHour:19,scheduleMinute:0,scheduleFrequency:'daily',scheduleTargets:old.config.targets.filter(t=>t.enabled).map(t=>(t.group?'group:':'private:')+t.number)};
       await this.control.panel('saveArtwork',{artwork});
@@ -41,7 +37,7 @@ export class FeatureControl{
     }catch(error){
       this.public.options=priorOptions;try{await this.public.persist();}catch{}
       try{
-        await this.control.panel('save',{ai:old.config.ai,persona:old.persona,onlineEnabled:old.config.onlineEnabled,visionEnabled:old.config.visionEnabled,memoryEnabled:old.config.memoryEnabled,groupParticipationEnabled:old.config.groupParticipationEnabled,groupParticipationEvery:old.config.groupParticipationEvery,fastReplyEnabled:old.config.fastReplyEnabled,naturalRepliesEnabled:old.config.naturalRepliesEnabled,loopProtectionEnabled:old.config.loopProtectionEnabled});
+        await this.control.panel('save',{ai:old.config.ai,persona:old.persona,onlineEnabled:old.config.onlineEnabled,visionEnabled:old.config.visionEnabled,memoryEnabled:old.config.memoryEnabled,loopProtectionEnabled:old.config.loopProtectionEnabled});
         await this.control.panel('saveArtwork',{artwork:old.artwork});
         await this.control.panel('saveImageGeneration',{imageGeneration:old.imageGeneration,persistImageCredentials:false});
         await this.control.panel('saveVisualTools',{visualTools:old.visualTools,persistVisualCredentials:false});

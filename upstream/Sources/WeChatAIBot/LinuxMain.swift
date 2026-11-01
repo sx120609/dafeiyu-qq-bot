@@ -39,15 +39,10 @@ import BotCore
             let engine = QQEngine(allowAuthenticationUI: false)
             if ProcessInfo.processInfo.environment["DAFEIYU_CODEX_URL"] != nil {
                 engine.config.ai.model = "dafeiyu-active"
-                if engine.config.fastReplyEnabled == nil { engine.config.fastReplyEnabled = true }
-                if engine.config.naturalRepliesEnabled == nil { engine.config.naturalRepliesEnabled = true }
                 if engine.config.loopProtectionEnabled == nil { engine.config.loopProtectionEnabled = true }
                 if engine.config.visionEnabled == nil { engine.config.effectiveVisionEnabled = true }
                 if engine.config.memoryEnabled == nil { engine.config.effectiveMemoryEnabled = true }
                 if engine.config.onlineEnabled == nil { engine.config.effectiveOnlineEnabled = true }
-                // Let people finish typing before answering, and answer pokes, unless set otherwise.
-                if engine.config.settleSeconds == nil { engine.config.settleSeconds = 5 }
-                if engine.config.poke == nil { var poke = QQPokeConfig(); poke.enabled = true; engine.config.poke = poke }
                 if let path = ProcessInfo.processInfo.environment["DAFEIYU_CREDENTIALS_FILE"] {
                     struct Credentials: Decodable { let token: String; let key: String }
                     let values = try JSONDecoder().decode(Credentials.self, from: Data(contentsOf: URL(fileURLWithPath: path)))

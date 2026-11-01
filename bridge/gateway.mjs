@@ -274,7 +274,6 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     }
     if(req.url==='/console/api/usage/price'){try{await usage.setPrice(data.key,data.price??null);send(200,{prices:usage.data.prices});}catch(e){fail(e);}return;}
     if(req.url==='/console/api/usage/rate'){try{await usage.setRate(data.rate);send(200,{cnyPerUsd:usage.data.cnyPerUsd});}catch(e){fail(e);}return;}
-    if(req.url==='/console/api/outreach/preview'){try{send(200,{preview:await runtimeControl.previewOutreach(data.target)});}catch(e){fail(e);}return;}
     if(req.url==='/console/api/features'){
       if(changing||runtimeControl.busy){send(409,{error:'已有配置操作正在进行'});return;}
       changing=true;try{send(200,await featureControl.apply(data));}catch(e){fail(e);}finally{changing=false;}return;

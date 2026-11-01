@@ -20,13 +20,6 @@ struct QQPolicyTests {
         #expect(QQPolicy.incoming(ahead, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true) != nil)
         ahead["time"] = 1400.0
         #expect(QQPolicy.incoming(ahead, selfID: "12345", since: 990, now: 1001, allowUnmentionedGroup: true) == nil)
-        var config = QQConfig(); config.expectedSelfID = "12345"
-        let old = try JSONDecoder().decode(QQConfig.self, from: JSONEncoder().encode(config))
-        #expect(!old.effectiveGroupParticipationEnabled); #expect(old.effectiveGroupParticipationEvery == 10)
-        for invalid in [0, -1, 1001] {
-            config.groupParticipationEvery = invalid
-            #expect(throws: (any Error).self) { try config.validate() }
-        }
     }
     @Test func ownerGroupEventsRequireExplicitOptInAndKeepDirectionChecks() throws {
         var own = event(group: true)

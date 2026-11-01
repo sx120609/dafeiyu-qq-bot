@@ -133,37 +133,4 @@ private actor ReservationCount {
         #expect(result.sources == ["https://example.org/image"])
         #expect(QQPersona().decode(result.text, input: "cat").text == "找到了，给你看看。")
     }
-    @Test @MainActor func semanticReviewKeepsOriginalContextImagesAndToolEvidence() async throws {
-        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [OnlineFixtureProtocol.self]
-        let session = URLSession(configuration: config); defer { session.invalidateAndCancel() }
-        let reservations = ReservationCount()
-        let result = try await DeepSeekClient(session: session).reviewedQQReply(key: "synthetic-key", config: QQConfig().ai,
-            rule: ChatRule(name: "fixture"), history: [], text: "find a cat picture", images: [Data([1,2,3])],
-            toolHandler: { _, _ in ModelToolResult(content: "synthetic tool result", image: Data([4,5,6]), sources: ["https://example.org/image"]) },
-            reserve: { await reservations.add() })
-        #expect(await reservations.value == 3)
-        #expect(result.tokens == 21)
-        #expect(result.image == Data([4,5,6]))
-        #expect(result.sources == ["https://example.org/image"])
-        #expect(result.usedTools)
-        #expect(result.reasoningCharacters > 0)
-        #expect(!result.text.contains("reasoning"))
-        #expect(QQPersona().decode(result.text, input: "cat").text == "这张猫猫给你。")
-    }
-
-    @Test(arguments: ["valid", "none", "unknown", "mismatch"]) @MainActor
-    func stickerSelectionMustBeOfferedAndCompatible(mode: String) async throws {
-        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [OnlineFixtureProtocol.self]
-        let session = URLSession(configuration: config); defer { session.invalidateAndCancel() }
-        var rule = ChatRule(name: "fixture"); rule.prompt = "sticker-fixture:" + mode
-        let item = QQStickerLibrary.Item(id: "fixture-sleep", title: "睡觉", emotion: .sleepy, file: "sleep.png", sha256: "fixture", source: "fixture", context: "晚安")
-        let reservations = ReservationCount()
-        let result = try await DeepSeekClient(session: session).reviewedQQReply(key: "synthetic", config: QQConfig().ai,
-            rule: rule, history: [], text: "晚安", stickerOptions: [item], reserve: { await reservations.add() })
-        #expect(await reservations.value == 2)
-        #expect(result.stickerID == (mode == "valid" ? "fixture-sleep" : nil))
-        #expect(!QQPersona().decode(result.text, input: "晚安").isFallback)
-        #expect(!result.text.contains("sticker_id"))
-    }
-
 }

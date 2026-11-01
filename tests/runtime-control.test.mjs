@@ -37,43 +37,36 @@ test('moderation lists are validated before reaching the engine',async()=>{
   assert.deepEqual(await control.moderation({admins:['10001','10001'],blocked:['20002']}),{admins:['10001'],blocked:['20002']});
   assert.deepEqual(sent.at(-1),['saveModeration',{adminIDs:['10001'],blockedIDs:['20002']}]);
 });
-test('outreach settings are validated and previews only target private chats',async()=>{
+test('outreach settings are validated',async()=>{
   const sent=[];const control=new RuntimeControl({runtime:'.',integrations:{}});
   const current={enabled:false,idleMinutes:1440,cooldownMinutes:2880,quietStartHour:23,quietEndHour:9,timeZone:'Asia/Shanghai',excluded:[]};
-  control.panel=async(action,values,options)=>{sent.push([action,values,options]);return {outreach:values?.outreach||current,outreachChats:[{key:'private:10001'}],outreachPreview:{send:true,text:'考试怎么样了？'},config:{memoryEnabled:true},running:true};};
+  control.panel=async(action,values,options)=>{sent.push([action,values,options]);return {outreach:values?.outreach||current,outreachChats:[{key:'private:10001'}],config:{memoryEnabled:true},running:true};};
   const view=await control.outreach();assert.equal(view.config.enabled,false);assert.equal(view.memoryEnabled,true);
   await assert.rejects(control.outreach({enabled:true,idleMinutes:0,cooldownMinutes:60,quietStartHour:23,quietEndHour:9}),/范围/);
   const saved=await control.outreach({enabled:true,idleMinutes:720,cooldownMinutes:1440,quietStartHour:0,quietEndHour:8,excluded:['private:10002','group:1','x']});
   assert.deepEqual(sent.at(-1)[1].outreach,{...current,enabled:true,idleMinutes:720,cooldownMinutes:1440,quietStartHour:0,quietEndHour:8,excluded:['private:10002']});
   assert.equal(saved.config.timeZone,'Asia/Shanghai');
-  await assert.rejects(control.previewOutreach('group:12345'),/私聊/);
-  assert.equal((await control.previewOutreach('private:10001')).text,'考试怎么样了？');
-  assert.equal(sent.at(-1)[2].timeout,300000);
 });test('reaction settings keep the emoji list and only change weights within range',async()=>{
   const sent=[];const control=new RuntimeControl({runtime:'.',integrations:{}});
-  const current={enabled:false,chance:20,cooldownSeconds:45,emojis:[{id:'147',name:'棒棒糖',weight:5},{id:'128051',name:'鲸鱼',weight:5}]};
+  const current={emojis:[{id:'147',name:'棒棒糖',weight:5},{id:'128051',name:'鲸鱼',weight:5}]};
   control.panel=async(action,values)=>{sent.push([action,values]);return {reactions:values?.reactions||current,reactionsSent:3};};
-  assert.deepEqual(await control.reactions(),{config:current,sent:3,interactions:[]});
-  await assert.rejects(control.reactions({enabled:true,chance:150,cooldownSeconds:45}),/范围/);
-  await assert.rejects(control.reactions({enabled:true,chance:20,cooldownSeconds:45,weights:{'147':11}}),/范围/);
-  const saved=await control.reactions({enabled:true,chance:35,cooldownSeconds:0,repeatEnabled:false,weights:{'128051':8,'999':4}});
-  assert.deepEqual(sent.at(-1),['saveReactions',{reactions:{enabled:true,chance:35,cooldownSeconds:0,pokeEnabled:true,repeatEnabled:false,emojis:[{id:'147',name:'棒棒糖',weight:5},{id:'128051',name:'鲸鱼',weight:8}]}}]);
-  assert.equal(saved.config.enabled,true);
-});test('reply mode: agent for every chat or chosen ones, only chats on the list',async()=>{
+  assert.deepEqual(await control.reactions(),{config:current,sent:3});
+  await assert.rejects(control.reactions({weights:{'147':11}}),/范围/);
+  await control.reactions({weights:{'128051':8,'999':4}});
+  assert.deepEqual(sent.at(-1),['saveReactions',{reactions:{emojis:[{id:'147',name:'棒棒糖',weight:5},{id:'128051',name:'鲸鱼',weight:8}]}}]);
+});
+test('agent permission levels: only chats on the list, only known levels',async()=>{
   const sent=[];const control=new RuntimeControl({runtime:'.',integrations:{}});
-  let config={agentForAll:false,agentTargets:['group:111'],targets:[{number:'111',name:'甲群',group:true,enabled:true},{number:'222',name:'乙群',group:true,enabled:false},{number:'333',name:'好友',group:false,enabled:true}]};
+  let config={targets:[{number:'111',name:'甲群',group:true,enabled:true},{number:'222',name:'乙群',group:true,enabled:false},{number:'333',name:'好友',group:false,enabled:true}]};
   control.panel=async(action,values)=>{sent.push([action,values]);if(values)config={...config,...values};return {config,agentStates:[{key:'group:111',pending:2}],agentTurns:[{chat:'群·甲群',decision:'reply'}],running:true,connected:true};};
   const first=await control.agent();
-  assert.equal(first.forAll,false);
-  assert.deepEqual(first.chats.map(c=>[c.key,c.agent,c.level]),[['group:111',true,'full'],['group:222',false,'full'],['private:333',false,'full']]);
+  assert.deepEqual(first.chats.map(c=>[c.key,c.level]),[['group:111','full'],['group:222','full'],['private:333','full']]);
   assert.equal(first.turns[0].decision,'reply');assert.equal(first.states[0].pending,2);
-  await assert.rejects(control.agent({forAll:true,classic:['private:999']}),/会话/);
-  await assert.rejects(control.agent({forAll:'yes'}),/无效/);
-  await assert.rejects(control.agent({forAll:true,levels:{'group:111':'god'}}),/权限/);
-  const saved=await control.agent({forAll:true,classic:['private:333','private:333'],levels:{'group:222':'basic'}});
-  assert.deepEqual(sent.at(-1),['saveReplyMode',{agentForAll:true,agentTargets:[],classicTargets:['private:333'],agentLevels:{'group:222':'basic'}}]);
+  await assert.rejects(control.agent({levels:{'private:999':'basic'}}),/权限/);
+  await assert.rejects(control.agent({levels:{'group:111':'god'}}),/权限/);
+  const saved=await control.agent({levels:{'group:222':'basic'}});
+  assert.deepEqual(sent.at(-1),['saveAgentLevels',{agentLevels:{'group:222':'basic'}}]);
   assert.equal(saved.chats.find(c=>c.key==='group:222').level,'basic');
-  assert.deepEqual(saved.chats.map(c=>[c.key,c.agent]),[['group:111',true],['group:222',true],['private:333',false]]);
 });
 test('the console edits engine settings only through an allow-list, and save keeps the rest of ai',async()=>{
   const sent=[];const control=new RuntimeControl({runtime:'.',integrations:{}});

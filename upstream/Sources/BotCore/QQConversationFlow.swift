@@ -38,13 +38,6 @@ public struct QQConversationFlow {
     /// Calling the bot by name anywhere in the message invites a reply, and so does the next message
     /// from someone the bot just answered, without needing particular opening words. The cap on
     /// consecutive implicit replies keeps a back-and-forth from running forever.
-    public func naturalInvitation(scope: String, sender: String, text: String, replyTo: String?, names: [String], now: TimeInterval, allowFollowup: Bool = true) -> Bool {
-        let named = names.contains { !$0.isEmpty && text.range(of: $0, options: .caseInsensitive) != nil }
-        if named || text.trimmingCharacters(in: .whitespacesAndNewlines) == "/model" { return true }
-        guard let peer = peers[key(scope, sender)], now - peer.sentAt < 90 else { return false }
-        if let replyTo, replyTo == peer.sentID { return true }
-        return allowFollowup && peer.implicitReplies < 6
-    }
     public mutating func reset(scope: String) {
         peers = peers.filter { !$0.key.hasPrefix(scope + "|") }
     }

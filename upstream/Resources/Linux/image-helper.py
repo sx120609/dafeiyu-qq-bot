@@ -4,11 +4,37 @@ import base64, io, json, math, resource, sys, warnings
 from PIL import Image, ImageOps
 
 
+def shrink_gif(image, count, budget=2_900_000):
+    """An animated GIF re-encoded to fit `budget`: smaller frames first, then every second or third frame (their
+    delays added up, so it plays at the same speed)."""
+    frames, delays = [], []
+    for i in range(count):
+        image.seek(i)
+        frames.append(image.convert('RGBA'))
+        delays.append(max(20, int(image.info.get('duration', 100) or 100)))
+    loop = image.info.get('loop', 0)
+    longest = max(image.size)
+    for step in (1, 2, 3):
+        kept = frames[::step]
+        times = [sum(delays[i:i + step]) for i in range(0, count, step)]
+        for edge in (480, 400, 320, 256, 200):
+            if edge >= longest and step == 1 and edge != 480:
+                continue
+            scale = min(1., edge / longest)
+            size = (max(1, round(image.size[0] * scale)), max(1, round(image.size[1] * scale)))
+            resized = [frame.resize(size, Image.LANCZOS) if scale < 1 else frame for frame in kept]
+            output = io.BytesIO()
+            resized[0].save(output, format='GIF', save_all=True, append_images=resized[1:], duration=times, loop=loop, disposal=2)
+            if output.tell() <= budget:
+                return output.getvalue()
+    raise ValueError('output size')
+
+
 def process(payload):
     mode = payload['mode']
     limits = {'frames': (32_000_000, 20000, 150_000_000), 'artwork': (20_000_000, 12000, 40_000_000),
               'sticker': (3_000_000, 4096, 4096 * 4096), 'generated': (8_000_000, 4096, 8_000_000),
-              'search': (3_000_000, 4096, 8_000_000), 'sticker-import': (3_000_000, 4096, 8_000_000)}
+              'search': (3_000_000, 4096, 8_000_000), 'sticker-import': (16_000_000, 4096, 8_000_000)}
     byte_limit, edge, pixels = limits[mode]
     raw = base64.b64decode(payload['image'], validate=True)
     if len(raw) > byte_limit:
@@ -30,6 +56,8 @@ def process(payload):
         for i in range(count):
             image.seek(i)
             image.load()
+        if len(raw) > 3_000_000:
+            return [base64.b64encode(shrink_gif(image, count)).decode('ascii')]
         return [base64.b64encode(raw).decode('ascii')]
     options = payload.get('options', {})
     if mode == 'artwork' and (max(width, height) < options['minLongEdge'] or min(width, height) < options['minShortEdge']):

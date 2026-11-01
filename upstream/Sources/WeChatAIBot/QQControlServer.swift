@@ -176,29 +176,18 @@ import BotCore
                     guard let settings = request.outreach else { throw AppFailure.message("缺少主动聊天设置") }
                     try engine.saveOutreach(settings)
                     configurationSaved = true
-                case "saveReplyMode":
-                    guard let forAll = request.agentForAll else { throw AppFailure.message("缺少回复方式设置") }
-                    try engine.saveReplyMode(forAll: forAll, agent: request.agentTargets ?? [], classic: request.classicTargets ?? [], levels: request.agentLevels ?? [:])
-                    configurationSaved = true
-                case "savePoke":
-                    guard let settings = request.poke else { throw AppFailure.message("缺少戳一戳设置") }
-                    try engine.savePoke(settings)
+                case "saveAgentLevels":
+                    guard let levels = request.agentLevels else { throw AppFailure.message("缺少代理权限设置") }
+                    try engine.saveAgentLevels(levels)
                     configurationSaved = true
                 case "saveQuietHours":
                     guard let settings = request.quietHours else { throw AppFailure.message("缺少安静时段设置") }
                     try engine.saveQuietHours(settings)
                     configurationSaved = true
-                case "saveSettle":
-                    guard let seconds = request.settleSeconds else { throw AppFailure.message("缺少等待时长") }
-                    try engine.saveSettle(seconds: seconds)
-                    configurationSaved = true
                 case "saveReactions":
                     guard let settings = request.reactions else { throw AppFailure.message("缺少贴表情设置") }
                     try engine.saveReactions(settings)
                     configurationSaved = true
-                case "previewOutreach":
-                    guard let target = request.target else { throw AppFailure.message("缺少会话") }
-                    try await engine.previewOutreach(target)
                 case "saveModeration":
                     try engine.saveModeration(admins: request.adminIDs ?? engine.config.effectiveAdminIDs, blocked: request.blockedIDs ?? engine.config.effectiveBlockedIDs)
                     configurationSaved = true
@@ -244,19 +233,15 @@ import BotCore
                     if let visionEnabled = request.visionEnabled { updated.visionEnabled = visionEnabled }
                     if let memoryEnabled = request.memoryEnabled { updated.memoryEnabled = memoryEnabled }
                     if let options = request.memoryOptions { updated.memoryOptions = options }
-                    if let value = request.groupParticipationEnabled { updated.groupParticipationEnabled = value }
-                    if let value = request.groupParticipationEvery { updated.groupParticipationEvery = value }
-                    if let value = request.fastReplyEnabled { updated.fastReplyEnabled = value }
-                    if let value = request.naturalRepliesEnabled { updated.naturalRepliesEnabled = value }
                     if let value = request.loopProtectionEnabled { updated.loopProtectionEnabled = value }
-                    try updated.validate(); engine.saveReplySettings(ai: updated.ai, persona: updated.effectivePersona, onlineEnabled: updated.effectiveOnlineEnabled, visionEnabled: updated.effectiveVisionEnabled, memoryEnabled: updated.effectiveMemoryEnabled, groupParticipationEnabled: updated.effectiveGroupParticipationEnabled, groupParticipationEvery: updated.effectiveGroupParticipationEvery, memoryOptions: updated.effectiveMemoryOptions, enabledTargets: request.enabled.map { Set($0) }, fastReplyEnabled: updated.effectiveFastReplyEnabled, naturalRepliesEnabled: updated.effectiveNaturalRepliesEnabled, loopProtectionEnabled: updated.effectiveLoopProtectionEnabled)
+                    try updated.validate(); engine.saveReplySettings(ai: updated.ai, persona: updated.effectivePersona, onlineEnabled: updated.effectiveOnlineEnabled, visionEnabled: updated.effectiveVisionEnabled, memoryEnabled: updated.effectiveMemoryEnabled, memoryOptions: updated.effectiveMemoryOptions, enabledTargets: request.enabled.map { Set($0) }, loopProtectionEnabled: updated.effectiveLoopProtectionEnabled)
                 case "start":
                     guard engine.connected, !engine.running, !engine.busy, !engine.runtimeBusy else { throw AppFailure.message("请先连接或暂停") }
                     let duration = request.singleReply == true ? 15 : (request.durationMinutes ?? 120)
                     guard (0...4320).contains(duration) else { throw AppFailure.message("运行时长必须为 0 至 4320 分钟") }
                     guard request.ai == nil, request.persona == nil, request.enabled == nil,
                           request.onlineEnabled == nil, request.visionEnabled == nil, request.memoryEnabled == nil,
-                          request.memoryOptions == nil, request.groupParticipationEnabled == nil, request.groupParticipationEvery == nil else {
+                          request.memoryOptions == nil else {
                         throw AppFailure.message("开始回复只使用已保存配置，请先单独保存范围与回复设置")
                     }
                     engine.start(singleReply: request.singleReply ?? false, duration: duration == 0 ? nil : Double(duration * 60))
@@ -295,7 +280,6 @@ import BotCore
                 "stickers": engine.stickerLibrary.items.map { ["id": $0.id, "title": $0.title, "source": $0.source, "context": $0.context ?? "", "emotion": $0.emotion.rawValue, "author": $0.author ?? "", "license": $0.license ?? "", "local": $0.id.hasPrefix("local-"), "publicSharing": $0.publicSharing ?? false] as [String: Any] },
                 "runDeadline": engine.runDeadline.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
                 "calls": engine.usage.calls, "attempts": engine.sends.attempts, "confirmed": engine.sends.confirmed,
-                "groupMessageCounts": engine.groupMessageCounts,
                 "queued": engine.queuedCount, "queueCapacity": QQEngine.queueCapacity,
                 "uncertain": engine.sends.uncertain, "rejected": engine.rejectedScopedEvents,
                 "contacts": engine.contacts.map { ["key": $0.id, "name": $0.name, "number": $0.number, "group": $0.group] as [String: Any] },
@@ -308,13 +292,9 @@ import BotCore
                 "agentNotes": engine.agentNotes.map { note in ["id": note.id, "chat": note.key.isEmpty ? "所有会话" : (engine.config.targets.first { $0.key == note.key }.map { ($0.group ? "群·" : "好友·") + $0.name } ?? note.key), "at": note.at.timeIntervalSince1970, "text": note.text] as [String: Any] },
                 "agentReminders": engine.agentReminders.sorted { $0.due < $1.due }.map { ["id": $0.id, "chat": $0.chat, "due": $0.due.timeIntervalSince1970, "setAt": $0.setAt.timeIntervalSince1970, "about": $0.about] as [String: Any] },
                 "agentTurns": try engine.agentTurns.suffix(QQEngine.agentTurnsKept).reversed().map { try JSONSerialization.jsonObject(with: { let e = JSONEncoder(); e.dateEncodingStrategy = .secondsSince1970; return e }().encode($0)) },
-                "interactions": engine.interactions.suffix(40).reversed().map { ["at": $0.at.timeIntervalSince1970, "chat": $0.chat, "what": $0.what, "why": $0.why] as [String: Any] },
-                "poke": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectivePoke)),
-                "settleSeconds": engine.config.effectiveSettleSeconds,
                 "quietHours": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.config.effectiveQuietHours)),
                 "decisions": engine.decisions.suffix(60).reversed().map { ["at": $0.at.timeIntervalSince1970, "chat": $0.chat, "speaker": $0.speaker, "text": $0.text, "outcome": $0.outcome] as [String: Any] },
-                "removedTargets": engine.removedTargets.reversed().map { ["number": $0.number, "name": $0.name, "group": $0.group, "reason": $0.reason, "removedAt": $0.removedAt.timeIntervalSince1970] as [String: Any] },
-                "outreachPreview": engine.outreachPreview.map { ["target": $0.target, "send": $0.send, "text": $0.text, "at": $0.at] as [String: Any] } ?? NSNull()]
+                "removedTargets": engine.removedTargets.reversed().map { ["number": $0.number, "name": $0.name, "group": $0.group, "reason": $0.reason, "removedAt": $0.removedAt.timeIntervalSince1970] as [String: Any] }]
             reply(connection, id: id, code: 200, data: try JSONSerialization.data(withJSONObject: object))
         } catch { reply(connection, id: id, code: 500) }
     }
@@ -332,8 +312,6 @@ import BotCore
         var stickerImage: String?
         var configurationRevision: String?
         var endpoint: String?
-        var groupParticipationEnabled: Bool?
-        var groupParticipationEvery: Int?
         var visualTools: QQVisualConfig?
         var googleVisionKey: String?
         var persistVisualCredentials: Bool?
@@ -356,8 +334,6 @@ import BotCore
         var visionEnabled: Bool?
         var memoryEnabled: Bool?
         var memoryOptions: QQMemoryOptions?
-        var fastReplyEnabled: Bool?
-        var naturalRepliesEnabled: Bool?
         var loopProtectionEnabled: Bool?
         var durationMinutes: Int?
         var singleReply: Bool?
@@ -365,12 +341,7 @@ import BotCore
         var blockedIDs: [String]?
         var outreach: QQOutreachConfig?
         var reactions: QQReactionConfig?
-        var agentTargets: [String]?
-        var agentForAll: Bool?
-        var classicTargets: [String]?
         var agentLevels: [String: String]?
-        var poke: QQPokeConfig?
-        var settleSeconds: Int?
         var quietHours: QQQuietHours?
     }
     private func reply(_ connection: LoopbackConnection, id: UUID, code: Int, data: Data = Data(), type: String = "application/json") {

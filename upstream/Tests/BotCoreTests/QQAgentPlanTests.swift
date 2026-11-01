@@ -83,20 +83,15 @@ struct QQAgentPlanTests {
         #expect(try #require(QQAgentPlan.decode(voice, messages: messages, members: members, emojis: emojis, kinds: QQAgentLevel.basic.bubbleKinds)).action == .silence)
     }
 
-    @Test func replyModeForEveryChatOrChosenOnes() throws {
+    @Test func permissionLevelsPerChat() throws {
         var config = QQConfig()
         config.expectedSelfID = "12345"
-        config.agentTargets = ["group:99999"]
-        try config.validate()
-        #expect(config.isAgent("group:99999") && !config.isAgent("group:88888") && !config.isAgent("private:54321"))
-        config.agentForAll = true; config.classicTargets = ["private:54321"]
         config.agentLevels = ["group:99999": "basic", "group:88888": "standard"]
         try config.validate()
-        #expect(config.isAgent("group:88888") && config.isAgent("private:77777") && !config.isAgent("private:54321"))
         #expect(config.agentLevel("group:99999") == .basic && config.agentLevel("group:88888") == .standard && config.agentLevel("private:77777") == .full)
         config.agentLevels = ["group:99999": "god"]
         #expect(throws: (any Error).self) { try config.validate() }
-        config.agentLevels = nil; config.classicTargets = ["channel:1"]
+        config.agentLevels = ["channel:1": "basic"]
         #expect(throws: (any Error).self) { try config.validate() }
     }
 }
