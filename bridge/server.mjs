@@ -24,7 +24,7 @@ export function validateRequest(body) {
       throw new Error('Only inline PNG/JPEG/WebP images and text are supported');
     }
   }
-  if (body.tools && (!Array.isArray(body.tools) || body.tools.length > 64 || body.tools.some(t => t.type !== 'function' || !t.function?.name))) throw new Error('Invalid tools');
+  if (body.tools && (!Array.isArray(body.tools) || body.tools.length > 128 || body.tools.some(t => t.type !== 'function' || !t.function?.name))) throw new Error('Invalid tools');
 }
 
 // Keep whatever is usable instead of failing the whole reply: unknown or malformed tool calls are

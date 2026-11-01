@@ -173,7 +173,14 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         AgentModelProtocol.reset { purpose, messages in
             guard purpose == "director" else { return ["content": "不用"] }
             let input = opening(messages)
-            if input.contains("贴了 😍") { return results(messages).isEmpty ? call("send_message", ["text": "被夸了，得意"]) : ["content": "回应了表情"] }
+            // It answers on its own message too (11-02: that used to be refused as "参数不对").
+            if input.contains("贴了 😍") {
+                switch results(messages).count {
+                case 0: return call("react", ["message": "99", "emoji": "赞"])
+                case 1: return results(messages)[0].contains("贴了") ? call("send_message", ["text": "被夸了，得意"]) : ["content": "没贴上"]
+                default: return ["content": "回应了表情"]
+                }
+            }
             return results(messages).isEmpty ? call("send_message", ["text": "第一句"]) : ["content": "回了"]
         }
         let rig = try await rig(); defer { rig.stop() }
@@ -191,6 +198,8 @@ private final class AgentModelProtocol: URLProtocol, @unchecked Sendable {
         try await wait({ engine.agentTurns.last?.note == "回应了表情" }, seconds: 12)
         #expect(engine.agentTurns.last?.batch.first?.hasPrefix("[表情]") == true)
         #expect(rig.payloads().last == ["text:被夸了，得意"])
+        let reactions = (try? String(contentsOf: rig.directory.appendingPathComponent("reactions"), encoding: .utf8)) ?? ""
+        #expect(reactions.contains("\"99\""))
     }
 
     /// A slow tool does not hold up the chat: past its patience it carries on in the background, the agent answers

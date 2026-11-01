@@ -1672,7 +1672,7 @@ struct QQRuntimeCredentials: Decodable {
                 let name = (($0["function"] as? [String: Any])?["name"] as? String) ?? ""
                 return level.tools.contains(name) && (target.group || !groupOnly.contains(name)) && (name != "remember" || config.effectiveMemoryEnabled)
             }
-            if !pictured.isEmpty && level.tools.contains("save_sticker") { tools.append(Self.agentSaveStickerDefinition) }
+            if level.tools.contains("save_sticker") { tools.append(Self.agentSaveStickerDefinition) }
             let canNotifyOwner = config.effectiveAdminIDs.contains { $0 != account } && level.tools.contains("notify_owner")
             if canNotifyOwner { tools.append(Self.notifyOwnerDefinition) }
             if artworkOn { tools.append(QQArtworkLibrary.definition) }
@@ -1688,7 +1688,7 @@ struct QQRuntimeCredentials: Decodable {
             if !voiceOn { kinds.remove("voice") }
             if !artworkOn { kinds.remove("artwork") }
             tools += DeepSeekClient.agentActionTools(kinds: kinds, group: target.group)
-            state.messages = Set(events.suffix(40).filter { !["BOT", "OWNER", "SYSTEM"].contains($0.subject) }.map(\.id) + fresh)
+            state.messages = Set(events.suffix(60).filter { $0.subject != "SYSTEM" }.map(\.id) + fresh)
             state.members = members; state.inputs = inputs; state.calling = calling
             let spokeLately = botMessageIDs.contains { $0.key.hasPrefix(scope + ":") && nowSeconds - $0.value < 180 }
             let result = try await modelClient.operateAgent(key: credential, config: config.ai, rule: rule, input: input, images: images,
@@ -1887,7 +1887,7 @@ struct QQRuntimeCredentials: Decodable {
         let reminderIDs = Set(reminders.map(\.id) + agentReminders.filter { $0.key == target.key }.map(\.id))
         guard let plan = QQAgentPlan.decode(raw, messages: state.messages, members: Set(state.members.keys), emojis: Set(emojis.map(\.id)), kinds: kinds,
                                             own: ownNow, reminders: reminderIDs), plan.action == .reply, let bubble = plan.bubbles.first else {
-            return "没做：参数不对（消息编号、成员标签、表情 id、表情包编号要用程序给的），或者你在这里没有这个权限。"
+            return "没做：" + agentActRefusal(action, state: state, kinds: kinds, emojis: emojis, own: ownNow, reminders: reminderIDs)
         }
         let visible: Bool
         switch bubble { case .text, .sticker, .voice, .image, .artwork: visible = true; default: visible = false }
@@ -1912,6 +1912,29 @@ struct QQRuntimeCredentials: Decodable {
         }
         if action.quote != nil && plan.target == nil { return (done.isEmpty ? "什么也没做成。" : done.joined(separator: "；")) + "（要引用的那条编号不对，没引用）" }
         return done.isEmpty ? "什么也没做成。" : done.joined(separator: "；")
+    }
+    /// Which check an action failed, said plainly so the agent can fix it instead of guessing.
+    private func agentActRefusal(_ action: (bubble: [String: Any], quote: String?), state: QQAgentTurnState, kinds: Set<String>, emojis: [QQReactionEmoji],
+                                 own: Set<String>, reminders: Set<String>) -> String {
+        let bubble = action.bubble, kind = bubble["kind"] as? String ?? ""
+        let names = ["text": "说话", "sticker": "发表情包", "reaction": "贴表情", "poke": "戳一戳", "like": "点赞", "recall": "撤回", "voice": "发语音",
+                     "image": "画图", "artwork": "发插画", "later": "定时"]
+        if !kinds.contains(kind) { return "你在这里不能\(names[kind] ?? kind)：权限档不够，或者这项功能在控制台里关着。" }
+        if let quote = action.quote, !state.messages.contains(quote) { return "要引用的消息 \(quote) 不在这段时间线里，引用编号要用时间线里出现过的。" }
+        if let message = QQPolicy.identifier(bubble["message"]) {
+            if kind == "recall", !own.contains(message) { return "消息 \(message) 不是你两分钟内发的，撤回不了。" }
+            if kind == "reaction", !state.messages.contains(message) { return "消息 \(message) 不在这段时间线里，贴表情的消息编号要用时间线里出现过的。" }
+        }
+        if kind == "reaction", let emoji = QQPolicy.identifier(bubble["emoji"]), !emojis.contains(where: { $0.id == emoji }) { return "表情 \(emoji) 不能贴，换一个（可以用 search_reactions 搜）。" }
+        for field in ["member", "at"] {
+            if let member = bubble[field] as? String, !member.isEmpty, !state.members.keys.contains(member) {
+                return "成员 \(member) 不在这段聊天里，要用时间线里出现过的 MEMBER 标签（私聊里是 PEER）。"
+            }
+        }
+        if kind == "later", let cancel = bubble["cancel"] as? String, !cancel.isEmpty, !reminders.contains(cancel) { return "没有编号为 \(cancel) 的定时。" }
+        if kind == "text", ((bubble["text"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "要说的话是空的。" }
+        if kind == "sticker", ((bubble["describe"] as? String) ?? "").isEmpty { return "要发的表情包编号是空的，先用 search_stickers 搜。" }
+        return "参数不对（消息编号、成员标签、表情、表情包编号要用程序给的）。"
     }
     /// A super-mode task. A confirmed run needs a pending request and a newer message from the owner in this chat
     /// that the agent points at; the program checks both, the model's word is not enough.
