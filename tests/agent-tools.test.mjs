@@ -39,15 +39,52 @@ test('a tool is saved and enabled only after its test run works, and then runs b
   }finally{await fs.rm(runtime,{recursive:true,force:true});}
 });
 
-test('names, schemas and code are checked before anything runs',async()=>{
+test('names, requirements and schemas are checked before anything runs',async()=>{
   const runtime=await temp();
   try{
     const tools=new AgentTools({runtime,spawnSandbox:()=>{throw new Error('should not run');}});
-    await assert.rejects(tools.create({name:'weather',description:'x',parameters:schema,code:'return 1'}),/my_/);
-    await assert.rejects(tools.create({name:'my_x1',description:'',parameters:schema,code:'return 1'}),/description/);
-    await assert.rejects(tools.create({name:'my_x1',description:'x',parameters:{type:'string'},code:'return 1'}),/object/);
-    await assert.rejects(tools.create({name:'my_x1',description:'x',parameters:{type:'object',properties:{a:{type:'date'}}},code:'return 1'}),/type/);
-    await assert.rejects(tools.create({name:'my_x1',description:'x',parameters:schema,code:''}),/code/);
+    await assert.rejects(tools.create({name:'weather',requirement:'x',code:'return 1'}),/my_/);
+    await assert.rejects(tools.create({name:'my_x1',requirement:'',code:''}),/requirement/);
+    await assert.rejects(tools.create({name:'my_x1',requirement:'查天气'}),/写代码的模型/);
+    const badSchema=await tools.create({name:'my_x1',description:'x',parameters:{type:'string'},code:'return 1'});
+    assert.equal(badSchema.saved,false);assert.match(badSchema.test.error,/object/);
+    const badType=await tools.create({name:'my_x1',description:'x',parameters:{type:'object',properties:{a:{type:'date'}}},code:'return 1'});
+    assert.equal(badType.saved,false);assert.match(badType.test.error,/type/);
+  }finally{await fs.rm(runtime,{recursive:true,force:true});}
+});
+
+// 11-03: the code comes from Codex (Astra); a draft that fails its test goes back with the error until one works.
+test('the writer drafts the code, failing drafts go back with their error, and the working one is kept',async()=>{
+  const runtime=await temp();
+  try{
+    const requests=[];
+    const writer=async request=>{
+      requests.push(request);
+      return requests.length===1?{description:'查汇率',parameters:schema,code:'throw new Error("接口地址写错了")'}
+        :{description:'查汇率',parameters:schema,code:'return "1 USD = 7.1 CNY ("+args.city+")"'};
+    };
+    const tools=await new AgentTools({runtime,writer}).load();
+    const made=await tools.create({name:'my_rate',requirement:'查美元兑人民币汇率',test_arguments:{city:'南京'}});
+    assert.equal(made.saved,true);assert.equal(made.drafts,2);
+    assert.match(requests[1].previous.error,/接口地址写错了/);
+    assert.equal(tools.find('my_rate').writtenBy,'codex');assert.equal(tools.find('my_rate').requirement,'查美元兑人民币汇率');
+    assert.equal(tools.definitions()[0].function.description,'查汇率','offered like a built-in tool, no "self-written" label');
+    const never=await new AgentTools({runtime,writer:async()=>({description:'x',parameters:schema,code:'throw new Error("不行")'})}).create({name:'my_bad',requirement:'x',test_arguments:{}});
+    assert.equal(never.saved,false);assert.equal(never.drafts,3);
+  }finally{await fs.rm(runtime,{recursive:true,force:true});}
+});
+
+test('a tool keeps its own storage between runs and may use QQ, except what hurts someone',async()=>{
+  const runtime=await temp();
+  try{
+    const calls=[];
+    const tools=await new AgentTools({runtime,qq:async(action,params)=>{calls.push(action);return {members:[{user_id:1,card:'甲'}],params};}}).load();
+    const code='const n=(await tools.store.get("count")??0)+1;await tools.store.set("count",n);const m=await tools.qq("get_group_member_list",{group_id:1});'+
+      'await tools.qq("send_group_msg",{group_id:1,message:"hi"});let refused="";try{await tools.qq("set_group_kick",{group_id:1,user_id:2});}catch(e){refused=e.message;}return {n,first:m.members[0].card,refused};';
+    const first=await tools.execute(code,{},'my_counter'),second=await tools.execute(code,{},'my_counter');
+    assert.equal(JSON.parse(first.output).n,1);assert.equal(JSON.parse(second.output).n,2);
+    assert.equal(JSON.parse(second.output).first,'甲');assert.match(JSON.parse(second.output).refused,/踢人/);
+    assert.deepEqual(calls,['get_group_member_list','send_group_msg','get_group_member_list','send_group_msg']);
   }finally{await fs.rm(runtime,{recursive:true,force:true});}
 });
 
@@ -67,13 +104,14 @@ test('the sandbox has no files, no child processes and no network of its own',as
   }finally{await fs.rm(runtime,{recursive:true,force:true});}
 });
 
-test('fetch reaches only public addresses',async()=>{
-  for(const ip of ['127.0.0.1','10.1.2.3','172.20.0.1','192.168.1.1','169.254.169.254','100.64.0.1','0.0.0.0','::1','fd00::1','fe80::1','::ffff:127.0.0.1'])assert.equal(publicAddress(ip),false,ip);
-  for(const ip of ['1.1.1.1','8.8.8.8','2606:4700:4700::1111'])assert.equal(publicAddress(ip),true,ip);
-  await assert.rejects(brokerFetch('http://127.0.0.1:18191/console/api/state',{},{fetchImpl:fakeFetch}),/内网/);
+// 11-03: "这个也可以访问外网"——a tool reaches any http(s) address, intranet and localhost included.
+test('fetch reaches any http address, follows redirects and can return bytes',async()=>{
+  for(const ip of ['127.0.0.1','10.1.2.3','192.168.1.1','::1'])assert.equal(publicAddress(ip),false,ip);
+  const local=await brokerFetch('http://127.0.0.1:18191/healthz',{},{fetchImpl:fakeFetch});
+  assert.equal(local.status,200);assert.match(local.body,/127\.0\.0\.1/);
   await assert.rejects(brokerFetch('file:///etc/passwd',{},{fetchImpl:fakeFetch}),/http/);
-  await assert.rejects(brokerFetch('http://[::1]:6099/',{},{fetchImpl:fakeFetch}),/内网/);
-  // A redirect into the local network is checked like the first address.
-  const redirecting=async()=>new Response('',{status:302,headers:{location:'http://127.0.0.1/'}});
-  await assert.rejects(brokerFetch('http://1.1.1.1/',{},{fetchImpl:redirecting}),/内网/);
+  let hops=0;const redirecting=async url=>++hops<3?new Response('',{status:302,headers:{location:'http://192.168.1.1/next'}}):fakeFetch(url,{method:'GET'});
+  assert.equal((await brokerFetch('http://1.1.1.1/',{},{fetchImpl:redirecting})).status,200);
+  const bytes=await brokerFetch('http://example.com/x.png',{responseType:'base64'},{fetchImpl:async()=>new Response(new Uint8Array([137,80,78,71]))});
+  assert.equal(bytes.base64,true);assert.deepEqual([...Buffer.from(bytes.body,'base64')],[137,80,78,71]);
 });

@@ -37,7 +37,7 @@ export class QQCustomTools {
       if (response.statusCode === 200) tools = asDictionaries(parseDictionary(data)?.tools);
     } catch {}
     if (!tools) return [];
-    return tools.slice(0, 50).filter(tool => {
+    return tools.slice(0, 200).filter(tool => {
       const name = asDictionary(tool.function)?.name;
       return typeof name === 'string' && name.startsWith('my_');
     });
@@ -53,7 +53,8 @@ export class QQCustomTools {
     if (typeof fields.test_arguments === 'string') { try { fields.test_arguments = jsonObject(fields.test_arguments); } catch {} }
     fields.chat = chat;
     try {
-      const result = await QQCustomTools.post('/agent-tools/create', fields, {key, timeout: 120});
+      // A code model writes and fixes it, with test runs in between: minutes, not seconds.
+      const result = await QQCustomTools.post('/agent-tools/create', fields, {key, timeout: 1200});
       const test = asDictionary(result.test) ?? {};
       const logs = (asStrings(test.logs) ?? []).slice(-8).join('\n');
       const name = typeof result.name === 'string' ? result.name : '';
@@ -62,7 +63,7 @@ export class QQCustomTools {
           prefix(typeof test.output === 'string' ? test.output : '', 2000) + (logs === '' ? '' : '\n日志：\n' + logs);
       }
       return '没保存：测试没跑通。错误：\n' + prefix(typeof test.error === 'string' ? test.error : '', 1500) +
-        (logs === '' ? '' : '\n日志：\n' + logs) + '\n改好代码再调用一次 create_tool。';
+        (logs === '' ? '' : '\n日志：\n' + logs) + '\n把要求说得更具体（或者换个数据来源）再调用一次 create_tool。';
     } catch (error) { return '没保存：' + describe(error); }
   }
   /** run(_:arguments:key:) — `run(name, {arguments, key})` (or `run(name, arguments, key)`) → string. */
@@ -72,7 +73,7 @@ export class QQCustomTools {
     try {
       const result = await QQCustomTools.post('/agent-tools/run', {name, arguments: fields}, {key, timeout: 90});
       if (result.ok === true) return prefix(typeof result.output === 'string' ? result.output : '', 6000);
-      return '工具出错：' + prefix(typeof result.error === 'string' ? result.error : '', 1500) + '\n（是你自己写的工具；需要的话用 create_tool 改好同名工具）';
+      return '工具出错：' + prefix(typeof result.error === 'string' ? result.error : '', 1500) + '\n（这是 my_ 工具；需要的话用 create_tool 说清楚问题，改好同名工具）';
     } catch (error) { return '工具没跑成：' + describe(error); }
   }
 }

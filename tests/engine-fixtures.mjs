@@ -35,7 +35,11 @@ export class OneBotFixture {
     this.actions = []; this.payloads = []; this.reactions = []; this.approvals = []; this.history = [];
     this.rejectSend = false; this.dropSend = false; this.selfEcho = false;
     this.socket = undefined; this.connections = 0; this.unexpected = [];
+    // The agent's QQ tools (QQAgentMedia): messages get_msg knows, group files, voice, forwards, members.
+    this.messages = {}; this.groupFiles = {'/': {files: [], folders: []}}; this.fileURLs = {}; this.records = {}; this.pttText = undefined;
+    this.forwards = {}; this.forwardPayloads = []; this.memberList = []; this.cards = []; this.typing = []; this.honor = undefined; this.calls = [];
   }
+  failed(request, message) { this.send({status: 'failed', retcode: 100, data: null, message, wording: message, echo: request.echo}); }
   async start() {
     this.server = http.createServer((req, res) => { res.statusCode = 404; res.end(); });
     this.server.on('upgrade', (req, socket) => this.upgrade(req, socket));
@@ -81,9 +85,45 @@ export class OneBotFixture {
   }
   request(request) {
     const action = request.action, params = request.params ?? {};
-    this.actions.push(action);
+    this.actions.push(action); this.calls.push({action, params});
     let data;
     switch (action) {
+      case 'set_input_status': this.typing.push(params); data = {}; break;
+      case 'get_group_root_files': data = this.groupFiles['/']; break;
+      case 'get_group_files_by_folder': {
+        const folder = this.groupFiles[params.folder_id];
+        if (!folder) { this.failed(request, 'folder not found'); return; }
+        data = folder; break;
+      }
+      case 'get_group_file_url': case 'get_private_file_url': {
+        const url = this.fileURLs[params.file_id];
+        if (url === undefined) { this.failed(request, 'file not found'); return; }
+        data = {url}; break;
+      }
+      case 'get_flash_file_url': data = {url: this.fileURLs[params.fileset_id] ?? ''}; break;
+      case 'fetch_ptt_text':
+        if (this.pttText === undefined) { this.failed(request, 'no text'); return; }
+        data = {text: this.pttText}; break;
+      case 'get_record': {
+        const record = this.records[params.file];
+        if (!record || (params.out_format && !record[params.out_format])) { this.failed(request, '语音转码失败'); return; }
+        data = {file: params.file, url: record.url ?? '', file_size: '100', file_name: params.file};
+        if (params.out_format) Object.assign(data, {out_format: params.out_format, base64: record[params.out_format]});
+        break;
+      }
+      case 'get_forward_msg': {
+        const nodes = this.forwards[params.id ?? params.message_id];
+        if (!nodes) { this.failed(request, 'forward not found'); return; }
+        data = {messages: nodes}; break;
+      }
+      case 'send_group_forward_msg': case 'send_private_forward_msg':
+        this.forwardPayloads.push({action, params});
+        data = {message_id: 98, res_id: 'res-sent', forward_id: 'res-sent'}; break;
+      case 'get_group_member_list': data = this.memberList; break;
+      case 'set_group_card': this.cards.push(params); data = null; break;
+      case 'get_group_honor_info':
+        data = this.honor ?? {group_id: Number(params.group_id), current_talkative: null, talkative_list: [], performer_list: [], legend_list: [], emotion_list: [], strong_newbie_list: []};
+        break;
       case 'get_login_info': data = {user_id: 12345}; break;
       case 'get_status': data = {online: true, good: true}; break;
       case 'get_friend_list': data = [{user_id: 54321, nickname: 'fixture'}]; break;
@@ -111,7 +151,9 @@ export class OneBotFixture {
       case 'set_msg_emoji_like': this.reactions.push(params); data = null; break;
       case 'set_group_add_request': this.approvals.push(params); data = null; break;
       case 'get_group_info': data = {group_id: Number(params.group_id), group_name: 'invited group'}; break;
-      case 'get_msg': data = {message_id: -12, message_type: 'group', group_id: 99999, sender: {user_id: 12345}, message: [{type: 'text', data: {text: 'synthetic quoted text'}}]}; break;
+      case 'get_msg':
+        if (this.messages[String(params.message_id)]) { data = this.messages[String(params.message_id)]; break; }
+        data = {message_id: -12, message_type: 'group', group_id: 99999, sender: {user_id: 12345}, message: [{type: 'text', data: {text: 'synthetic quoted text'}}]}; break;
       case 'send_private_msg': case 'send_group_msg':
         this.payloads.push(params);
         if (this.dropSend) { this.socket.destroy(); return; }

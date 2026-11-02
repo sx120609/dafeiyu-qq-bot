@@ -43,12 +43,42 @@ test('SnowLuma hooks only the bot account\'s QQ, never the owner\'s, and only on
   }finally{ui.server.close();}
 });
 
-test('SnowLuma without a password, or with a wrong one, says what to do',async()=>{
-  const ui=await fakeWebui({processes:[]});
+// 11-03 ("我纯本地的你限制安全是故意卡我吗"): no password, a wrong one, or SnowLuma's lockout never stops the bot.
+// The fake SnowLuma checks passwords against its webui.json the way SnowLuma does (scrypt) and can be locked.
+test('SnowLuma\'s login repairs itself: missing or wrong password, and a lockout',async()=>{
+  const crypto=await import('node:crypto');
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'snowluma-'));
+  await fs.mkdir(path.join(dir,'config'));
+  await fs.writeFile(path.join(dir,'config','webui.json'),JSON.stringify({passwordHash:'0'.repeat(128),passwordSalt:'1'.repeat(32),mustChangePassword:true,generatedAt:'2026-11-03T00:00:00Z',updatedAt:'2026-11-03T00:00:00Z'}));
+  let locked=false,logins=0;
+  const server=http.createServer(async(req,res)=>{
+    let body='';for await(const chunk of req)body+=chunk;
+    const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(value));};
+    if(req.url==='/api/auth/state')return send(200,{});
+    if(req.url==='/api/login'){
+      logins++;
+      if(locked){locked=false;return send(429,{success:false,message:'登录尝试过多'});}
+      const state=JSON.parse(await fs.readFile(path.join(dir,'config','webui.json'),'utf8'));
+      const hash=crypto.scryptSync(JSON.parse(body).password,Buffer.from(state.passwordSalt,'hex'),64,{N:16384,r:8,p:1}).toString('hex');
+      return hash===state.passwordHash?send(200,{success:true,token:'s'+logins}):send(401,{success:false,message:'密码错误'});
+    }
+    send(200,{list:[]});
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   try{
-    await assert.rejects(new SnowLuma({settings:{account:'10001',webuiPort:ui.port},logs:os.tmpdir()}).botProcess(),/管理密码还没设好/);
-    await assert.rejects(new SnowLuma({settings:{account:'10001',password:'wrong',webuiPort:ui.port},logs:os.tmpdir()}).botProcess(),/管理密码不对/);
-  }finally{ui.server.close();}
+    const kept=[];
+    const luma=new SnowLuma({settings:{dir,account:'10001',webuiPort:server.address().port},logs:os.tmpdir(),onPassword:p=>kept.push(p)});
+    await luma.login();
+    assert.equal(kept.length,1,'no password: the bot sets one and keeps it');assert.ok(luma.session);
+    luma.settings.password='typed-by-someone-else';luma.session=null;luma.repairedAt=0;
+    await luma.login();
+    assert.equal(kept.length,2,'a wrong password is replaced the same way');assert.ok(luma.session);
+    locked=true;luma.session=null;luma.repairedAt=0;
+    await luma.login();
+    assert.equal(kept.length,2,'a lockout restarts SnowLuma instead of touching the password');assert.ok(luma.session);
+    luma.settings.password='wrong again';luma.session=null;
+    await assert.rejects(luma.login(),/两分钟后自动再修/,'at most one repair every two minutes');
+  }finally{server.close();await fs.rm(dir,{recursive:true,force:true});}
 });
 
 test('QQ settings keep the password write-only and accept only a QQ number',async()=>{

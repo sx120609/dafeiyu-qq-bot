@@ -176,7 +176,8 @@ export class DeepSeekClient {
     let toolsDone = toolHandler == null;
     for (let round = 0; round <= lastRound; round++) {
       const offerTools = !toolsDone && round < lastRound;
-      const parameters = {model: config.model, messages, max_tokens: thinkingEnabled ? Math.max(8192, config.maxTokens) : config.maxTokens,
+      // No output cap: the model says as much as it needs (11-03, "这个不需要限制").
+      const parameters = {model: config.model, messages,
         stream: false, thinking: {type: thinkingEnabled ? 'enabled' : 'disabled'}};
       if (thinkingEnabled) parameters.reasoning_effort = 'high';
       // Lets the local gateway attribute usage to a purpose and a conversation.

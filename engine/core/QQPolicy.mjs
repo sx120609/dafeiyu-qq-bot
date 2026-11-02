@@ -12,6 +12,7 @@ import {QQOutreachConfig, QQQuietHours} from './QQOutreach.mjs';
 import {QQReactionConfig} from './QQReactions.mjs';
 import {QQAgentLevel} from './QQAgentPlan.mjs';
 import {QQImageGenerationConfig} from './QQImageGenerationConfig.mjs';
+import {QQCards} from './QQCards.mjs';
 
 const INT64_MAX = 9223372036854775807n, INT64_MIN = -9223372036854775808n;
 /** Int64(string): an optional sign and ASCII digits, within range; undefined otherwise (as a BigInt). */
@@ -180,9 +181,12 @@ export class QQConfig {
 
 export class QQIncoming {
   /** Memberwise init; the extension's init (a message made by the program) is the same call without the optional fields. */
-  constructor({id, sender, target, group, text, time, replyTo, images, mentionsSelf = false, isOwner = false, mentionedUsers = [], role, name} = {}) {
+  constructor({id, sender, target, group, text, time, replyTo, images, mentionsSelf = false, isOwner = false, mentionedUsers = [], role, name, media = []} = {}) {
     this.id = id; this.sender = sender; this.target = target; this.group = group; this.text = text; this.time = time;
     this.replyTo = replyTo; this.images = images;
+    /** Files, voice, video, forwards and cards in the message, as QQ described them ({kind, file, file_id, url, …}),
+     *  so read_file, listen_voice, watch_video and read_forward can open them later. */
+    this.media = media;
     this.mentionsSelf = mentionsSelf; this.isOwner = isOwner; this.mentionedUsers = mentionedUsers;
     /** The sender's standing in the group as QQ reports it: "owner", "admin", or nil for an ordinary member. */
     this.role = role;
@@ -217,6 +221,10 @@ export class QQPolicy {
     }
     const data = value;
     const id = QQPolicy.identifier(data.id) ?? '';
+    // Dice and rock-paper-scissors are animated faces whose outcome rides along as resultId.
+    const result = QQPolicy.identifier(data.resultId ?? data.result);
+    if (id === '358') return result === undefined ? '[掷骰子]' : `[掷骰子：${result} 点]`;
+    if (id === '359') return '[猜拳' + (result === undefined ? '' : '：' + ({1: '布', 2: '剪刀', 3: '石头'}[result] ?? result)) + ']';
     const raw = asObject(data.raw);
     const text = asString(raw?.faceText) ?? asString(data.faceText);
     const named = text === undefined ? undefined : trimmedSet(text, '/ []');
@@ -239,40 +247,77 @@ export class QQPolicy {
     const name = trimmedSet(summary, '[]');
     return name === '动画表情' ? '[动画表情]' : `[表情包：${prefix(name, 30)}]`;
   }
+  /** A byte count as people say it: 532 B, 12.4 KB, 3.1 MB. */
+  static size(value) {
+    const bytes = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : undefined;
+    if (bytes === undefined || bytes <= 0) return undefined;
+    if (bytes < 1024) return bytes + ' B';
+    const units = ['KB', 'MB', 'GB'];
+    let size = bytes / 1024, unit = 0;
+    while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+    return (size >= 100 ? Math.round(size) : Math.round(size * 10) / 10) + ' ' + units[unit];
+  }
   /**
-   * What the model is told about a segment it cannot read itself: its kind, plus whatever plain summary QQ
-   * gives (a market sticker's name, a card's title, a file name). Never the raw payload.
+   * What the model is told about a segment that is not plain text: what it is, what QQ shows on it (a card's
+   * title, description and link, a file's name and size, a dice's points), and which tool opens it.
    */
   static placeholder(kind, data) {
     const field = key => placeholderField(data, key);
-    const titled = label => { const title = field('title'); return `[${label}` + (title === undefined ? '' : '：' + title) + ']'; };
+    const titled = (label, ...more) => {
+      const parts = [field('title'), ...more.map(field)].filter(value => value !== undefined);
+      return `[${label}` + (parts.length === 0 ? '' : '：' + parts.join('｜')) + ']';
+    };
     switch (kind) {
       case 'mface': case 'marketface': return '[表情包：' + (field('summary') ?? field('name') ?? '商城表情') + ']';
-      case 'record': return '[语音，听不到内容]';
-      case 'video': return '[视频，看不到内容]';
+      case 'record': return '[语音，要听用 listen_voice]';
+      case 'video': return '[视频，要看用 watch_video]';
       case 'file': {
-        const name = field('name'), file = field('file');
-        return '[文件' + (name !== undefined ? '：' + name : file !== undefined ? '：' + file : '') + ']';
+        const name = field('name') ?? field('file'), size = QQPolicy.size(data.file_size ?? data.size);
+        return '[文件' + (name !== undefined ? '：' + name : '') + (size !== undefined ? `（${size}）` : '') + '，要读用 read_file]';
       }
-      case 'forward': case 'node': return '[合并转发的聊天记录，没展开]';
+      case 'flash_file': return '[闪传文件' + (field('title') !== undefined ? '：' + field('title') : '') + '，要读用 read_file]';
+      case 'forward': case 'node': return '[合并转发的聊天记录，要看全文用 read_forward]';
       case 'dice': { const result = field('result'); return '[掷骰子' + (result === undefined ? '' : '：' + result + ' 点') + ']'; }
-      case 'rps': return '[猜拳]';
+      case 'rps': { const result = field('result'); return '[猜拳' + (result === undefined ? '' : '：' + ({1: '布', 2: '剪刀', 3: '石头'}[result] ?? result)) + ']'; }
       case 'poke': case 'shake': return '[戳一戳]';
-      case 'location': return titled('位置');
-      case 'music': return titled('分享音乐');
-      case 'share': return titled('分享链接');
-      case 'contact': return '[推荐联系人]';
-      case 'markdown': { const content = field('content'); return content === undefined ? '[卡片消息]' : '[消息：' + content + ']'; }
-      case 'json': {
-        // Mini-program and link cards carry a one-line "prompt" ("[QQ小程序]哔哩哔哩") and often a title.
-        const raw = asString(data.data);
-        const card = raw === undefined ? undefined : jsonObject(raw);
-        const promptText = asString(card?.prompt);
-        const shown = promptText === undefined ? undefined : prefix(promptText, 80);
-        return '[卡片' + (shown === undefined ? '' : '：' + shown) + ']';
+      case 'location': return titled('位置', 'content', 'address');
+      case 'music': return titled('分享音乐', 'content', 'url');
+      case 'share': return titled('分享链接', 'content', 'url');
+      case 'contact': return '[推荐' + (data.type === 'group' ? '群聊' : '联系人') + ']';
+      case 'markdown': {
+        const content = asString(data.content);
+        return content === undefined || trimmed(content) === '' ? '[Markdown 消息]' : '[Markdown 消息：' + prefix(trimmed(content), 2000) + ']';
       }
-      case 'xml': return '[卡片]';
+      case 'inline_keyboard': return QQCards.keyboard(data);
+      case 'json': return QQCards.json(data.data).text;
+      case 'xml': return QQCards.xml(data.data).text;
+      case 'anonymous': return '[匿名消息]';
+      case 'gift': return '[礼物]';
       default: return '[' + (kind === '' ? '未知内容' : kind) + ']';
+    }
+  }
+  /**
+   * What a tool needs later to open a file, voice note, video, forward or 合并转发 card: QQ's own references, never
+   * the content. Undefined for segments that carry nothing to open.
+   */
+  static mediaReference(kind, data) {
+    const pick = keys => {
+      const picked = {kind};
+      for (const key of keys) {
+        const value = data[key];
+        if (typeof value === 'string' && value !== '' && count(value) <= 4096) picked[key] = value;
+        else if (typeof value === 'number' && Number.isFinite(value)) picked[key] = String(value);
+      }
+      return picked;
+    };
+    switch (kind) {
+      case 'file': return pick(['file', 'file_id', 'id', 'name', 'file_size', 'size', 'url', 'file_hash', 'busid', 'path']);
+      case 'record': case 'video': return pick(['file', 'file_id', 'url', 'path', 'file_size', 'name']);
+      case 'forward': return pick(['id', 'res_id', 'forward_id']);
+      case 'flash_file': return pick(['title', 'file_set_id', 'fileset_id']);
+      case 'json': { const resid = QQCards.json(data.data).resid; return resid === undefined ? undefined : {kind: 'forward', id: resid}; }
+      case 'xml': { const resid = QQCards.xml(data.data).resid; return resid === undefined ? undefined : {kind: 'forward', id: resid}; }
+      default: return undefined;
     }
   }
   /** A string as is, a number as its digits; a boolean is not an identifier. */
@@ -306,15 +351,27 @@ export class QQPolicy {
     if (senderObject) { const nested = identifier(senderObject.user_id); if (nested !== undefined && nested !== sender) return undefined; }
     const target = group ? identifier(object.group_id) : sender;
     if (target === undefined || !QQConfig.validID(target)) return undefined;
-    let text = '', mention = false, replyTo;
-    const mentionedUsers = [], images = [];
+    let text = '', mention = false, replyTo, markdown;
+    const mentionedUsers = [], images = [], media = [];
     // No segment makes the whole message vanish: what can be read is read, the rest becomes a placeholder
     // the model can see (a voice note, a card, a market sticker), instead of the message being dropped.
     for (const segment of segments) {
       const data = asObject(segment.data) ?? {};
       const kind = asString(segment.type) ?? '';
+      const reference = QQPolicy.mediaReference(kind, data);
+      if (reference !== undefined && media.length < 10) media.push(reference);
       switch (kind) {
-        case 'text': text += asString(data.text) ?? ''; break;
+        case 'text': {
+          // SnowLuma repeats a markdown message's content as a text segment right after it.
+          const part = asString(data.text) ?? '';
+          if (markdown !== undefined && trimmed(part) === markdown) { markdown = undefined; break; }
+          text += part;
+          break;
+        }
+        case 'markdown':
+          markdown = trimmed(asString(data.content) ?? '');
+          text += QQPolicy.placeholder(kind, data);
+          break;
         case 'at': {
           const qq = identifier(data.qq);
           if (qq === undefined || !(qq === 'all' || QQConfig.validID(qq))) { text += '@某人 '; continue; }
@@ -338,6 +395,7 @@ export class QQPolicy {
         case 'image': {
           const file = asString(data.file);
           if (file === undefined || file === '' || count(file) > 2048) { text += '[图片，没拿到]'; continue; }
+          if (data.type === 'flash') text += '[闪照]';
           text += QQPolicy.stickerText(data);
           if (images.length < 3) images.push(new QQIncomingImage({file, url: asString(data.url)}));
           else text += '[又一张图，没附上]';
@@ -362,7 +420,7 @@ export class QQPolicy {
     if (text === '' && replyTo !== undefined) text = '（只引用了一条消息，没写字）';
     // Only a message with nothing in it at all (blank text) is ignored.
     if (text === '' || !(!group || mention || allowUnmentionedGroup)) return undefined;
-    const incoming = new QQIncoming({id, sender, target, group, text, time, replyTo, images, mentionsSelf: mention, isOwner: ownerGroup, mentionedUsers});
+    const incoming = new QQIncoming({id, sender, target, group, text, time, replyTo, images, mentionsSelf: mention, isOwner: ownerGroup, mentionedUsers, media});
     const senderInfo = asObject(object.sender) ?? {};
     const role = asString(senderInfo.role);
     if (group && role !== undefined && ['owner', 'admin'].includes(role)) incoming.role = role;
@@ -402,7 +460,13 @@ export class QQPolicy {
       } else if (segment.type === 'image' && file !== undefined && file !== '' && count(file) <= 2048) {
         media = true;
         if (images.length < 3) images.push(new QQIncomingImage({file, url: asString(data.url)}));
-      } else if (!['at', 'reply'].includes(asString(segment.type) ?? '')) media = true;
+      } else if (segment.type === 'face') {
+        text += QQPolicy.faceText(data ?? {});
+      } else if (!['at', 'reply'].includes(asString(segment.type) ?? '')) {
+        media = true;
+        // A quoted file, voice note, video, forward or card says what it is and which tool opens it.
+        if (count(text) < 1600) text += QQPolicy.placeholder(asString(segment.type) ?? '', data ?? {});
+      }
     }
     const context = {speaker: author === selfID ? (['OWNER', 'BOT'].includes(selfSpeaker ?? '') ? selfSpeaker : '本账号，人工或 BOT 归属未核验，不冒认')
       : QQMemoryBook.subject(selfID, message.key, author),

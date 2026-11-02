@@ -79,7 +79,8 @@ export class QQPrivateContext {
       else speaker = '[SELF_UNKNOWN] 本账号旧发言，无法区分主人或机器人，勿强行归属';
       const role = author !== selfID ? 'PEER' : botMessageIDs.has(id) ? 'BOT' : speaker.startsWith('[OWNER]') ? 'OWNER' : 'SELF_UNKNOWN';
       memoryEvents.push(new QQMemoryEvent({id, subject: role, text, at: new Date((rowTime ?? message.time) * 1000)}));
-      const item = {speaker, recipient: author === selfID ? '[PEER] 当前好友' : '[SELF] 本账号（大肥鱼与主人共用）', text: prefix(text, 1000)};
+      // The message number lets tools open what it carries (a file, a voice note, a forward).
+      const item = {message: id, speaker, recipient: author === selfID ? '[PEER] 当前好友' : '[SELF] 本账号（大肥鱼与主人共用）', text: prefix(text, 1000)};
       entries.push({id, line: serialize(item, {sortedKeys: true})});
     }
     while (entries.reduce((sum, entry) => sum + count(entry.line), 0) > 10000) entries.shift();

@@ -18,6 +18,7 @@ import {ProviderBackoff,withDeadline} from './provider-health.mjs';
 import {VoiceSettings,toSilk} from './voice.mjs';
 import {ComputerControl} from './computer.mjs';
 import {AgentTools} from './agent-tools.mjs';
+import {writeToolCode} from './tool-writer.mjs';
 import {QQHost} from './qq-host.mjs';
 import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -259,7 +260,14 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(req.url==='/console/api/qq'){if(!host){send(404,{error:'QQ 由 NapCat 管理'});return;}try{send(200,await host.saveSettings(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/voice'){try{send(200,await voice.update(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/computer'){try{send(200,{...await computer.update(data),history:await computer.history()});}catch(e){fail(e);}return;}
-    if(req.url==='/v1/agent-tools/create'){try{send(200,await agentTools.create(data));}catch(e){fail(e);}return;}
+    if(req.url==='/v1/agent-tools/create'){
+      const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
+      try{send(200,await agentTools.create(data,{signal:controller.signal}));}catch(e){fail(e);}return;
+    }
+    // A voice message as text, for the agent's listen_voice: {audio: base64, format}.
+    if(req.url==='/v1/audio/transcriptions'){
+      try{if(typeof data.audio!=='string'||!data.audio)throw new Error('没有音频');send(200,await voice.transcribe(Buffer.from(data.audio,'base64'),String(data.format||'mp3')));}catch(e){fail(e);}return;
+    }
     if(req.url==='/v1/agent-tools/run'){try{send(200,await agentTools.run(String(data.name||''),data.arguments));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/tools'){
       try{
@@ -413,7 +421,9 @@ export async function startGateway(config,configFile){
   const usage=await new UsageLedger({runtime}).load();
   const voice=await new VoiceSettings({runtime}).load();
   const computer=await new ComputerControl({runtime}).load();
-  const agentTools=await new AgentTools({runtime}).load();
+  // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
+  const qq=process.platform==='win32'?(action,params)=>host.qqCall(action,params):null;
+  const agentTools=await new AgentTools({runtime,qq,writer:(request,options)=>writeToolCode(request,config,options)}).load();
   // On Windows the gateway process also runs SnowLuma and the engine; in WSL systemd and supervisor.py do.
   const host=process.platform==='win32'?new QQHost({root,runtime,gatewayToken:config.token,port:config.port||18191,embedPort:config.snowlumaProxyPort||18192}):null;
   const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools,host});

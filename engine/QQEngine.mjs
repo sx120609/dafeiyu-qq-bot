@@ -35,6 +35,7 @@ import {QQArtworkLedger, QQArtworkRequest, QQArtworkConfig} from './core/QQArtwo
 import {QQImageProvider} from './core/QQImageGenerationConfig.mjs';
 import {QQVisionProvider} from './core/QQVisualConfig.mjs';
 import {agentMethods, agentSaveStickerDefinition} from './QQEngine.agent.mjs';
+import {mediaMethods} from './QQAgentMedia.mjs';
 import {identifier, intValue, doubleValue, describe, isCancellation, formatDate, iso8601, task, sleepSync, Keychain, required, mapValues, isInt64,
   QQKick, QQAgentNote, QQAgentReminder, QQAgentEvent, QQAgentJob, QQAgentToolBox, QQAgentGate, QQAgentTurnState, QQAgentTurn, QQAgentTurn_Errand,
   QQDecision, QQContact, QQRuntimeCredentials} from './QQEngine.types.mjs';
@@ -284,7 +285,10 @@ export class QQEngine {
     /// How long a slow tool may hold up its turn before it goes on in the background. Drawing and the computer go
     /// almost at once (a refusal or a bad argument still comes back in time); lookups get longer.
     this.agentPatience = {draw_image: 3, computer_task: 3, browse_bilibili: 20, watch_bilibili_live: 20, ask_helper: 25,
-      look_at_image: 20, send_voice: 20, find_artwork: 20, create_tool: 30};
+      look_at_image: 20, send_voice: 20, find_artwork: 20, create_tool: 30,
+      read_file: 30, watch_video: 25, listen_voice: 25, read_forward: 20, look_at_avatar: 20, send_file: 40, send_image: 25, send_forward: 30};
+    /// How often the "正在输入" state is renewed in a private chat while a turn works.
+    this.agentTypingSeconds = 8;
     /// Reactions, pokes and likes are QQ operations too; a burst of them looks scripted.
     this.actionTimes = new Map();
     /// Voice settings read at the start of each agent turn.
@@ -1153,6 +1157,8 @@ export class QQEngine {
     const target = group === undefined ? undefined : this.config.targets.find(item => item.enabled && item.group && item.number === group);
     if (!target) return;
     const key = target.key, inputs = this.groupRecentInputs.get(key) ?? {};
+    // An uploaded group file is remembered by its id, so read_file and send_file can open it by name and size.
+    if (object.notice_type === 'group_upload') this.rememberGroupFile(key, object.file);
     const line = QQGroupNotice.describe(object, this.config.expectedSelfID, key,
       id => Object.values(inputs).filter(message => message.sender === id).reduce((best, message) => !best || message.time > best.time ? message : best, undefined)?.name,
       id => inputs[id]?.text ?? this.groupRecentMessages.get(key)?.findLast(event => event.id === id)?.text);
@@ -1531,7 +1537,8 @@ export class QQEngine {
     const result = await this.artworkLibrary.prepare(request, {config: settings,
       scope: this.config.expectedSelfID + ':' + target.key, ledger: this.artworkLedger.clone(), randomArtist: scheduled, beforeFetch: () => {
         this.check(epoch, target.key, target);
-        this.artworkLedger.reserveNetwork(settings.networkDailyLimit); this.persist();
+        // Counted, not capped (11-03: the Pixiv tool has the whole site, only R-18 and political works are skipped).
+        this.artworkLedger.reserveNetwork(Infinity); this.persist();
         requests += 1;
       }, signal});
     result.sourceRequests = requests; result.preparationSeconds = (Date.now() - started.getTime()) / 1000;
@@ -1783,4 +1790,5 @@ function writeAtomically(file, data) {
 }
 
 Object.assign(QQEngine.prototype, agentMethods);
+Object.assign(QQEngine.prototype, mediaMethods);
 QQEngine.agentSaveStickerDefinition = agentSaveStickerDefinition;

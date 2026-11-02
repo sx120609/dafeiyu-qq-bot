@@ -144,7 +144,8 @@ export function anthropicBody(body,profile){
     if(messages.at(-1)?.role===role)messages.at(-1).content.push(...content);else messages.push({role,content});
   }
   if(body.response_format?.type==='json_object')system.push('Only output a valid JSON object, without Markdown fences.');
-  return {model:profile.model,max_tokens:Math.min(body.max_tokens||2048,8192),system:system.join('\n'),messages,
+  // Anthropic needs a max_tokens; the engine sends none (no output cap since 11-03), so it gets plenty.
+  return {model:profile.model,max_tokens:body.max_tokens||32000,system:system.join('\n'),messages,
     ...(body.tools?.length?{tools:body.tools.map(t=>({name:t.function.name,description:t.function.description,input_schema:t.function.parameters}))}:{})};
 }
 export async function runCloud(body,profile,signal,options={}){

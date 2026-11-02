@@ -28,6 +28,26 @@ export class QQVoice {
     if (!object) return {openAI: false, qqCharacter: undefined};
     return {openAI: object.enabled === true, qqCharacter: typeof object.qq === 'string' && object.qq !== '' ? object.qq : undefined};
   }
+  /// A voice note (or any sound) as text, through the gateway's POST /audio/transcriptions: {audio: base64, format}
+  /// in, {text} out, {error} with a non-200 status when it cannot (no key set, the provider refused).
+  /** transcribe(audio, format, {key, signal}) → string; throws AppFailure with the gateway's reason. */
+  static async transcribe(audio, format, {key, signal} = {}) {
+    const url = QQVoice.endpoint('/audio/transcriptions');
+    if (!url) throw new AppFailure('转文字要通过本机网关，引擎现在没连着网关');
+    let data, response;
+    try {
+      ({data, response} = await sessionData(QQVoice.session, {url: url.href, method: 'POST', timeoutInterval: 150, signal,
+        headers: {Authorization: 'Bearer ' + key, 'Content-Type': 'application/json'},
+        body: JSON.stringify({audio: Buffer.from(audio).toString('base64'), format})}));
+    } catch (error) {
+      if (error?.name === 'CancellationError') throw error;
+      throw new AppFailure('转文字的接口连不上：' + (error?.message ?? String(error)));
+    }
+    const object = parseDictionary(data);
+    if (response.statusCode === 200 && typeof object?.text === 'string') return object.text;
+    if (response.statusCode === 404) throw new AppFailure('网关还没有转文字的接口');
+    throw new AppFailure(typeof object?.error === 'string' ? object.error : `转文字失败（HTTP ${response.statusCode}）`);
+  }
   /// The line as mp3 audio, ready for a QQ record segment.
   /** speak(_:key:chat:) — `speak(text, {key, chat, signal})` (or `speak(text, key, chat)`) → Buffer. */
   static async speak(text, options, chatArgument) {

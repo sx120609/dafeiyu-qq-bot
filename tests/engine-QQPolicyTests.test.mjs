@@ -95,7 +95,7 @@ test('classicSkipsOtherMentionsButOddSegmentsBecomePlaceholders', () => {
   const e = event(true);
   e.message = [{type: 'at', data: {qq: '12345'}}, {type: 'text', data: {text: '你好'}}, {type: 'image', data: {file: ''}}, {type: 'reply', data: {id: 'invalid'}},
     {type: 'mface', data: {summary: '[开心]'}}, {type: 'record', data: {}}, {type: 'json', data: {data: '{"prompt":"[QQ小程序]哔哩哔哩"}'}}, {type: 'weird'}];
-  assert.equal(parse(e)?.text, '你好[图片，没拿到][表情包：[开心]][语音，听不到内容][卡片：[QQ小程序]哔哩哔哩][weird]');
+  assert.equal(parse(e)?.text, '你好[图片，没拿到][表情包：[开心]][语音，要听用 listen_voice][卡片：[QQ小程序]哔哩哔哩][weird]');
   // In agent groups (every message admitted), someone else's @ stays in the sentence.
   const judged = event(true);
   judged.message = [{type: 'text', data: {text: '如何评价'}}, {type: 'at', data: {qq: '55555', name: '窝很凶'}}];
@@ -110,7 +110,8 @@ test('classicSkipsOtherMentionsButOddSegmentsBecomePlaceholders', () => {
   assert.equal(parse(sticker)?.text.startsWith('（对方发来图片'), true);
   // A private voice note is no longer silently ignored.
   const voice = event(); voice.message = [{type: 'record', data: {file: 'x'}}];
-  assert.equal(parse(voice)?.text, '[语音，听不到内容]');
+  assert.equal(parse(voice)?.text, '[语音，要听用 listen_voice]');
+  assert.deepEqual(parse(voice)?.media, [{kind: 'record', file: 'x'}]);
 });
 
 test('admitsImagesButStillRequiresGroupMention', () => {

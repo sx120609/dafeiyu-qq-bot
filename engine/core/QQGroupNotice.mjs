@@ -1,5 +1,5 @@
 import {count, prefix} from '../swift.mjs';
-import {asNSNumber, asString, trimmed} from './_support.mjs';
+import {asNSNumber, asObject, asString, trimmed} from './_support.mjs';
 import {QQMemoryBook} from './QQMemoryBook.mjs';
 import {QQConfig, QQPolicy} from './QQPolicy.mjs';
 
@@ -67,6 +67,32 @@ export class QQGroupNotice {
         const user = who(object.user_id);
         if (user === undefined) return undefined;
         return sub === 'kick' ? `${user} 被移出了群` : `${user} 退群了`;
+      }
+      case 'group_upload': {
+        // A file put into the group: read_file opens it by its file id.
+        const user = who(object.user_id) ?? '有人';
+        const file = asObject(object.file) ?? {};
+        const name = asString(file.name), id = QQPolicy.identifier(file.id);
+        const size = QQPolicy.size(file.size);
+        return `${user} 上传了群文件「${prefix(name ?? '文件', 60)}」` + (size === undefined ? '' : `（${size}）`) +
+          (id === undefined ? '' : `，要读用 read_file，file_id 填 ${id}`);
+      }
+      case 'group_card': {
+        const user = who(object.user_id);
+        const card = asString(object.card_new);
+        if (user === undefined || card === undefined) return undefined;
+        return trimmed(card) === '' ? `${user} 清空了群名片` : `${user} 把群名片改成了「${prefix(card, 30)}」`;
+      }
+      case 'notify': {
+        if (sub === 'title') {
+          const user = who(object.user_id), title = asString(object.title);
+          return user === undefined || title === undefined ? undefined : `${user} 获得了头衔「${prefix(title, 30)}」`;
+        }
+        if (sub === 'group_name') {
+          const name = asString(object.name_new);
+          return name === undefined ? undefined : `${who(object.user_id) ?? '有人'} 把群名改成了「${prefix(name, 40)}」`;
+        }
+        return undefined;
       }
       default:
         return undefined;

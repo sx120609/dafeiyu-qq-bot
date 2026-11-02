@@ -21,6 +21,7 @@ import {QQComputer} from './QQComputer.mjs';
 import {QQCustomTools} from './QQCustomTools.mjs';
 import {QQCompanionTools} from './QQCompanionTools.mjs';
 import {QQOnlineTools, ModelToolResult} from './QQOnlineTools.mjs';
+import {QQAgentMedia} from './QQAgentMedia.mjs';
 
 import {identifier, intValue, describe, isCancellation, formatDate, iso8601, localZone, task, isInt64,
   QQAgentTurn, QQAgentTurnState, QQAgentToolBox, QQAgentGate, QQAgentJob, QQAgentNote, QQAgentReminder} from './QQEngine.types.mjs';
@@ -65,9 +66,12 @@ export const agentMethods = {
     if (this.agentTurns.length > this.constructor.agentTurnsKept) this.agentTurns.splice(0, this.agentTurns.length - this.constructor.agentTurnsKept);
     this.agentThinking.set(key, started);
     const state = new QQAgentTurnState();
+    let stopTyping = () => {};
     try {
       this.check(epoch, key, target);
       if (target.group && this.muted(key)) { this.updateTurn(turn.id, item => { item.decision = 'silence'; item.note = '在这个群被禁言了'; }); return; }
+      // A friend sees "正在输入" while the turn works, as with a person typing.
+      stopTyping = this.agentTyping(target);
       const persona = this.config.personaFor(key);
       const level = this.config.agentLevel(key);
       const tools0 = QQAgentLevel.tools(level), bubbles0 = QQAgentLevel.bubbleKinds(level);
@@ -259,7 +263,7 @@ export const agentMethods = {
           + (pendingTask ? `上次 Codex 停下来等确认的事：${pendingTask.ask}（task：${pendingTask.task}）。主人这批消息里确认了，就再调用 computer_task，task 照抄、confirmed_by 填他确认的那条；他没确认或者改主意了就别做。` : '')
           + '）';
       }
-      const groupOnly = new Set(['member_info', 'group_info']);
+      const groupOnly = new Set(['member_info', 'group_info', ...QQAgentMedia.groupOnly]);
       const tools = DeepSeekClient.agentTools(this.config.effectiveOnlineEnabled).filter(tool => {
         const name = typeof tool?.function?.name === 'string' ? tool.function.name : '';
         return tools0.has(name) && (target.group || !groupOnly.has(name)) && (name !== 'remember' || this.config.effectiveMemoryEnabled);
@@ -345,7 +349,7 @@ export const agentMethods = {
             } else if (name === 'member_info' && target.group && tools0.has(name)) {
               output = await this.agentMemberInfo(argumentsText, state.members, target);
             } else if (name === 'group_info' && target.group && tools0.has(name)) {
-              output = await this.agentGroupInfo(argumentsText, target);
+              output = await this.agentGroupInfo(argumentsText, target, state.members);
             } else if (name === 'remember' && tools0.has(name)) {
               output = this.agentRemember(argumentsText, [...fresh, ...state.consumed], state.inputs, state.members, target);
             } else if (name === 'model_info') {
@@ -363,6 +367,8 @@ export const agentMethods = {
               } else output = '插画参数无效。';
             } else if (name === 'notify_owner' && canNotifyOwner) {
               output = (await this.notifyOwner(argumentsText, anchor, target)).content;
+            } else if (QQAgentMedia.names.has(name) && tools0.has(name) && (target.group || !QQAgentMedia.groupOnly.has(name))) {
+              output = await this.agentMedia(name, argumentsText, {state, target, epoch, since: anchor.time, key: credential, reserve, signal, fresh, persona});
             } else {
               output = await this.agentErrand(name, argumentsText, target, epoch, credential, reserve, signal);
             }
@@ -435,6 +441,7 @@ export const agentMethods = {
       // Someone was talking to it: one short line instead of silence, as in the classic flow.
       if (calling) await this.sayStuck(error, target, epoch, signal);
     } finally {
+      stopTyping();
       this.agentThinking.delete(key);
       // Each finished turn reaches the disk at once; otherwise a restart before the next save showed it as
       // unfinished (11-03: a reply already sent was saved as "thinking").
@@ -917,14 +924,17 @@ export const agentMethods = {
     }
   },
   /// One message of an agent turn: send limits, the echo hold, and noteSent, like every other send path.
-  async agentSend(target, segments, text, answering, epoch, signal) {
+  /// `override` ({action, params, timeout}) sends something other than a plain message the same way (a 合并转发),
+  /// or gives a slow upload (a file) more time.
+  async agentSend(target, segments, text, answering, epoch, signal, override) {
     let ticket = await this.reserveSend(epoch, target, signal);
     this.persist();
     const submissionID = uuid();
     if (target.group) this.activeGroupSubmissions.set(submissionID, target.key);
     try {
-      const [action, params] = target.group ? ['send_group_msg', {group_id: target.number, message: segments}] : ['send_private_msg', {user_id: target.number, message: segments}];
-      const response = await this.connection.action(action, params);
+      const [action, params] = override?.action !== undefined ? [override.action, override.params]
+        : target.group ? ['send_group_msg', {group_id: target.number, message: segments}] : ['send_private_msg', {user_id: target.number, message: segments}];
+      const response = await this.connection.action(action, params, {timeout: override?.timeout ?? 15});
       const id = isDictionary(response.data) ? identifier(response.data.message_id) : undefined;
       if (id === undefined || !isInt64(id)) throw new AppFailure('发送返回缺少消息 ID');
       this.noteSent(target, id, text, {answering});
@@ -1036,7 +1046,7 @@ export const agentMethods = {
   async agentMemberInfo(args, members, target) {
     const label = parseDictionary(args)?.member;
     const number = typeof label === 'string' ? members[label] : undefined;
-    if (number === undefined) return '只能查最近在群里说过话的人，member 填 MEMBER 标签。';
+    if (number === undefined) return 'member 填 MEMBER 标签；不在这段聊天里的人先用 find_member 按名字找到标签。';
     let data;
     try { const response = await this.connection.action('get_group_member_info', {group_id: target.number, user_id: number, no_cache: true}); data = isDictionary(response?.data) ? response.data : undefined; } catch {}
     if (!data) return 'QQ 没给这个人的资料。';
@@ -1051,7 +1061,7 @@ export const agentMethods = {
     const last = time(data.last_sent_time); if (last !== undefined) lines.push('最后发言：' + last);
     return lines.join('\n');
   },
-  async agentGroupInfo(args, target) {
+  async agentGroupInfo(args, target, members) {
     const what = typeof parseDictionary(args)?.what === 'string' ? parseDictionary(args).what : 'basic';
     const day = date => formatDate(date, 'yyyy-MM-dd');
     const list = async (action, params) => {
@@ -1076,11 +1086,14 @@ export const agentMethods = {
           return (typeof row.sender_nick === 'string' ? row.sender_nick : '某人') + '：' + prefix(QQMemoryBook.redact(content), 200);
         }).join('\n');
       }
+      case 'honor': return await this.agentGroupHonor(target, members) ?? '没读到群荣誉（龙王、群聊之火这些）。';
       default: {
         let data;
         try { const response = await this.connection.action('get_group_info', {group_id: target.number, no_cache: true}); data = isDictionary(response?.data) ? response.data : undefined; } catch {}
         if (!data) return '没读到群资料。';
-        return `群名：${typeof data.group_name === 'string' ? data.group_name : target.name}；人数：${describeValue(data.member_count ?? '?')}/${describeValue(data.max_member_count ?? '?')}`;
+        const honor = await this.agentGroupHonor(target, members);
+        return `群名：${typeof data.group_name === 'string' ? data.group_name : target.name}；人数：${describeValue(data.member_count ?? '?')}/${describeValue(data.max_member_count ?? '?')}` +
+          (honor === undefined ? '' : '\n群荣誉：\n' + honor);
       }
     }
   },

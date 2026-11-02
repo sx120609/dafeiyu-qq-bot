@@ -51,7 +51,8 @@ async function logStream(file){
  *  Its automatic loading (every QQ.exe) stays off because the owner's own QQ runs here too;
  *  the hook goes into the process signed in as the bot account and no other. */
 export class SnowLuma{
-  constructor({settings,logs}){this.settings=settings;this.logs=logs;this.session=null;this.child=null;this.startedAt=null;}
+  // onPassword(password): keeps a password the bot set for SnowLuma (QQHost writes it to .runtime/snowluma.json).
+  constructor({settings,logs,onPassword}){this.settings=settings;this.logs=logs;this.onPassword=onPassword;this.session=null;this.child=null;this.startedAt=null;}
   get dir(){return this.settings.dir;}
   get webui(){return 'http://127.0.0.1:'+(this.settings.webuiPort||5099);}
   async onebot(){
@@ -101,19 +102,29 @@ export class SnowLuma{
   }
   /** A signed-in session for the console's embedded SnowLuma pages. */
   async sessionToken(){if(!this.session)await this.login();return this.session;}
+  async attempt(){
+    try{return await post(this.webui+'/api/login',{password:this.settings.password});}
+    catch(error){if(!(error.status>=400&&error.status<500))throw error;return {success:false,status:error.status,message:error.message};}
+  }
+  /** Signs in with the bot's own SnowLuma password. Nothing about SnowLuma's login may stop the bot (11-03: "我纯本地
+   *  的你限制安全是故意卡我吗"): when the password no longer matches it writes a new one, and when SnowLuma has locked
+   *  logins after wrong passwords typed into its page it restarts SnowLuma, which clears the lock (QQ stays signed in).
+   *  Repairs at most once every two minutes, so a broken SnowLuma cannot make it loop. */
   async login(){
-    if(!this.settings.password)throw new Error('SnowLuma 管理密码还没设好');
-    // SnowLuma locks the login after repeated failures, so a refused password is not tried again for a minute.
-    if(this.refused&&this.refused.password===this.settings.password&&Date.now()<this.refused.until)throw new Error(this.refused.message);
-    let result;
-    try{result=await post(this.webui+'/api/login',{password:this.settings.password});}
-    catch(error){if(!(error.status>=400&&error.status<500))throw error;result={success:false,message:error.message};}
-    if(!result.success||!result.token){
-      const message=result.needsTotp?'SnowLuma 开了两步验证，机器人登不进它的管理页；请在管理页关掉两步验证':'SnowLuma 管理密码不对，或者要先在它的管理页同意协议、改密码：'+(result.message||'');
-      this.refused={password:this.settings.password,until:Date.now()+60000,message};
-      throw new Error(message);
+    if(!this.settings.password)await this.repair('password');
+    let result=await this.attempt();
+    if(!result.success&&Date.now()-(this.repairedAt||0)>120000){
+      await this.repair(result.status===429?'lock':'password');
+      result=await this.attempt();
     }
-    this.refused=null;this.session=result.token;
+    if(!result.success||!result.token)throw new Error(result.needsTotp?'SnowLuma 开了两步验证：在它的管理页关掉':'SnowLuma 暂时登不进去：'+(result.message||'')+'（两分钟后自动再修一次）');
+    this.session=result.token;
+  }
+  async repair(kind){
+    this.repairedAt=Date.now();
+    if(kind==='password'){const password=await this.takeOverPassword();await this.onPassword?.(password);}
+    else await this.stop();
+    await this.ensure();
   }
   async call(route,body){
     for(let attempt=0;;attempt++){
@@ -153,6 +164,11 @@ export class QQHost{
     if(this.luma){this.luma.settings=next;this.luma.session=null;}
     return this.qqStatus();
   }
+  async keepPassword(password){
+    const saved=await this.settings();await writeJSON(path.join(this.runtime,'snowluma.json'),{...saved,password});
+    console.log('Set a new SnowLuma admin password, kept in .runtime/snowluma.json.');
+  }
+  lumaFor(settings){return new SnowLuma({settings,logs:this.logs,onPassword:password=>this.keepPassword(password)});}
   async status(update){
     const file=path.join(this.runtime,'status.json');
     const settings=await readJSON(path.join(this.runtime,'providers.json'),null);
@@ -165,7 +181,7 @@ export class QQHost{
     if(!this.stopped)return;
     this.stopped=false;
     await fs.mkdir(this.logs,{recursive:true});await fs.mkdir(this.data,{recursive:true,mode:0o700});
-    this.luma=new SnowLuma({settings:await this.settings(),logs:this.logs});
+    this.luma=this.lumaFor(await this.settings());
     this.loop=this.run().catch(error=>console.error('QQ host stopped:',error));
   }
   async stop(){
@@ -221,11 +237,7 @@ export class QQHost{
   async once(){
     await this.status({engine:false,phase:'starting'});
     if(!this.luma.settings.account)throw new Error('还没设机器人 QQ 号（控制台 → QQ 登录）');
-    if(!this.luma.settings.password){
-      const password=await this.luma.takeOverPassword();
-      const saved=await this.settings();await writeJSON(path.join(this.runtime,'snowluma.json'),{...saved,password});
-      console.log('Set a new SnowLuma admin password, kept in .runtime/snowluma.json.');
-    }
+    if(!this.luma.settings.password)await this.luma.repair('password');
     await this.luma.ensure();
     const onebot=await this.luma.onebot();
     await this.spawnEngine(onebot.token);
@@ -269,9 +281,18 @@ export class QQHost{
     }
     if(this.child&&this.child.exitCode!==null)throw new Error('Engine exited with code '+this.child.exitCode);
   }
+  /** One OneBot action on the bot's account, over SnowLuma's HTTP endpoint (for my_ tools' read-only queries). */
+  async qqCall(action,params={}){
+    if(!this.luma)throw new Error('QQ 还没连上');
+    const onebot=await this.luma.onebot();
+    if(!onebot.http)throw new Error('SnowLuma 没开 HTTP 接口');
+    const result=await post(onebot.http+'/'+action,params,{Authorization:'Bearer '+onebot.token},60000);
+    if(result.retcode!==0&&result.status!=='ok')throw new Error(result.wording||result.message||'QQ 返回 '+result.retcode);
+    return result.data;
+  }
   /** What the console's QQ page shows: SnowLuma, the bot's QQ process, and whether it is signed in. */
   async qqStatus(){
-    const settings=await this.settings(),luma=this.luma||new SnowLuma({settings,logs:this.logs});
+    const settings=await this.settings(),luma=this.luma||this.lumaFor(settings);
     const result={backend:'snowluma',account:settings.account||'',passwordSet:!!settings.password,webui:luma.webui,dir:settings.dir,
       running:await luma.reachable(),managed:!!(luma.child&&luma.child.exitCode===null),startedAt:luma.startedAt,embed:this.embed};
     if(result.running&&settings.password){
@@ -283,7 +304,7 @@ export class QQHost{
   }
   async qq(action){
     if(action==='status')return this.qqStatus();
-    if(!this.luma)this.luma=new SnowLuma({settings:await this.settings(),logs:this.logs});
+    if(!this.luma)this.luma=this.lumaFor(await this.settings());
     // Restarting SnowLuma leaves QQ signed in: the hook stays in QQ and is picked up again, no new login.
     if(action==='stop'||action==='restart')await this.luma.stop();
     if(action==='start'||action==='restart')await this.luma.ensure();

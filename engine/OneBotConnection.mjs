@@ -66,8 +66,9 @@ export class OneBotConnection {
     } else this.event?.(object);
   }
 
-  /** `signal` stands for the calling task's cancellation (withTaskCancellationHandler). */
-  action(name, params = {}, {signal} = {}) {
+  /** `signal` stands for the calling task's cancellation (withTaskCancellationHandler); `timeout` (seconds) is how long
+   *  QQ may take to answer: 15 by default, longer for uploads and transcoding. */
+  action(name, params = {}, {signal, timeout = 15} = {}) {
     const socket = this.socket;
     if (!socket) return Promise.reject(new AppFailure('QQ 未连接'));
     if (signal?.aborted) return Promise.reject(new CancellationError());
@@ -75,7 +76,7 @@ export class OneBotConnection {
     const data = Buffer.from(JSON.stringify({action: name, params, echo}));
     return new Promise((resolve, reject) => {
       this.pending.set(echo, {resolve, reject});
-      const timer = setTimeout(() => this.fail(echo, new AppFailure('OneBot 响应超时；如已提交发送，结果未知且不重发')), 15_000);
+      const timer = setTimeout(() => this.fail(echo, new AppFailure('OneBot 响应超时；如已提交发送，结果未知且不重发')), timeout * 1000);
       this.deadlines.set(echo, timer);
       if (signal) {
         const abort = () => this.fail(echo, new CancellationError());

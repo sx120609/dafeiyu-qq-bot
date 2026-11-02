@@ -70,7 +70,20 @@ export class VoiceSettings{
   get ready(){return this.value.enabled&&!!this.value.apiKey;}
   view(){const {apiKey,...rest}=this.value;return {...rest,keySet:!!apiKey,voices,engines,qqVoices,defaults:{baseUrl:defaults.baseUrl,instructions:defaults.instructions}};}
   /** What the engine may use this turn: the OpenAI voice, and/or QQ's AI voice character for groups. */
-  available(){return {enabled:this.ready,qq:this.value.qqEnabled?this.value.qqCharacter:null};}
+  available(){return {enabled:this.ready,qq:this.value.qqEnabled?this.value.qqCharacter:null,transcribe:!!this.value.apiKey};}
+  /** A voice message as text, with the same OpenAI key (11-03: voice messages used to reach the agent as "听不到"). */
+  async transcribe(audio,format='mp3'){
+    if(!this.value.apiKey)throw new Error('听语音要用 OpenAI 的 Key：控制台「能力 → 语音」里填上就能听');
+    const type={mp3:'audio/mpeg',wav:'audio/wav',amr:'audio/amr',ogg:'audio/ogg',m4a:'audio/mp4',silk:'audio/silk'}[format]||'application/octet-stream';
+    for(const model of ['gpt-4o-transcribe','whisper-1']){
+      const form=new FormData();
+      form.append('file',new Blob([audio],{type}),'voice.'+(format||'mp3'));form.append('model',model);form.append('language','zh');
+      const response=await this.fetch(this.value.baseUrl+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+this.value.apiKey},body:form,signal:AbortSignal.timeout(120000)});
+      const text=await response.text();let data={};try{data=JSON.parse(text);}catch{}
+      if(response.ok&&typeof data.text==='string')return {text:data.text,model};
+      if(model==='whisper-1'||![400,404].includes(response.status))throw new Error('转文字失败（HTTP '+response.status+'）：'+String(data.error?.message||text).slice(0,200));
+    }
+  }
   async update(data){
     const next={...this.value};
     if(typeof data.enabled==='boolean')next.enabled=data.enabled;
