@@ -19,6 +19,7 @@ import {VoiceSettings,toSilk} from './voice.mjs';
 import {ComputerControl} from './computer.mjs';
 import {AgentTools} from './agent-tools.mjs';
 import {writeToolCode} from './tool-writer.mjs';
+import {startSelfRepair} from './repair-host.mjs';
 import {QQHost} from './qq-host.mjs';
 import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -91,7 +92,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -132,7 +133,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
   }
   const server=http.createServer(async(req,res)=>{
     const send=(status,data)=>{if(!res.destroyed){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...(data.retryAfter?{'Retry-After':String(data.retryAfter)}:{})});res.end(JSON.stringify(data));}};
-    const fail=e=>send(e.status||400,{error:e.message,...(e.retryAfter?{retryAfter:e.retryAfter}:{})});
+    // A bug in the gateway itself (not a refused request) goes to the self-repair pipeline as well.
+    const fail=e=>{if(repair&&[TypeError,ReferenceError,SyntaxError,RangeError].some(type=>e instanceof type))repair.report({source:'gateway',kind:'exception',message:e.message,stack:e.stack,context:{route:req.url}}).catch(()=>{});
+      send(e.status||400,{error:e.message,...(e.retryAfter?{retryAfter:e.retryAfter}:{})});};
     const site=requestOrigin(req,auth);
     if(!site){send(403,{error:'远程访问控制台前，请先在本机打开控制台设置密码'});return;}
     const origin=site.origin;
@@ -217,6 +220,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       // The tools the agent wrote for itself, as definitions for this turn.
       if(req.url==='/v1/agent-tools'){send(200,{tools:agentTools.definitions()});return;}
       // QQ on Windows (SnowLuma): its state, the bot account, and whether its admin password is saved (never the password).
+      if(req.url==='/console/api/repairs'){if(!repair){send(404,{error:'自我修复没开'});return;}send(200,repair.view());return;}
       if(req.url==='/console/api/qq'){if(!host){send(404,{error:'QQ 由 NapCat 管理'});return;}try{send(200,await host.qqStatus());}catch(e){fail(e);}return;}
       if(req.url==='/console/api/tools'){
         let builtin=[];try{builtin=(await runtimeControl.panel()).agentToolCatalog||[];}catch{}
@@ -264,6 +268,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
       try{send(200,await agentTools.create(data,{signal:controller.signal}));}catch(e){fail(e);}return;
     }
+    // Program errors from the engine and the agent's report_bug: {source, kind, message, stack, context}.
+    if(req.url==='/v1/repair/report'){if(!repair){send(200,{accepted:false,reason:'自我修复没开'});return;}try{send(200,await repair.report(data));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/repairs'){if(!repair){send(404,{error:'自我修复没开'});return;}try{send(200,typeof data.retry==='string'?await repair.retry(data.retry):repair.view());}catch(e){fail(e);}return;}
     // A voice message as text, for the agent's listen_voice: {audio: base64, format}.
     if(req.url==='/v1/audio/transcriptions'){
       try{if(typeof data.audio!=='string'||!data.audio)throw new Error('没有音频');send(200,await voice.transcribe(Buffer.from(data.audio,'base64'),String(data.format||'mp3')));}catch(e){fail(e);}return;
@@ -426,7 +433,10 @@ export async function startGateway(config,configFile){
   const agentTools=await new AgentTools({runtime,qq,writer:(request,options)=>writeToolCode(request,config,options)}).load();
   // On Windows the gateway process also runs SnowLuma and the engine; in WSL systemd and supervisor.py do.
   const host=process.platform==='win32'?new QQHost({root,runtime,gatewayToken:config.token,port:config.port||18191,embedPort:config.snowlumaProxyPort||18192}):null;
-  const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools,host});
+  // On Windows the bot also repairs its own program errors (repair-host.mjs).
+  const repair=host?await startSelfRepair({root,runtime,config,host}):null;
+  if(host&&repair)host.onCrash=report=>repair.report(report);
+  const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools,host,repair});
   await fs.writeFile(path.join(runtime,'console-url.txt'),`http://127.0.0.1:${config.port||18191}/console/#${config.consoleToken}`,{mode:0o600});
   server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();
     if(host){host.start();startSnowLumaProxy({auth,luma:()=>host.luma,port:config.snowlumaProxyPort||18192,consoleOrigin:`http://127.0.0.1:${config.port||18191}`});}});

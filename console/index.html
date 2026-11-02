@@ -72,8 +72,10 @@
 
   <main class="main">
     <header class="topbar">
-      <div><h1 id="page-title">总览</h1><p id="page-sub" class="muted small"></p></div>
-      <div id="page-actions" class="page-actions"></div>
+      <div class="topbar-inner">
+        <div class="topbar-title"><h1 id="page-title">总览</h1><p id="page-sub"></p></div>
+        <div id="page-actions" class="page-actions"></div>
+      </div>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
@@ -88,10 +90,10 @@
       </div>
       <p id="ov-error" class="banner warn" hidden></p>
       <div class="stats">
-        <div class="card stat"><span>今日模型调用</span><strong id="st-calls">–</strong><small id="st-calls-sub"></small></div>
-        <div class="card stat"><span>今日已发送</span><strong id="st-sent">–</strong><small id="st-sent-sub"></small></div>
-        <div class="card stat"><span>平均响应</span><strong id="st-latency">–</strong><small id="st-latency-sub"></small></div>
-        <div class="card stat"><span>指挥模型</span><strong id="st-model" class="mono">–</strong><small id="st-provider"></small></div>
+        <div class="stat"><span>今日模型调用</span><strong id="st-calls">–</strong><small id="st-calls-sub"></small></div>
+        <div class="stat"><span>今日已发送</span><strong id="st-sent">–</strong><small id="st-sent-sub"></small></div>
+        <div class="stat"><span>平均响应</span><strong id="st-latency">–</strong><small id="st-latency-sub"></small></div>
+        <div class="stat"><span>指挥模型</span><strong id="st-model" class="mono">–</strong><small id="st-provider"></small></div>
       </div>
       <div class="grid-2 wide-left">
         <div class="card">
@@ -141,8 +143,8 @@
               <button type="button" role="tab" data-activity-tab="reading">浏览记录</button>
             </div>
             <div id="turn-filters" class="filters">
-              <select id="agent-filter-chat" aria-label="按会话筛选"></select>
-              <select id="agent-filter-kind" aria-label="按结果筛选"><option value="">全部结果</option><option value="reply">出声的</option><option value="silence">没出声的</option><option value="failed">出错的</option></select>
+              <select name="agent-filter-chat" autocomplete="off" id="agent-filter-chat" aria-label="按会话筛选"></select>
+              <select name="agent-filter-kind" autocomplete="off" id="agent-filter-kind" aria-label="按结果筛选"><option value="">全部结果</option><option value="reply">出声的</option><option value="silence">没出声的</option><option value="failed">出错的</option></select>
             </div>
             <label id="decision-filter" class="inline-check" hidden><input id="decisions-skipped" type="checkbox">只看没交给它的</label>
           </div>
@@ -191,10 +193,10 @@
       </div>
       <div id="usage-stats" class="col">
         <div class="stats">
-          <div class="card stat"><span>模型调用</span><strong id="us-calls">–</strong><small id="us-calls-sub"></small></div>
-          <div class="card stat"><span>Tokens</span><strong id="us-tokens">–</strong><small id="us-tokens-sub"></small></div>
-          <div class="card stat"><span>花费</span><strong id="us-cost">–</strong><small id="us-cost-sub"></small></div>
-          <div class="card stat"><span>平均耗时</span><strong id="us-latency">–</strong><small>每次调用</small></div>
+          <div class="stat"><span>模型调用</span><strong id="us-calls">–</strong><small id="us-calls-sub"></small></div>
+          <div class="stat"><span>Tokens</span><strong id="us-tokens">–</strong><small id="us-tokens-sub"></small></div>
+          <div class="stat"><span>花费</span><strong id="us-cost">–</strong><small id="us-cost-sub"></small></div>
+          <div class="stat"><span>平均耗时</span><strong id="us-latency">–</strong><small>每次调用</small></div>
         </div>
         <div id="usage-chart-card" class="card">
           <div class="card-head"><h3 id="usage-chart-title">每天的 tokens</h3>
@@ -221,8 +223,8 @@
           <p class="muted">Claude Code 每次会自己报告花费（订阅用户是按 API 价折算的等价金额），不用填。Codex 和云端 API 不报金额：常见型号内置了列表价，输入框里灰色的就是它；填了数就按你填的算。Codex 走 ChatGPT 订阅、实际不按 token 扣钱，这里算的是同样用量走 API 的价格。</p>
           <div class="table-wrap"><table class="table price-table" id="price-table"></table></div>
         </div>
-        <form id="usage-rate-form" class="card inline-form" novalidate>
-          <label class="field"><span>汇率：1 美元 =</span><input id="usage-rate" type="number" min="0.01" max="100" step="0.01" inputmode="decimal"></label>
+        <form autocomplete="off" id="usage-rate-form" class="card inline-form" novalidate>
+          <label class="field"><span>汇率：1 美元 =</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="usage-rate" autocomplete="off" id="usage-rate" type="number" min="0.01" max="100" step="0.01" inputmode="decimal"></label>
           <span class="muted">元人民币，用来换算花费</span>
           <button class="btn" type="submit">保存汇率</button>
         </form>
@@ -231,7 +233,8 @@
 
     <!-- 会话 -->
     <section class="page" data-page="chats" hidden>
-      <form id="chats-form" class="card section" novalidate>
+      <div class="split">
+      <form autocomplete="off" id="chats-form" class="card section" novalidate>
         <div class="section-head"><div><h3>会话名单</h3><p class="muted">机器人只在勾选的会话里说话，每个会话都由代理自己决定回不回、怎么回。权限和性格可以每个会话单独设；改完点保存。</p></div></div>
         <div class="table-wrap"><table class="table chats-table"><thead><tr><th>启用</th><th>会话</th><th>权限</th><th>性格</th><th></th></tr></thead><tbody id="chats-rows"></tbody></table></div>
         <details class="explain"><summary>三档权限分别能做什么</summary>
@@ -244,35 +247,37 @@
       </form>
       <div class="card section">
         <div class="section-head"><div><h3>添加会话</h3><p class="muted">从机器人 QQ 的好友和群里选；管理员拉它进群时会自动加上。</p></div></div>
-        <input id="chats-search" type="search" placeholder="搜索名字或号码" autocomplete="off">
+        <input data-1p-ignore data-lpignore="true" data-form-type="other" name="chats-search" id="chats-search" type="search" placeholder="搜索名字或号码" autocomplete="off">
         <div id="chats-contacts" class="state-list"></div>
+      </div>
       </div>
     </section>
 
     <!-- 人设与表情 -->
-    <section class="page narrow" data-page="persona" hidden>
-      <form id="persona-form" class="card section" novalidate>
+    <section class="page" data-page="persona" hidden>
+      <div class="masonry">
+      <form autocomplete="off" id="persona-form" class="card section" novalidate>
         <div class="section-head"><div><h3>默认性格</h3><p class="muted">没在「会话」页单独设性格的会话都用这个。</p></div></div>
         <div class="fields">
-          <label class="field"><span>性格</span><select id="persona-style"></select><small id="persona-style-help" class="muted"></small></label>
-          <label class="field"><span>一次回复最多多少字</span><input id="persona-max" type="number" min="20" max="2000"></label>
+          <label class="field"><span>性格</span><select name="persona-style" autocomplete="off" id="persona-style"></select><small id="persona-style-help" class="muted"></small></label>
+          <label class="field"><span>一次回复最多多少字</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="persona-max" autocomplete="off" id="persona-max" type="number" min="20" max="2000"></label>
         </div>
-        <div id="persona-banter-row" class="fields"><label class="field"><span>嘴欠程度</span><select id="persona-banter">
+        <div id="persona-banter-row" class="fields"><label class="field"><span>嘴欠程度</span><select name="persona-banter" autocomplete="off" id="persona-banter">
           <option value="0">0 · 温和俏皮</option><option value="1">1 · 偶尔小得意</option><option value="2">2 · 爱用反问逗人</option><option value="3">3 · 更主动地占口头便宜</option></select></label></div>
         <div id="persona-custom" class="col" hidden>
-          <label class="field"><span>自定义名字</span><input id="persona-custom-name" maxlength="40" placeholder="不填就叫大肥鱼"></label>
-          <label class="field"><span>自定义性格说明</span><textarea id="persona-custom-prompt" rows="6" maxlength="4000" placeholder="写它是谁、怎么说话、喜欢什么、不碰什么"></textarea></label>
+          <label class="field"><span>自定义名字</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="persona-custom-name" autocomplete="off" id="persona-custom-name" maxlength="40" placeholder="不填就叫大肥鱼"></label>
+          <label class="field"><span>自定义性格说明</span><textarea data-1p-ignore data-lpignore="true" data-form-type="other" name="persona-custom-prompt" autocomplete="off" id="persona-custom-prompt" rows="6" maxlength="4000" placeholder="写它是谁、怎么说话、喜欢什么、不碰什么"></textarea></label>
           <div class="preset-row"><span class="muted small">快速填入：</span><button type="button" class="btn small ghost" data-preset="chat">聊天搭子</button><button type="button" class="btn small ghost" data-preset="gentle">温柔陪伴</button><button type="button" class="btn small ghost" data-preset="banter">嘴快游戏搭子</button></div>
         </div>
-        <label class="field"><span>补充偏好</span><textarea id="persona-notes" rows="3" maxlength="2000" placeholder="想让它额外注意的事，例如称呼习惯、忌讳的话题"></textarea><small class="muted">附在人设后面，只在不冲突时采用。</small></label>
+        <label class="field"><span>补充偏好</span><textarea data-1p-ignore data-lpignore="true" data-form-type="other" name="persona-notes" autocomplete="off" id="persona-notes" rows="3" maxlength="2000" placeholder="想让它额外注意的事，例如称呼习惯、忌讳的话题"></textarea><small class="muted">附在人设后面，只在不冲突时采用。</small></label>
         <div class="actions end"><button id="persona-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
       <div class="card section">
         <div class="section-head"><div><h3>表情包</h3><p id="stickers-summary" class="muted"></p></div><input type="checkbox" class="switch" data-feature="stickers" aria-label="表情包"></div>
         <p class="reason" data-reason="stickers"></p>
-        <form id="sticker-repeat-form" class="inline-form" novalidate>
-          <label class="field"><span>同一张多久不重复</span><select id="persona-repeat"></select></label>
+        <form autocomplete="off" id="sticker-repeat-form" class="inline-form" novalidate>
+          <label class="field"><span>同一张多久不重复</span><select name="persona-repeat" autocomplete="off" id="persona-repeat"></select></label>
           <button class="btn" type="submit">保存</button>
         </form>
         <div id="stickers-grid" class="sticker-grid"></div>
@@ -281,13 +286,13 @@
           <div class="col import-box">
             <label class="field"><span>选图片（PNG / JPEG / WebP / GIF，每张 3 MB 内，一次最多 50 张），或者一个表情资源包（.json）</span><input id="sticker-files" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,.json,application/json"></label>
             <div class="fields">
-              <label class="field"><span>情绪</span><select id="sticker-emotion"><option value="neutral">平静</option><option value="joy">开心</option><option value="smug">得意</option><option value="annoyed">不满</option><option value="sad">难过</option><option value="sleepy">困倦</option><option value="flustered">害羞</option><option value="teasing">调侃</option></select></label>
-              <label class="field"><span>什么时候适合发</span><input id="sticker-context" maxlength="300" placeholder="例如：有人说自己好惨的时候"></label>
+              <label class="field"><span>情绪</span><select name="sticker-emotion" autocomplete="off" id="sticker-emotion"><option value="neutral">平静</option><option value="joy">开心</option><option value="smug">得意</option><option value="annoyed">不满</option><option value="sad">难过</option><option value="sleepy">困倦</option><option value="flustered">害羞</option><option value="teasing">调侃</option></select></label>
+              <label class="field"><span>什么时候适合发</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="sticker-context" autocomplete="off" id="sticker-context" maxlength="300" placeholder="例如：有人说自己好惨的时候"></label>
             </div>
             <div class="fields four">
-              <label class="field"><span>作者</span><input id="sticker-author" maxlength="80"></label>
-              <label class="field"><span>许可</span><input id="sticker-license" maxlength="100"></label>
-              <label class="field"><span>来源网址</span><input id="sticker-source" maxlength="500" placeholder="https://"></label>
+              <label class="field"><span>作者</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="sticker-author" autocomplete="off" id="sticker-author" maxlength="80"></label>
+              <label class="field"><span>许可</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="sticker-license" autocomplete="off" id="sticker-license" maxlength="100"></label>
+              <label class="field"><span>来源网址</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="sticker-source" autocomplete="off" id="sticker-source" maxlength="500" placeholder="https://"></label>
               <label class="field check"><span>公开分享</span><input id="sticker-public" type="checkbox"><small class="muted">需要作者、许可和来源</small></label>
             </div>
             <p id="sticker-import-status" class="muted small pre"></p>
@@ -296,16 +301,18 @@
         </details>
       </div>
 
-      <form id="emoji-form" class="card section" novalidate>
+      <form autocomplete="off" id="emoji-form" class="card section" novalidate>
         <div class="section-head"><div><h3>常用贴表情</h3><p id="reactions-hint" class="muted">给消息贴表情时，QQ 自带的所有表情和常见 emoji 它都能用；这里是你希望它多用的几个，设成“不用”的不贴。鼠标停在表情上能看到什么时候用。</p></div></div>
         <div id="reactions-emojis" class="emoji-grid"></div>
         <div class="actions end"><button id="emoji-save" class="btn primary" type="submit">保存</button></div>
       </form>
+      </div>
     </section>
 
     <!-- 能力 -->
-    <section class="page narrow" data-page="abilities" hidden>
+    <section class="page" data-page="abilities" hidden>
       <nav id="ability-index" class="ability-index" aria-label="能力目录"></nav>
+      <div class="masonry">
 
       <article class="card section ability" id="ab-web" data-ability="联网">
         <div class="section-head"><div><h3>联网</h3><p class="muted">搜索、读网页全文、看视频内容、天气、时间和计算；找资料、刷 B 站都靠它。</p></div><input type="checkbox" class="switch" data-feature="web" aria-label="联网"></div>
@@ -316,10 +323,10 @@
       <article class="card section ability" id="ab-vision" data-ability="识图">
         <div class="section-head"><div><h3>识图</h3><p class="muted">直接看懂收到的图片和动图，不编造没看到的画面。</p></div><input type="checkbox" class="switch" data-feature="vision" aria-label="识图"></div>
         <p class="reason" data-reason="vision"></p>
-        <form id="vision-form" class="col" novalidate>
-          <div class="fields"><label class="field"><span>谁来看图</span><select id="vision-provider"><option value="deepseek">聊天模型直接看图</option><option value="zhipu">智谱 GLM-4.6V-Flash 先看一遍</option></select></label></div>
+        <form autocomplete="off" id="vision-form" class="col" novalidate>
+          <div class="fields"><label class="field"><span>谁来看图</span><select name="vision-provider" autocomplete="off" id="vision-provider"><option value="deepseek">聊天模型直接看图</option><option value="zhipu">智谱 GLM-4.6V-Flash 先看一遍</option></select></label></div>
           <div class="sub-row"><div><strong>Google 以图找来源</strong><small class="muted">有人问“这图出处”时，用 Google Cloud Vision 找来源网页。</small><small class="reason" data-reason="googleVision"></small></div><input type="checkbox" class="switch" data-feature="googleVision" aria-label="Google 以图找来源"></div>
-          <div class="fields"><label class="field"><span>Google Vision API Key</span><input id="vision-google-key" type="password" autocomplete="off" placeholder="留空则保留已载入的"><small id="vision-google-state" class="muted"></small></label>
+          <div class="fields"><label class="field"><span>Google Vision API Key</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="vision-google-key" id="vision-google-key" type="text" class="secret" autocomplete="off" placeholder="留空则保留已载入的"><small id="vision-google-state" class="muted"></small></label>
             <label class="field check"><span>保存到本机</span><input id="vision-persist" type="checkbox"><small class="muted">不勾只在这次运行期间有效</small></label></div>
           <p id="vision-status" class="muted small"></p>
           <div class="actions end"><button id="vision-save" class="btn primary" type="submit">保存</button></div>
@@ -329,15 +336,15 @@
       <article class="card section ability" id="ab-draw" data-ability="画图">
         <div class="section-head"><div><h3>画图</h3><p class="muted">有人明确让它画时才画，画好直接发出去；画得慢时它先回一句，不耽误聊别的。</p></div><input type="checkbox" class="switch" data-feature="drawing" aria-label="画图"></div>
         <p class="reason" data-reason="drawing"></p>
-        <form id="draw-form" class="col" novalidate>
-          <div class="fields"><label class="field"><span>先用谁画</span><select id="draw-primary"><option value="codex">模型网关（云端 API 或本机 Codex）</option><option value="zhipu">智谱 CogView-3-Flash</option><option value="cloudflare">Cloudflare FLUX.1 schnell</option></select><small class="muted">云端 API 的生图模型在「模型」页填。</small></label></div>
+        <form autocomplete="off" id="draw-form" class="col" novalidate>
+          <div class="fields"><label class="field"><span>先用谁画</span><select name="draw-primary" autocomplete="off" id="draw-primary"><option value="codex">模型网关（云端 API 或本机 Codex）</option><option value="zhipu">智谱 CogView-3-Flash</option><option value="cloudflare">Cloudflare FLUX.1 schnell</option></select><small class="muted">云端 API 的生图模型在「模型」页填。</small></label></div>
           <label class="switch-row"><span><strong>画不出来时换别家再试</strong><small>按智谱、Cloudflare 的顺序，用已载入凭证的那家。</small></span><input id="draw-fallback" type="checkbox" class="switch"></label>
           <div class="fields">
-            <label class="field"><span>智谱 API Key</span><input id="draw-zhipu" type="password" autocomplete="off" placeholder="留空则保留已载入的"></label>
-            <label class="field"><span>Cloudflare 账号 ID</span><input id="draw-account" autocomplete="off"></label>
+            <label class="field"><span>智谱 API Key</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="draw-zhipu" id="draw-zhipu" type="text" class="secret" autocomplete="off" placeholder="留空则保留已载入的"></label>
+            <label class="field"><span>Cloudflare 账号 ID</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="draw-account" id="draw-account" autocomplete="off"></label>
           </div>
           <div class="fields">
-            <label class="field"><span>Cloudflare API Token</span><input id="draw-cloudflare" type="password" autocomplete="off" placeholder="留空则保留已载入的"><small id="draw-credentials" class="muted"></small></label>
+            <label class="field"><span>Cloudflare API Token</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="draw-cloudflare" id="draw-cloudflare" type="text" class="secret" autocomplete="off" placeholder="留空则保留已载入的"><small id="draw-credentials" class="muted"></small></label>
             <label class="field check"><span>保存到本机</span><input id="draw-persist" type="checkbox"><small class="muted">不勾只在这次运行期间有效</small></label>
           </div>
           <p id="draw-status" class="muted small"></p>
@@ -348,34 +355,19 @@
       <article class="card section ability" id="ab-art" data-ability="找插画">
         <div class="section-head"><div><h3>找插画</h3><p class="muted">有人想看某类图时，去 Pixiv 找公开作品，附作者和出处。</p></div><input type="checkbox" class="switch" data-feature="artwork" aria-label="找插画"></div>
         <p class="reason" data-reason="artwork"></p>
-        <form id="art-form" class="col" novalidate>
+        <form autocomplete="off" id="art-form" class="col" novalidate>
           <label class="switch-row"><span><strong>聊天时它可以自己去找</strong><small>关掉后只发每日分享，聊天里不找图。</small></span><input id="art-agent" type="checkbox" class="switch"></label>
-          <div class="fields four">
-            <label class="field"><span>每个会话每天最多</span><input id="art-daily" type="number" min="1" max="1000"></label>
-            <label class="field"><span>每天最多请求来源</span><input id="art-network" type="number" min="10" max="2000"></label>
-            <label class="field"><span>同一张几天内不重复</span><input id="art-repeat" type="number" min="1" max="7"></label>
-            <label class="field"><span>搜索时最少收藏</span><input id="art-bookmarks" type="number" min="1" max="1000000"></label>
-          </div>
+          <div class="fields"><label class="field"><span>同一张几天内不重复</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="art-repeat" autocomplete="off" id="art-repeat" type="number" min="1" max="7"></label></div>
           <div class="sub-row"><div><strong>每日插画分享</strong><small class="muted">按下面的时间往选中的会话发一张；不补发过期的。</small></div><input type="checkbox" class="switch" data-feature="daily" aria-label="每日插画分享"></div>
           <div class="fields four">
-            <label class="field"><span>频率</span><select id="art-frequency"><option value="daily">每天</option><option value="hourly">每小时</option></select></label>
-            <label class="field"><span>几点</span><input id="art-hour" type="number" min="0" max="23"></label>
-            <label class="field"><span>几分</span><input id="art-minute" type="number" min="0" max="59"></label>
-            <label class="field"><span>发什么</span><select id="art-mode"><option value="hot">Pixiv 最新日榜</option><option value="featured">动漫游戏美少女精选</option></select></label>
+            <label class="field"><span>频率</span><select name="art-frequency" autocomplete="off" id="art-frequency"><option value="daily">每天</option><option value="hourly">每小时</option></select></label>
+            <label class="field"><span>几点</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="art-hour" autocomplete="off" id="art-hour" type="number" min="0" max="23"></label>
+            <label class="field"><span>几分</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="art-minute" autocomplete="off" id="art-minute" type="number" min="0" max="59"></label>
+            <label class="field"><span>发什么</span><select name="art-mode" autocomplete="off" id="art-mode"><option value="hot">Pixiv 最新日榜</option><option value="featured">动漫游戏美少女精选</option></select></label>
           </div>
-          <div class="fields"><label class="field"><span>时区</span><input id="art-zone" placeholder="Asia/Shanghai"></label></div>
+          <div class="fields"><label class="field"><span>时区</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="art-zone" autocomplete="off" id="art-zone" placeholder="Asia/Shanghai"></label></div>
           <p class="field-label">分享到哪些会话</p>
           <div id="art-targets" class="check-grid"></div>
-          <p class="field-label">精选画师</p>
-          <div id="art-artists" class="state-list"></div>
-          <div class="inline-add"><input id="art-artist-input" placeholder="Pixiv 主页链接或数字 ID" autocomplete="off"><button id="art-artist-add" class="btn" type="button">添加</button></div>
-          <details class="explain"><summary>图片尺寸和画师单独授权</summary>
-            <div class="fields gap-top">
-              <label class="field"><span>长边至少（像素）</span><input id="art-long" type="number" min="0" max="4096"></label>
-              <label class="field"><span>短边至少（像素）</span><input id="art-short" type="number" min="0" max="4096"></label>
-            </div>
-            <label class="field gap-top"><span>画师单独授权（每行“画师 ID 空格 授权页 HTTPS 链接”）</span><textarea id="art-permissions" rows="3"></textarea></label>
-          </details>
           <p id="art-status" class="muted small"></p>
           <div class="actions end"><button id="art-save" class="btn primary" type="submit">保存</button></div>
         </form>
@@ -383,29 +375,29 @@
 
       <article class="card section ability" id="ab-voice" data-ability="语音">
         <div class="section-head"><div><h3>语音</h3><p class="muted">它自己决定什么时候发语音（标准和完全权限）。发不了的时候会照实说，不编借口。</p></div><span id="voice-badge" class="badge"></span></div>
-        <form id="qqvoice-form" class="col" novalidate>
+        <form autocomplete="off" id="qqvoice-form" class="col" novalidate>
           <p class="field-label">QQ 自带 AI 语音 <small class="muted">只能在群里用，不需要任何 Key；下面填了 OpenAI Key 时优先用 OpenAI 的声音</small></p>
           <label class="switch-row"><span><strong>群里用 QQ 自带 AI 语音</strong></span><input id="qqvoice-enabled" type="checkbox" class="switch"></label>
-          <div class="fields"><label class="field"><span>声音角色</span><select id="qqvoice-character"></select></label></div>
+          <div class="fields"><label class="field"><span>声音角色</span><select name="qqvoice-character" autocomplete="off" id="qqvoice-character"></select></label></div>
           <div class="actions end"><button class="btn primary" type="submit">保存</button></div>
         </form>
-        <form id="voice-form" class="col divided" novalidate>
+        <form autocomplete="off" id="voice-form" class="col divided" novalidate>
           <p class="field-label">OpenAI 语音 <small id="voice-status" class="muted"></small></p>
           <label class="switch-row"><span><strong>用 OpenAI 的声音</strong><small>群聊和私聊都能发；合成失败时改发文字。</small></span><input id="voice-enabled" type="checkbox" class="switch"></label>
           <div class="fields">
-            <label class="field"><span>OpenAI API Key</span><input id="voice-key" type="password" autocomplete="off" placeholder="留空则保留已保存的"><small id="voice-key-state" class="muted"></small></label>
-            <label class="field"><span>接口地址</span><input id="voice-base" autocomplete="off" spellcheck="false"><small class="muted">默认 OpenAI 官方；兼容的中转也行</small></label>
+            <label class="field"><span>OpenAI API Key</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="voice-key" id="voice-key" type="text" class="secret" autocomplete="off" placeholder="留空则保留已保存的"><small id="voice-key-state" class="muted"></small></label>
+            <label class="field"><span>接口地址</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="voice-base" id="voice-base" autocomplete="off" spellcheck="false"><small class="muted">默认 OpenAI 官方；兼容的中转也行</small></label>
           </div>
           <div class="fields">
-            <label class="field"><span>调用方式</span><select id="voice-engine"><option value="realtime">实时语音模型（推荐）</option><option value="speech">兼容模式：/audio/speech</option></select><small id="voice-engine-help" class="muted"></small></label>
-            <label class="field"><span>模型</span><input id="voice-model" autocomplete="off" spellcheck="false" list="voice-models"><datalist id="voice-models"></datalist></label>
+            <label class="field"><span>调用方式</span><select name="voice-engine" autocomplete="off" id="voice-engine"><option value="realtime">实时语音模型（推荐）</option><option value="speech">兼容模式：/audio/speech</option></select><small id="voice-engine-help" class="muted"></small></label>
+            <label class="field"><span>模型</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="voice-model" id="voice-model" autocomplete="off" spellcheck="false" list="voice-models"><datalist id="voice-models"></datalist></label>
           </div>
           <div class="fields">
-            <label class="field"><span>音色</span><select id="voice-voice"></select><small class="muted">官方推荐 marin、cedar</small></label>
-            <label class="field" id="voice-speed-field"><span>语速</span><input id="voice-speed" type="number" min="0.5" max="2" step="0.05"></label>
+            <label class="field"><span>音色</span><select name="voice-voice" autocomplete="off" id="voice-voice"></select><small class="muted">官方推荐 marin、cedar</small></label>
+            <label class="field" id="voice-speed-field"><span>语速</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="voice-speed" autocomplete="off" id="voice-speed" type="number" min="0.5" max="2" step="0.05"></label>
           </div>
-          <label class="field"><span>说话风格</span><textarea id="voice-style" rows="3" maxlength="600"></textarea><small class="muted">告诉语音模型用什么语气、声线说（tts-1 系列不支持，会忽略）。</small></label>
-          <label class="field"><span>试听这句</span><input id="voice-sample" value="哼，叫我干嘛？我可是很忙的大肥鱼。"></label>
+          <label class="field"><span>说话风格</span><textarea data-1p-ignore data-lpignore="true" data-form-type="other" name="voice-style" autocomplete="off" id="voice-style" rows="3" maxlength="600"></textarea><small class="muted">告诉语音模型用什么语气、声线说（tts-1 系列不支持，会忽略）。</small></label>
+          <label class="field"><span>试听这句</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="voice-sample" autocomplete="off" id="voice-sample" value="哼，叫我干嘛？我可是很忙的大肥鱼。"></label>
           <audio id="voice-player" controls hidden></audio>
           <div class="actions end"><button id="voice-clear" class="btn small ghost danger" type="button">删除 Key</button><button id="voice-test" class="btn" type="button">试听</button><button id="voice-save" class="btn primary" type="submit">保存</button></div>
         </form>
@@ -414,12 +406,12 @@
       <article class="card section ability" id="ab-memory" data-ability="长期记忆">
         <div class="section-head"><div><h3>长期记忆</h3><p class="muted">各好友和群分开记：称呼、外号、谁是谁、约定、接梗、喜好。整理放到后台，不挡聊天。</p></div><input type="checkbox" class="switch" data-feature="memory" aria-label="长期记忆"></div>
         <p class="reason" data-reason="memory"></p>
-        <form id="memory-form" class="col" novalidate>
+        <form autocomplete="off" id="memory-form" class="col" novalidate>
           <div class="fields four">
-            <label class="field"><span>攒够几条整理一次</span><input id="memory-messages" type="number" min="4" max="100"></label>
-            <label class="field"><span>或攒够多少字</span><input id="memory-characters" type="number" min="1000" max="20000" step="1000"></label>
-            <label class="field"><span>或隔多少分钟</span><input id="memory-minutes" type="number" min="1" max="120"></label>
-            <label class="field"><span>每轮最多翻出多少字</span><input id="memory-budget" type="number" min="600" max="4000" step="200"></label>
+            <label class="field"><span>攒够几条整理一次</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="memory-messages" autocomplete="off" id="memory-messages" type="number" min="4" max="100"></label>
+            <label class="field"><span>或攒够多少字</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="memory-characters" autocomplete="off" id="memory-characters" type="number" min="1000" max="20000" step="1000"></label>
+            <label class="field"><span>或隔多少分钟</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="memory-minutes" autocomplete="off" id="memory-minutes" type="number" min="1" max="120"></label>
+            <label class="field"><span>每轮最多翻出多少字</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="memory-budget" autocomplete="off" id="memory-budget" type="number" min="600" max="4000" step="200"></label>
           </div>
           <p id="memory-state" class="muted small"></p>
           <div class="actions end"><button id="memory-save" class="btn primary" type="submit">保存</button></div>
@@ -430,21 +422,28 @@
 
       <article class="card section ability" id="ab-computer" data-ability="超级模式">
         <div class="section-head"><div><h3>超级模式（操控电脑）</h3><p class="muted">主人在和机器人私聊时，可以让它用本机 Codex 操作这台电脑（完全权限）。查看类的直接做；删改文件、装卸软件、改设置、关机重启这类，它会先在 QQ 里说要做什么，等主人回复确认才做。只认下面这一个 QQ 号，群里一律不行。</p></div><span id="computer-badge" class="badge"></span></div>
-        <form id="computer-form" class="col" novalidate>
+        <form autocomplete="off" id="computer-form" class="col" novalidate>
           <label class="switch-row"><span><strong>打开超级模式</strong></span><input id="computer-enabled" type="checkbox" class="switch"></label>
-          <div class="fields"><label class="field"><span>主人的 QQ 号</span><input id="computer-owner" inputmode="numeric" autocomplete="off"></label></div>
+          <div class="fields"><label class="field"><span>主人的 QQ 号</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="computer-owner" id="computer-owner" inputmode="numeric" autocomplete="off"></label></div>
           <div class="actions end"><button id="computer-save" class="btn primary" type="submit">保存</button></div>
         </form>
         <p class="field-label">最近几次</p>
         <div id="computer-history" class="state-list"></div>
       </article>
+      </div>
     </section>
 
     <!-- 工具 -->
-    <section class="page narrow" data-page="tools" hidden>
+    <section class="page" data-page="tools" hidden>
+      <div class="split">
       <div class="card section">
         <div class="section-head"><div><h3>它自己写的工具</h3><p class="muted">现有工具做不到的事，它会自己写一个（完全权限的会话里）。程序先用它给的测试参数在沙箱里跑一遍，跑通了才加进来，当场就能用。沙箱读不了文件、开不了程序，只能访问公网，每次最多 60 秒。</p></div><span id="tools-count" class="badge"></span></div>
         <div id="custom-tools" class="tool-list"></div>
+      </div>
+      <div id="repairs-card" class="card section" hidden>
+        <div class="section-head"><div><h3>自我修复</h3><p class="muted">程序自己出错时，它在单独的分支里让 Codex 修（控制台的问题交给 Opus），跑通测试再合进来。</p></div><span id="repairs-badge" class="badge"></span></div>
+        <div id="repairs-list" class="repair-list"></div>
+      </div>
       </div>
       <div class="card section">
         <div class="section-head"><div><h3>内置工具</h3><p class="muted">代理每一轮能用哪些，看会话的权限档；有的还要在「能力」里打开对应功能。</p></div></div>
@@ -453,35 +452,36 @@
     </section>
 
     <!-- 节奏与额度 -->
-    <section class="page narrow" data-page="rhythm" hidden>
-      <form id="hours-form" class="card section" novalidate>
+    <section class="page" data-page="rhythm" hidden>
+      <div class="masonry">
+      <form autocomplete="off" id="hours-form" class="card section" novalidate>
         <div class="section-head"><div><h3>什么时候说话</h3><p class="muted">工作时段外完全不回、不记次数；夜间安静时不主动插群聊、不贴表情，有人 @ 它、回复它、叫它的名字照常回。</p></div></div>
         <label class="switch-row"><span><strong>只在工作时段回复</strong></span><input id="limit-hours" type="checkbox" class="switch"></label>
-        <div class="fields"><label class="field"><span>从</span><select id="limit-start"></select></label><label class="field"><span>到</span><select id="limit-end"></select></label></div>
+        <div class="fields"><label class="field"><span>从</span><select name="limit-start" autocomplete="off" id="limit-start"></select></label><label class="field"><span>到</span><select name="limit-end" autocomplete="off" id="limit-end"></select></label></div>
         <label class="switch-row divided"><span><strong>夜间安静</strong></span><input id="quiet-enabled" type="checkbox" class="switch"></label>
-        <div class="fields"><label class="field"><span>从</span><select id="quiet-start"></select></label><label class="field"><span>到</span><select id="quiet-end"></select></label></div>
+        <div class="fields"><label class="field"><span>从</span><select name="quiet-start" autocomplete="off" id="quiet-start"></select></label><label class="field"><span>到</span><select name="quiet-end" autocomplete="off" id="quiet-end"></select></label></div>
         <div class="actions end"><button id="hours-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
-      <form id="outreach-form" class="card section" novalidate>
+      <form autocomplete="off" id="outreach-form" class="card section" novalidate>
         <div class="section-head"><div><h3>主动找人聊天</h3><p class="muted">只在私聊里：隔一段时间没聊，叫代理看看有没有由头主动问候或跟进。没有由头就不发；对方没回上一条不会再发；免打扰时段不发。</p></div><input id="outreach-enabled" type="checkbox" class="switch" aria-label="主动找人聊天"></div>
         <p id="outreach-hint" class="reason"></p>
         <div class="fields four">
-          <label class="field"><span>多久没聊后考虑</span><select id="outreach-idle"></select></label>
-          <label class="field"><span>同一个人至少间隔</span><select id="outreach-cooldown"></select></label>
-          <label class="field"><span>免打扰从</span><select id="outreach-quiet-start"></select></label>
-          <label class="field"><span>到</span><select id="outreach-quiet-end"></select></label>
+          <label class="field"><span>多久没聊后考虑</span><select name="outreach-idle" autocomplete="off" id="outreach-idle"></select></label>
+          <label class="field"><span>同一个人至少间隔</span><select name="outreach-cooldown" autocomplete="off" id="outreach-cooldown"></select></label>
+          <label class="field"><span>免打扰从</span><select name="outreach-quiet-start" autocomplete="off" id="outreach-quiet-start"></select></label>
+          <label class="field"><span>到</span><select name="outreach-quiet-end" autocomplete="off" id="outreach-quiet-end"></select></label>
         </div>
         <p class="field-label">参与的私聊 <small class="muted">取消勾选的人不会被主动找</small></p>
         <div id="outreach-chats" class="chat-list"></div>
         <div class="actions end"><button id="outreach-save" class="btn primary" type="submit">保存</button></div>
       </form>
 
-      <form id="limits-form" class="card section" novalidate>
+      <form autocomplete="off" id="limits-form" class="card section" novalidate>
         <div class="section-head"><div><h3>发送间隔</h3><p id="limits-today" class="muted"></p></div></div>
         <div class="fields">
-          <label class="field"><span>两条消息至少隔（秒）</span><input id="limit-interval" type="number" min="1" max="300"></label>
-          <label class="field"><span>同一会话两次回复至少隔（秒）</span><input id="limit-cooldown" type="number" min="0" max="300"></label>
+          <label class="field"><span>两条消息至少隔（秒）</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="limit-interval" autocomplete="off" id="limit-interval" type="number" min="1" max="300"></label>
+          <label class="field"><span>同一会话两次回复至少隔（秒）</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="limit-cooldown" autocomplete="off" id="limit-cooldown" type="number" min="0" max="300"></label>
         </div>
         <p class="muted small">没有每天、每小时的条数上限，也不限模型调用次数。</p>
         <div class="actions end"><button id="limits-save" class="btn primary" type="submit">保存</button></div>
@@ -489,6 +489,7 @@
 
       <div class="card section">
         <div class="section-head"><div><h3>防机器人互聊</h3><p class="muted">对面像机器人在跟它复读、自动互答时，只对那个人临时降温，其他人照常聊天。</p></div><input type="checkbox" class="switch" data-feature="loop" aria-label="防机器人互聊"></div>
+      </div>
       </div>
     </section>
 
@@ -500,20 +501,20 @@
         <button type="button" role="tab" data-provider="cloud">云端 API</button>
       </div>
       <div class="grid-2">
-        <form id="model-form" class="card col" novalidate>
+        <form autocomplete="off" id="model-form" class="card col" novalidate>
           <div class="card-head flush"><h3 id="mf-title">本机 Codex</h3><span id="mf-badge" class="badge"></span></div>
           <p id="mf-help" class="muted"></p>
           <div id="cloud-fields" class="col" hidden>
             <label class="field"><span>API 协议</span>
-              <select id="mf-protocol"><option value="openai">OpenAI 兼容 Chat Completions</option><option value="anthropic">Anthropic Messages API</option></select></label>
-            <label class="field"><span>接口地址</span><input id="mf-base" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></label>
-            <label class="field"><span>API Key</span><input id="mf-key" type="password" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存的密钥"><small id="mf-key-hint" class="muted"></small></label>
-            <label class="field"><span>生图模型（可选）</span><input id="mf-image" class="mono" list="mf-image-list" autocomplete="off" spellcheck="false" placeholder="例如 gpt-image-1；不填只用本机 Codex 画图"><datalist id="mf-image-list"></datalist>
+              <select name="mf-protocol" autocomplete="off" id="mf-protocol"><option value="openai">OpenAI 兼容 Chat Completions</option><option value="anthropic">Anthropic Messages API</option></select></label>
+            <label class="field"><span>接口地址</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-base" id="mf-base" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span>API Key</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-key" id="mf-key" type="text" class="secret" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存的密钥"><small id="mf-key-hint" class="muted"></small></label>
+            <label class="field"><span>生图模型（可选）</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-image" id="mf-image" class="mono" list="mf-image-list" autocomplete="off" spellcheck="false" placeholder="例如 gpt-image-1；不填只用本机 Codex 画图"><datalist id="mf-image-list"></datalist>
               <small class="muted">填了就先用这个 API 画图，画不出来再交给本机 Codex。只支持 OpenAI 兼容的 /images/generations；不管当前用哪种连接聊天都生效。</small></label>
           </div>
-          <label class="field"><span>模型 ID</span><input id="mf-model" class="mono" autocomplete="off" spellcheck="false" placeholder="从右侧目录选择，或直接填写"></label>
+          <label class="field"><span>模型 ID</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-model" id="mf-model" class="mono" autocomplete="off" spellcheck="false" placeholder="从右侧目录选择，或直接填写"></label>
           <label id="effort-row" class="field"><span>思考强度</span>
-            <select id="mf-effort">
+            <select name="mf-effort" autocomplete="off" id="mf-effort">
               <option value="low">低：回得最快，适合纯闲聊</option>
               <option value="medium">中：默认，大多数时候够用</option>
               <option value="high">高：想得更仔细，回得慢、更耗额度</option>
@@ -532,12 +533,12 @@
         </form>
         <div class="card col">
           <div class="card-head flush"><h3>模型目录</h3><button id="catalog-refresh" class="btn small ghost" type="button"><svg><use href="#i-refresh"/></svg>刷新</button></div>
-          <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" autocomplete="off" spellcheck="false">
+          <input data-1p-ignore data-lpignore="true" data-form-type="other" name="catalog-search" id="catalog-search" type="search" placeholder="搜索模型名称或 ID" autocomplete="off" spellcheck="false">
           <p id="catalog-status" class="muted small"></p>
           <div id="catalog-list" class="catalog-list" role="list"></div>
         </div>
       </div>
-      <form id="routes-form" class="card section" novalidate>
+      <form autocomplete="off" id="routes-form" class="card section" novalidate>
         <div class="section-head"><div><h3>模型分工</h3><p class="muted">每种活交给哪个模型；没单独指定的跟着上面“当前使用中”的连接。最要紧的是“指挥”和“助手”：指挥负责看消息、拿主意、说话，用最会说话的模型；助手只跑腿，可以用便宜的。单独指定的模型出错或没额度时，这一次自动改用当前连接。</p></div></div>
         <div id="routes-rows" class="route-rows"></div>
         <div class="actions end"><button id="routes-save" class="btn primary" type="submit">保存分工</button></div>
@@ -551,13 +552,13 @@
           <div class="card-head"><h3>管理员 QQ</h3></div>
           <p class="muted">管理员能让它拉黑、清空群记忆、改群里性格、存表情、设精华、禁言；它找主人时私聊第一个管理员。机器人自己登录的 QQ 也算管理员。</p>
           <div id="admin-chips" class="chips"></div>
-          <form class="chip-add" data-list="admins"><input inputmode="numeric" placeholder="输入 QQ 号后回车" maxlength="12" aria-label="添加管理员"><button class="btn small" type="submit">添加</button></form>
+          <form autocomplete="off" class="chip-add" data-list="admins"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" name="admin-add" inputmode="numeric" placeholder="输入 QQ 号后回车" maxlength="12" aria-label="添加管理员"><button class="btn small" type="submit">添加</button></form>
         </div>
         <div class="card">
           <div class="card-head"><h3>黑名单</h3></div>
           <p class="muted">拉黑后，这些 QQ 在私聊和群里说什么都不会得到回复，也不进记忆。管理员不能被拉黑。</p>
           <div id="blocked-chips" class="chips"></div>
-          <form class="chip-add" data-list="blocked"><input inputmode="numeric" placeholder="输入 QQ 号后回车" maxlength="12" aria-label="添加到黑名单"><button class="btn small" type="submit">添加</button></form>
+          <form autocomplete="off" class="chip-add" data-list="blocked"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" name="blocked-add" inputmode="numeric" placeholder="输入 QQ 号后回车" maxlength="12" aria-label="添加到黑名单"><button class="btn small" type="submit">添加</button></form>
         </div>
       </div>
       <div id="moderation-bar" class="save-bar" hidden>
@@ -603,7 +604,7 @@
 
     <!-- 设置 -->
     <section class="page" data-page="settings" hidden>
-      <div class="grid-2">
+      <div class="masonry">
         <form id="password-form" class="card col" novalidate>
           <div class="card-head flush"><h3>修改控制台密码</h3></div>
           <label class="field"><span>当前密码</span><input id="pw-current" type="password" autocomplete="current-password" maxlength="128"></label>
@@ -612,7 +613,6 @@
           <p id="pw-error" class="form-error" role="alert"></p>
           <div class="actions"><button class="btn primary" type="submit">修改密码</button></div>
         </form>
-        <div class="col">
           <div class="card">
             <label class="switch-row">
               <span><strong>开机自启</strong><small id="autostart-hint">登录 Windows 后自动在后台启动大肥鱼，托盘里会出现图标。</small></span>
@@ -632,10 +632,18 @@
               <dt>访问范围</dt><dd>本机；设过密码后也可通过隧道登录</dd>
             </dl>
           </div>
-        </div>
       </div>
     </section>
   </main>
 </div>
+
+<dialog id="dialog" class="dialog" aria-labelledby="dialog-title" aria-describedby="dialog-message">
+  <form id="dialog-form" class="dialog-body" autocomplete="off" novalidate>
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-message"></p>
+    <label id="dialog-field" class="field" hidden><span id="dialog-label"></span><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" id="dialog-input" name="dialog-input"></label>
+    <div class="actions end"><button id="dialog-cancel" class="btn" type="button">取消</button><button id="dialog-ok" class="btn primary" type="submit">确定</button></div>
+  </form>
+</dialog>
 </body>
 </html>

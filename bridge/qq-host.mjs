@@ -279,7 +279,14 @@ export class QQHost{
       }catch(error){await this.status({engine:true,phase:'needs_attention',error:error.message,desiredRunning:desired});}
       await wait(5000);
     }
-    if(this.child&&this.child.exitCode!==null)throw new Error('Engine exited with code '+this.child.exitCode);
+    if(this.child&&this.child.exitCode!==null){
+      // A crash (not a stop) is a program error for the self-repair pipeline, with the end of the engine's log.
+      if(!this.stopped&&this.child.exitCode!==0&&this.onCrash){
+        const log=await fs.readFile(path.join(this.logs,'engine.log'),'utf8').catch(()=>'');
+        this.onCrash({source:'engine',kind:'crash',message:'引擎退出了（代码 '+this.child.exitCode+'）',stack:log.split('\n').slice(-60).join('\n'),context:{}});
+      }
+      throw new Error('Engine exited with code '+this.child.exitCode);
+    }
   }
   /** One OneBot action on the bot's account, over SnowLuma's HTTP endpoint (for my_ tools' read-only queries). */
   async qqCall(action,params={}){

@@ -57,7 +57,8 @@ export class QQImageGenerator {
         checkCancellation(signal);
         const status = (index > 0 ? '已切换备用：' : '生成成功：') + QQImageProvider.title(provider);
         return new ModelToolResult({content: '已实际生成并准备附带一张 AI 图片。用短句回应，不声称已看过生成图的细节。' + status,
-          image, sources: ['AI 生成 · ' + QQImageProvider.title(provider)], imageStatus: status});
+          // No caption line on the picture (11-03: "把这种文字标注拿掉" — it said which service drew it).
+          image, sources: [], imageStatus: status});
       } catch (error) {
         if (error instanceof CancellationError) throw new CancellationError(error.cause);
         if (error instanceof URLError && error.code === URLError.cancelled) throw new CancellationError(error);

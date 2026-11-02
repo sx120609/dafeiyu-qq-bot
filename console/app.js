@@ -61,9 +61,52 @@ async function busy(button,task){
 }
 // A form's submit: its button spins while the task runs.
 const onSubmit=(form,task)=>{form.addEventListener('submit',event=>{event.preventDefault();busy(event.submitter||form.querySelector('button[type=submit]'),task);});};
-const el=(tag,props={},...children)=>{const node=Object.assign(document.createElement(tag),props);node.append(...children.filter(x=>x!=null&&x!==false));return node;};
+let fieldCount=0;
+const el=(tag,props={},...children)=>{
+  const node=Object.assign(document.createElement(tag),props);node.append(...children.filter(x=>x!=null&&x!==false));
+  // Fields made here are settings, never sign-in: keep browser autofill and password managers off them.
+  if(['input','textarea','select'].includes(tag)&&node.type!=='checkbox'){
+    node.autocomplete='off';if(!node.name)node.name='field-'+(++fieldCount);
+    if(tag!=='select'){node.setAttribute('data-1p-ignore','');node.setAttribute('data-lpignore','true');node.setAttribute('data-form-type','other');}
+  }
+  return node;
+};
 const icon=name=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');const use=document.createElementNS('http://www.w3.org/2000/svg','use');use.setAttribute('href','#i-'+name);svg.append(use);return svg;};
 const empty=text=>el('p',{className:'empty'},text);
+
+/* In-page dialogs in place of the browser's confirm / alert / prompt. They queue, one at a time;
+   Esc or the backdrop cancels, Enter confirms, focus stays inside and goes back where it was. */
+let dialogQueue=Promise.resolve();
+function openDialog({title='',message='',confirmText='确定',cancelText='取消',danger=false,input=null,alert=false}={}){
+  const run=()=>new Promise(resolve=>{
+    const dialog=$('dialog'),form=$('dialog-form'),ok=$('dialog-ok'),cancel=$('dialog-cancel'),field=$('dialog-field'),box=$('dialog-input');
+    const returnTo=document.activeElement;
+    $('dialog-title').textContent=title;$('dialog-title').hidden=!title;
+    $('dialog-message').textContent=message;$('dialog-message').hidden=!message;
+    ok.textContent=confirmText;ok.className='btn '+(danger?'destructive':'primary');
+    cancel.textContent=cancelText;cancel.hidden=alert;
+    field.hidden=!input;
+    if(input){$('dialog-label').textContent=input.label||'';box.value=input.value??'';box.placeholder=input.placeholder||'';}
+    const declined=input?null:alert?undefined:false;
+    const finish=value=>{
+      dialog.removeEventListener('cancel',onCancel);dialog.removeEventListener('keydown',onKey);dialog.removeEventListener('click',onBackdrop);
+      form.onsubmit=null;cancel.onclick=null;dialog.close();
+      if(returnTo instanceof HTMLElement&&returnTo.isConnected)returnTo.focus({preventScroll:true});
+      resolve(value);
+    };
+    const onCancel=event=>{event.preventDefault();finish(declined);};
+    const onKey=event=>{if(event.key==='Enter'&&!event.isComposing&&event.target!==cancel&&event.target.tagName!=='TEXTAREA'){event.preventDefault();finish(input?box.value:alert?undefined:true);}};
+    const onBackdrop=event=>{if(event.target===dialog&&!alert)finish(declined);};
+    dialog.addEventListener('cancel',onCancel);dialog.addEventListener('keydown',onKey);dialog.addEventListener('click',onBackdrop);
+    cancel.onclick=()=>finish(declined);
+    form.onsubmit=event=>{event.preventDefault();finish(input?box.value:alert?undefined:true);};
+    dialog.showModal();(input?box:ok).focus();
+  });
+  const next=dialogQueue.then(run);dialogQueue=next.catch(()=>{});return next;
+}
+const confirmDialog=options=>openDialog(options);
+const alertDialog=options=>openDialog({confirmText:'知道了',...options,alert:true});
+const promptDialog=options=>openDialog({...options,input:options?.input||{}});
 const clock=seconds=>new Date(seconds*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
 const shortDate=seconds=>new Date(seconds*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
 const ago=seconds=>{if(!seconds)return '—';const m=Math.max(0,(Date.now()/1000-seconds)/60);return m<60?`${Math.round(m)} 分钟前`:m<1440?`${Math.round(m/60)} 小时前`:`${Math.round(m/1440)} 天前`;};
@@ -113,21 +156,26 @@ function route(){
   if(current===page)return;
   current=page;
   for(const section of $$('.page'))section.hidden=section.dataset.page!==page;
+  // The title row lines up with the page column; the embedded QQ pages use the whole width.
+  $('app').dataset.width=page==='qq'?'full':'wide';
   for(const link of $$('.nav a'))link.dataset.page===page?link.setAttribute('aria-current','page'):link.removeAttribute('aria-current');
   $('page-title').textContent=pages[page][0];$('page-sub').textContent=pages[page][1];
   renderPageActions();
-  $('app').querySelector('.main').scrollTop=0;
+  $('app').querySelector('.main').scrollTop=0;$('app').querySelector('.topbar').classList.remove('scrolled');
   const enter={overview:refreshOverview,activity:enterActivity,usage:enterUsage,chats:enterChats,persona:enterPersona,abilities:enterAbilities,
     tools:enterTools,rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:enterQQ,settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
   schedulePolling();
 }
-window.addEventListener('hashchange',()=>{
+window.addEventListener('hashchange',async()=>{
   if(takeToken()){current=null;boot();return;}
   if(pageFromHash()===current)return;
   if(dirty()){
-    if(!confirm('当前页面有未保存的改动，确定离开吗？')){history.replaceState(null,'','#'+current);return;}
+    // Stay put while asking; go on only if the changes may be dropped.
+    const wanted=location.hash;history.replaceState(null,'','#'+current);
+    if(!await confirmDialog({title:'有未保存的改动',message:'当前页面有未保存的改动，确定离开吗？离开后这些改动不会保存。',confirmText:'离开',cancelText:'留下',danger:true}))return;
     modelDirty=false;routesDirty=false;chatsDirty=false;$('moderation-bar').hidden=true;
+    history.replaceState(null,'',wanted);
   }
   route();
 });
@@ -135,7 +183,8 @@ function renderPageActions(){
   const actions=$('page-actions');actions.replaceChildren();
   const button=(label,handler,name)=>{const b=el('button',{type:'button',className:'btn small ghost'},...(name?[icon(name)]:[]),label);b.onclick=()=>busy(b,handler);actions.append(b);};
   if(current==='qq'&&qqBackend==='napcat'){button('重新连接',()=>openEmbed(true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
-  if(current==='qq'&&qqBackend==='snowluma'){button('刷新',async()=>{$('frame-luma').removeAttribute('src');await enterQQ();},'refresh');}
+  if(current==='qq'&&qqBackend==='snowluma'){button('刷新',async()=>{$('frame-luma').removeAttribute('src');await enterQQ();},'refresh');
+    if(lumaEmbed&&['127.0.0.1','localhost'].includes(location.hostname))button('新窗口打开',async()=>window.open(lumaEmbed,'_blank','noopener'),'ext');}
   if(['activity','usage','abilities','tools','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,abilities:enterAbilities,tools:enterTools,rhythm:enterRhythm}[current],'refresh');
 }
 
@@ -144,10 +193,12 @@ function stopPolling(){clearTimeout(pollTimer);pollTimer=null;}
 function schedulePolling(){
   stopPolling();
   pollTimer=setTimeout(async()=>{
-    if(!document.hidden){try{if(current==='overview')await refreshOverview();else if(current==='activity')await refreshActivity();else await refreshBrand();}catch{}}
+    if(!document.hidden){try{if(current==='overview')await refreshOverview();else if(current==='activity')await refreshActivity();else{await refreshBrand();if(current==='tools')await loadRepairs();}}catch{}}
     schedulePolling();
   },['overview','activity'].includes(current)?5000:20000);
 }
+// A hairline under the title row once the page scrolls beneath it.
+$('app').querySelector('.main').addEventListener('scroll',event=>$('app').querySelector('.topbar').classList.toggle('scrolled',event.currentTarget.scrollTop>4),{passive:true});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!$('app').hidden&&current==='overview')refreshOverview().catch(()=>{});});
 
 /* Overview */
@@ -210,9 +261,9 @@ $('ov-toggle').onclick=()=>busy($('ov-toggle'),async()=>{
   const result=await api('runtime/action',{action:overview?.bot?.running?'bot-pause':'bot-resume'});
   toast(result.message);await refreshOverview();
 });
-for(const button of $$('[data-runtime]'))button.onclick=()=>{
+for(const button of $$('[data-runtime]'))button.onclick=async()=>{
   const name={'bot-restart':'重启机器人','napcat-restart':qqBackend==='snowluma'?'重启 SnowLuma':'重启 NapCat'}[button.dataset.runtime];
-  if(!confirm(`确定${name}吗？期间机器人会离线一小会儿。`))return;
+  if(!await confirmDialog({title:`确定${name}吗？`,message:'期间机器人会离线一小会儿。',confirmText:name}))return;
   busy(button,async()=>{const result=await api('runtime/action',{action:button.dataset.runtime});toast(result.message);await refreshOverview();});
 };
 
@@ -238,7 +289,7 @@ showActivityTab();
 function renderAgent(){
   const states=agentData.states||[],turns=agentData.turns||[],hour=Date.now()/1000-3600,now=Date.now()/1000;
   const recent=turns.filter(t=>t.at>=hour),spoke=recent.filter(t=>t.decision==='reply').length;
-  const card=(label,value,sub)=>el('div',{className:'card stat'},el('span',{},label),el('strong',{},String(value)),el('small',{},sub));
+  const card=(label,value,sub)=>el('div',{className:'stat'},el('span',{},label),el('strong',{},String(value)),el('small',{},sub));
   $('agent-stats').replaceChildren(
     card('会话',states.length,`名单里共 ${agentData.chats.length} 个`),
     card('正在想',states.filter(s=>s.thinkingSince).length,'正在看一批消息'),
@@ -387,10 +438,10 @@ new ResizeObserver(([entry])=>{
 function renderPrices(){
   const rows=(usageData.priceList||[]).map(m=>{
     const key=`${m.provider}|${m.model}`,ref=m.referencePrice;
-    const input=name=>el('input',{type:'number',min:0,max:10000,step:'0.001',inputMode:'decimal',value:m.price?.[name]??'',placeholder:ref?.[name]!=null?String(ref[name]):'未填',
-      'aria-label':`${m.model} ${({input:'输入',cachedInput:'缓存输入',output:'输出'})[name]}单价`,name});
+    const input=name=>{const field=el('input',{type:'number',min:0,max:10000,step:'0.001',inputMode:'decimal',value:m.price?.[name]??'',placeholder:ref?.[name]!=null?String(ref[name]):'未填',name});
+      field.setAttribute('aria-label',`${m.model} ${({input:'输入',cachedInput:'缓存输入',output:'输出'})[name]}单价`);return field;};
     const fields=['input','cachedInput','output'].map(input);
-    const save=el('button',{type:'button',className:'btn small primary'},'保存');
+    const save=el('button',{type:'button',className:'btn small'},'保存');
     const clear=el('button',{type:'button',className:'btn small ghost',hidden:!m.price},'恢复列表价');
     save.onclick=()=>busy(save,async()=>{
       const price=Object.fromEntries(fields.filter(f=>f.value!=='').map(f=>[f.name,f.value]));
@@ -436,7 +487,8 @@ for(const input of $$('[data-feature]'))input.addEventListener('change',async()=
 });
 
 /* Chats */
-let chatsDirty=false;
+let chatsDirty=false,chatsSnapshot='';
+const chatValues=()=>JSON.stringify($$('#chats-rows tr').map(row=>[...row.querySelectorAll('input,select')].map(x=>x.type==='checkbox'?x.checked:x.value)));
 async function enterChats(){chatsDirty=false;await Promise.all([loadEngine(),api('agent').then(d=>agentData=d)]);renderChats();}
 function renderChats(){
   const levels=new Map(agentData.chats.map(c=>[c.key,c.level]));
@@ -445,13 +497,14 @@ function renderChats(){
     const enabled=el('input',{type:'checkbox',className:'chat-enabled',checked:t.enabled});enabled.dataset.key=t.key;enabled.setAttribute('aria-label','启用：'+t.name);
     const level=el('select',{className:'chat-level'},...Object.entries(levelNames).map(([v,n])=>el('option',{value:v,selected:v===(levels.get(t.key)||'full')},n)));level.dataset.key=t.key;
     const style=el('select',{className:'chat-style'},...styles.map(s=>el('option',{value:s.id,selected:s.id===(t.personaStyle||''),title:s.description||''},s.name)));style.dataset.key=t.key;
-    for(const input of [enabled,level,style])input.addEventListener('change',()=>{chatsDirty=true;});
+    for(const input of [enabled,level,style])input.addEventListener('change',()=>{chatsDirty=chatValues()!==chatsSnapshot;});
     const reset=el('button',{type:'button',className:'btn small ghost'},'清空记忆');
-    reset.onclick=()=>{if(confirm(`清空「${t.name}」的上下文和长期记忆？其他会话不受影响，机器人不会暂停。`))busy(reset,async()=>{await engineAction('resetMemory',{target:t.key});toast('已清空');});};
+    reset.onclick=async()=>{if(await confirmDialog({title:`清空「${t.name}」的上下文和长期记忆？`,message:'其他会话不受影响，机器人不会暂停。',confirmText:'清空',danger:true}))busy(reset,async()=>{await engineAction('resetMemory',{target:t.key});toast('已清空');});};
     const remove=el('button',{type:'button',className:'btn small ghost danger'},'移除');
-    remove.onclick=()=>{if(confirm(`把「${t.name}」移出名单？之后不再在这里说话，可以随时加回来。`))busy(remove,async()=>{await engineAction('remove',{target:t.key});await enterChats();toast('已移除');});};
+    remove.onclick=async()=>{if(await confirmDialog({title:`把「${t.name}」移出名单？`,message:'之后不再在这里说话，可以随时加回来。',confirmText:'移出',danger:true}))busy(remove,async()=>{await engineAction('remove',{target:t.key});await enterChats();toast('已移除');});};
     return el('tr',{},el('td',{},enabled),el('td',{},el('strong',{},chatLabelOf(t)),el('small',{className:'muted block'},t.number)),el('td',{},level),el('td',{},style),el('td',{className:'row-actions'},reset,remove));
   }):[el('tr',{},el('td',{colSpan:5,className:'empty'},'名单是空的，从下面添加。'))]));
+  chatsSnapshot=chatValues();chatsDirty=false;
   renderContacts();
 }
 function renderContacts(){
@@ -605,28 +658,19 @@ onSubmit($('draw-form'),async()=>{
     zhipuKey:$('draw-zhipu').value,cloudflareToken:$('draw-cloudflare').value,persistImageCredentials:$('draw-persist').checked});
   $('draw-zhipu').value='';$('draw-cloudflare').value='';renderDrawing();toast('已保存');
 });
-const artFields={'art-daily':'dailyPerChat','art-network':'networkDailyLimit','art-repeat':'repeatDays','art-bookmarks':'searchMinBookmarks','art-hour':'scheduleHour','art-minute':'scheduleMinute','art-long':'minLongEdge','art-short':'minShortEdge'};
+// The rest of the artwork settings (daily limits, size floors, artists) no longer steer the rewritten Pixiv tool; they are saved back unchanged.
+const artFields={'art-repeat':'repeatDays','art-hour':'scheduleHour','art-minute':'scheduleMinute'};
 function renderArtwork(){
   const a=engine.artwork||{};
   $('art-agent').checked=!!a.agentEnabled;
   for(const [id,key] of Object.entries(artFields))$(id).value=a[key]??'';
   $('art-frequency').value=a.scheduleFrequency||'daily';$('art-mode').value=a.scheduleMode||'hot';$('art-zone').value=a.scheduleTimeZone||'Asia/Shanghai';
   $('art-hour').disabled=$('art-frequency').value==='hourly';
-  $('art-permissions').value=Object.entries(a.imagePermissions||{}).map(([id,url])=>`${id} ${url}`).join('\n');
   $('art-status').textContent=engine.artworkStatus&&!engine.artworkStatus.startsWith('插画尚未')?`最近一次：${engine.artworkStatus} · 今天请求来源 ${engine.artworkNetworkCalls} 次`:'';
   $('art-targets').replaceChildren(...(engine.targets.length?engine.targets.map(t=>el('label',{className:'check-item'},el('input',{type:'checkbox',value:t.key,checked:(a.scheduleTargets||[]).includes(t.key)}),
     el('span',{},chatLabelOf(t)+(t.enabled?'':'（没启用，不会发）')))):[empty('名单里还没有会话。')]));
-  $('art-artists').replaceChildren(...(engine.artworkArtists.length?engine.artworkArtists.map(artist=>{
-    const remove=el('button',{type:'button',className:'btn small ghost danger'},'移除');
-    remove.onclick=()=>busy(remove,async()=>{await engineAction('removeArtworkArtist',{artistInput:artist.id});renderArtwork();});
-    return el('div',{className:'state-row'},el('span',{className:'name'},el('a',{href:'https://www.pixiv.net/users/'+artist.id,target:'_blank',rel:'noreferrer'},`${artist.name}（${artist.id}）`),el('small',{className:'muted'},artist.deliveryStatus||'')),remove);
-  }):[empty('还没有精选画师。')]));
 }
 $('art-frequency').onchange=()=>{$('art-hour').disabled=$('art-frequency').value==='hourly';};
-$('art-artist-add').onclick=()=>busy($('art-artist-add'),async()=>{
-  const input=$('art-artist-input').value.trim();if(!input)throw new Error('填 Pixiv 主页链接或数字 ID');
-  await engineAction('addArtworkArtist',{artistInput:input});$('art-artist-input').value='';renderArtwork();toast('已添加');
-});
 onSubmit($('art-form'),async()=>{
   const a=structuredClone(engine.artwork);
   a.agentEnabled=$('art-agent').checked;
@@ -634,8 +678,6 @@ onSubmit($('art-form'),async()=>{
   if(!$('art-hour').disabled)a.scheduleHour=numberOf('art-hour');
   a.scheduleFrequency=$('art-frequency').value;a.scheduleMode=$('art-mode').value;a.scheduleTimeZone=$('art-zone').value.trim()||'Asia/Shanghai';
   a.scheduleTargets=$$('#art-targets input:checked').map(x=>x.value);
-  a.imagePermissions={};
-  for(const line of $('art-permissions').value.split('\n').map(x=>x.trim()).filter(Boolean)){const parts=line.split(/\s+/);if(parts.length!==2)throw new Error('授权每行写“画师 ID 空格 HTTPS 链接”');a.imagePermissions[parts[0]]=parts[1];}
   await engineAction('saveArtwork',{artwork:a});renderArtwork();toast('已保存');
 });
 // The model list follows the way it is called; switching ways swaps a default model for the other's default.
@@ -671,7 +713,7 @@ const voiceValues=()=>({enabled:$('voice-enabled').checked,engine:$('voice-engin
   voice:$('voice-voice').value,speed:Number($('voice-speed').value),instructions:$('voice-style').value});
 onSubmit($('qqvoice-form'),async()=>{voiceConfig=await api('voice',{qqEnabled:$('qqvoice-enabled').checked,qqCharacter:$('qqvoice-character').value});renderVoice();renderAbilityIndex();toast('已保存');});
 onSubmit($('voice-form'),async()=>{voiceConfig=await api('voice',voiceValues());renderVoice();renderAbilityIndex();toast('语音设置已保存');});
-$('voice-clear').onclick=()=>{if(confirm('删除已保存的 API Key？OpenAI 语音会随之关闭。'))busy($('voice-clear'),async()=>{voiceConfig=await api('voice',{clearKey:true});renderVoice();renderAbilityIndex();toast('已删除');});};
+$('voice-clear').onclick=async()=>{if(await confirmDialog({title:'删除已保存的 API Key？',message:'OpenAI 语音会随之关闭。',confirmText:'删除',danger:true}))busy($('voice-clear'),async()=>{voiceConfig=await api('voice',{clearKey:true});renderVoice();renderAbilityIndex();toast('已删除');});};
 $('voice-test').onclick=()=>busy($('voice-test'),async()=>{
   // Unsaved edits are saved first, so the preview uses what is on screen.
   voiceConfig=await api('voice',{...voiceValues(),enabled:voiceConfig.enabled&&$('voice-enabled').checked});renderVoice();
@@ -685,7 +727,7 @@ function renderMemory(){
   const names=Object.fromEntries(engine.targets.map(t=>[t.key,chatLabelOf(t)]));
   $('memory-list').replaceChildren(...(engine.memories.length?engine.memories.map(mem=>{
     const key=mem.key.split(':').slice(1).join(':'),reset=el('button',{type:'button',className:'btn small ghost danger'},'清空');
-    reset.onclick=()=>{if(confirm(`清空「${names[key]||key}」的上下文和长期记忆？`))busy(reset,async()=>{await engineAction('resetMemory',{target:key});renderMemory();toast('已清空');});};
+    reset.onclick=async()=>{if(await confirmDialog({title:`清空「${names[key]||key}」的上下文和长期记忆？`,message:'其他会话不受影响。',confirmText:'清空',danger:true}))busy(reset,async()=>{await engineAction('resetMemory',{target:key});renderMemory();toast('已清空');});};
     return el('details',{className:'memory-item'},el('summary',{},el('strong',{},names[key]||key),el('small',{className:'muted'},`${mem.items??0} 条记忆 · ${mem.pending??0} 条待整理 · ${shortDate(mem.updatedAt)}`)),
       el('p',{},mem.summary||'（没有摘要）'),el('div',{className:'actions'},reset));
   }):[empty('还没有记忆。')]));
@@ -709,7 +751,9 @@ onSubmit($('computer-form'),async()=>{computerConfig=await api('computer',{enabl
 /* Tools: the built-in ones, and the ones it wrote for itself */
 const levelBadges={basic:['基础起','ok'],standard:['标准起','accent'],full:['完全','warn'],super:['超级模式','bad']};
 let builtinTools=[];
-async function enterTools(){const data=await api('tools');builtinTools=data.builtin||[];renderTools(data);}
+async function enterTools(){
+  await Promise.all([api('tools').then(data=>{builtinTools=data.builtin||[];renderTools(data);}),loadRepairs().catch(error=>toast(error.message,true))]);
+}
 function renderTools(data){
   const mine=data.tools||[];
   $('tools-count').textContent=mine.length?`${mine.filter(t=>t.enabled).length} / ${mine.length} 个在用`:'';
@@ -723,7 +767,7 @@ function toolCard(t){
   const toggle=el('input',{type:'checkbox',className:'switch',checked:t.enabled});toggle.setAttribute('aria-label','启用 '+t.name);
   toggle.onchange=()=>busy(toggle,async()=>{renderTools(await api('tools',{name:t.name,enabled:toggle.checked}));toast(toggle.checked?'已启用':'已停用');});
   const remove=el('button',{type:'button',className:'btn small ghost danger'},'删除');
-  remove.onclick=()=>{if(confirm(`删除 ${t.name}？它以后就不能用了，需要时会重新写。`))busy(remove,async()=>{renderTools(await api('tools',{name:t.name,remove:true}));toast('已删除');});};
+  remove.onclick=async()=>{if(await confirmDialog({title:`删除 ${t.name}？`,message:'它以后就不能用了，需要时会重新写。',confirmText:'删除',danger:true}))busy(remove,async()=>{renderTools(await api('tools',{name:t.name,remove:true}));toast('已删除');});};
   const example=Object.fromEntries(Object.entries(t.parameters?.properties||{}).map(([k,v])=>[k,v.type==='number'||v.type==='integer'?0:v.type==='boolean'?false:v.type==='array'?[]:v.type==='object'?{}:'']));
   const args=el('textarea',{rows:3,className:'mono',value:JSON.stringify(example)});args.setAttribute('aria-label','试跑参数');
   const result=el('pre',{className:'tool-output',hidden:true});
@@ -741,6 +785,42 @@ function toolCard(t){
     t.lastOutput?el('p',{className:'tool-last'},el('b',{},'上次结果：'),t.lastOutput):null,
     el('details',{className:'explain'},el('summary',{},'参数和代码'),el('pre',{className:'tool-code'},(params?'参数：\n'+params+'\n\n':'')+t.code)),
     el('details',{className:'explain'},el('summary',{},'试跑'),el('div',{className:'col gap-top'},args,el('div',{className:'actions'},run,remove),result)));
+}
+
+/* Self-repair: program errors it fixed (or is fixing) on its own. Not there on the WSL deployment. */
+const repairStates={queued:['排队中',''],fixing:['正在修','warn'],testing:['在跑测试','warn'],applied:['已修好','ok'],pushed:['已修好并推送','ok'],ready:['留在分支','accent'],failed:['没修成','bad']};
+const fixerNames={codex:'Codex',claude:'Opus'};
+async function loadRepairs(){
+  let data;
+  try{data=await api('repairs');}catch(error){if(error.status===404){$('repairs-card').hidden=true;return;}throw error;}
+  renderRepairs(data);
+}
+function renderRepairs(data){
+  const list=data.repairs||[],working=list.filter(r=>['queued','fixing','testing'].includes(r.status)).length;
+  $('repairs-card').hidden=false;
+  $('repairs-badge').textContent=working?`${working} 个在处理`:list.length?`共 ${list.length} 次`:'';
+  $('repairs-badge').className='badge '+(working?'warn':'');
+  $('repairs-list').replaceChildren(...(list.length?list.slice(0,20).map(repairRow):[empty('还没有。程序出错时会自动出现在这里。')]));
+}
+function repairRow(r){
+  const [label,tone]=repairStates[r.status]||[r.status,''];
+  const c=r.context||{},where=c.tool||c.route||c.chatKey||r.source||'';
+  const at=Date.parse(r.updatedAt||r.createdAt);
+  const meta=[where,r.fixer?(fixerNames[r.fixer]||r.fixer)+' 修':'',r.seen>1?`出现 ${r.seen} 次`:'',at?shortDate(at/1000):''].filter(Boolean).join(' · ');
+  const head=el('div',{className:'repair-head'},el('span',{className:'badge '+tone},label),el('strong',{title:r.message||''},r.message||r.kind||'程序出错'));
+  if(r.status==='failed'){
+    const retry=el('button',{type:'button',className:'btn small'},'重试');
+    retry.onclick=async()=>{if(await confirmDialog({title:'再修一次？',message:`把「${r.message||'这次出错'}」重新排进修复队列。`,confirmText:'重试'}))busy(retry,async()=>{renderRepairs(await api('repairs',{retry:r.id}));toast('已重新排队');});};
+    head.append(retry);
+  }
+  const tail=[r.commit?'提交 '+String(r.commit).slice(0,8):'',r.status==='applied'?'已合并，重启后生效':'',r.note||'',r.pushNote||''].filter(Boolean).join(' · ');
+  const more=[r.stack?'出错位置：\n'+r.stack:'',r.tests?'测试：\n'+r.tests:'',r.log?'过程：\n'+r.log:''].filter(Boolean).join('\n\n');
+  return el('article',{className:'repair'},head,el('p',{className:'repair-meta'},meta),
+    r.summary?el('p',{className:'repair-summary'},r.summary):null,
+    r.files?.length?el('p',{className:'repair-files mono'},r.files.join('  ')):null,
+    tail?el('p',{className:'repair-meta'},tail):null,
+    r.status==='failed'&&r.error?el('p',{className:'repair-error'},r.error):null,
+    more?el('details',{className:'explain'},el('summary',{},'细节'),el('pre',{className:'tool-code'},more)):null);
 }
 
 /* Rhythm: when it talks, whom it reaches out to, how much it may send */
@@ -797,7 +877,9 @@ onSubmit($('limits-form'),async()=>{
 });
 
 /* Model connection */
-let modelState=null,selected=null,modelDirty=false,catalogOverride=null,modelTestController=null;
+let modelState=null,selected=null,modelDirty=false,modelSnapshot='',catalogOverride=null,modelTestController=null;
+// Typing a value back, or a browser filling a field with what was there, is not a change.
+function syncModelDirty(){modelDirty=JSON.stringify(collectProfile())!==modelSnapshot;$('mf-activate').disabled=modelDirty||modelState.active===selected;}
 async function enterModel(){
   modelState=await api('state');
   if(!selected)selected=modelState.active;
@@ -825,7 +907,7 @@ function loadProfile(){
     $('mf-key-hint').textContent=p.hasApiKey?'已保存密钥。留空保留；更换地址或协议后需重新填写。':'尚未保存 API Key。';
     $('mf-image').value=p.imageModel||'';
   }
-  modelDirty=false;catalogOverride=null;renderModelStatus();renderCatalog();
+  modelSnapshot=JSON.stringify(collectProfile());modelDirty=false;catalogOverride=null;renderModelStatus();renderCatalog();
 }
 function renderModelStatus(){
   const check=modelState.checks[selected],active=modelState.active===selected,p=modelState.profiles[selected];
@@ -848,15 +930,15 @@ function collectProfile(){
   if(selected==='cloud')Object.assign(p,{protocol:$('mf-protocol').value,baseUrl:$('mf-base').value.trim(),apiKey:$('mf-key').value,imageModel:$('mf-image').value.trim()});
   return p;
 }
-for(const tab of $$('[data-provider]'))tab.onclick=()=>{
+for(const tab of $$('[data-provider]'))tab.onclick=async()=>{
   if(modelTestController||tab.dataset.provider===selected)return;
-  if(modelDirty&&!confirm('当前修改尚未保存，放弃修改并切换？'))return;
+  if(modelDirty&&!await confirmDialog({title:'当前修改尚未保存',message:'放弃修改并切换到另一种连接？',confirmText:'放弃并切换',danger:true}))return;
   selected=tab.dataset.provider;loadProfile();
   if(!modelState.catalogs[selected]&&(selected!=='cloud'||modelState.profiles.cloud.hasApiKey))refreshCatalog().catch(()=>{});
 };
 $('model-form').addEventListener('input',event=>{
-  modelDirty=true;if(['mf-base','mf-protocol','mf-key'].includes(event.target.id))catalogOverride=null;
-  $('mf-activate').disabled=true;
+  if(['mf-base','mf-protocol','mf-key'].includes(event.target.id))catalogOverride=null;
+  syncModelDirty();
 });
 $('model-form').onsubmit=event=>{
   event.preventDefault();
@@ -884,11 +966,13 @@ $('model-form').onsubmit=event=>{
 $('mf-cancel').onclick=()=>modelTestController?.abort();
 $('mf-activate').onclick=()=>busy($('mf-activate'),async()=>{
   const check=modelState.checks[selected];
-  if(!(check?.ok&&check.configuredModel===modelState.profiles[selected].model)&&!confirm('这个连接还没有测试通过，确定直接切换吗？'))return;
+  if(!(check?.ok&&check.configuredModel===modelState.profiles[selected].model)&&!await confirmDialog({title:'这个连接还没有测试通过',message:'确定直接切换吗？',confirmText:'直接切换'}))return;
   modelState={...modelState,...await api('activate',{provider:selected,revision:modelState.revision})};
   loadProfile();renderRoutes();toast(`已切换到${providerNames[selected]}，正在进行的回复不受影响`);
 });
-$('mf-fast').addEventListener('change',()=>{if($('mf-fast').checked&&!confirm('Fast 加速会明显更快地消耗 Codex 额度，确定开启吗？'))$('mf-fast').checked=false;});
+$('mf-fast').addEventListener('change',async()=>{
+  if($('mf-fast').checked&&!await confirmDialog({title:'开启 Fast 加速？',message:'Fast 加速会明显更快地消耗 Codex 额度，确定开启吗？',confirmText:'开启'})){$('mf-fast').checked=false;syncModelDirty();}
+});
 function renderCatalog(){
   const catalog=catalogOverride||modelState.catalogs[selected],query=$('catalog-search').value.trim().toLowerCase();
   $('catalog-status').textContent=catalog?.error?catalog.error+(catalog.stale?'（显示上次的目录）':''):catalog?`${catalog.models.length} 个模型${catalog.updatedAt?' · '+new Date(catalog.updatedAt).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit',month:'numeric',day:'numeric'})+' 更新':''}`:(selected==='cloud'&&!modelState.profiles.cloud.hasApiKey?'填写并保存 API Key 后可读取目录':'正在读取目录…');
@@ -899,7 +983,7 @@ function renderCatalog(){
       el('span',{className:'title'},model.name,tested?el('span',{className:'badge ok'},'测试通过'):null),
       model.name!==model.id?el('code',{},model.id):null,model.description?el('p',{},model.description):null);
     item.setAttribute('role','listitem');item.setAttribute('aria-pressed',String(model.id===$('mf-model').value));
-    item.onclick=()=>{$('mf-model').value=model.id;modelDirty=true;$('mf-activate').disabled=true;renderCatalog();};
+    item.onclick=()=>{$('mf-model').value=model.id;syncModelDirty();renderCatalog();};
     return item;
   });
   $('catalog-list').replaceChildren(...(items.length||!catalog?items:[empty(query?'没有匹配的模型':'目录为空，可以直接填写模型 ID')]));
@@ -924,7 +1008,8 @@ const routePurposes=[
   ['imageplan','画图判断','整理画面描述'],
   ['video','看视频','看别人发的视频链接']
 ];
-let routesDirty=false;
+let routesDirty=false,routesSnapshot='';
+const routeValues=()=>JSON.stringify($$('#routes-rows select,#routes-rows input').map(x=>x.value));
 function renderRoutes(){
   if(routesDirty)return;
   const routes=modelState.routes||{},active=modelState.active,activeModel=modelState.profiles[active]?.model||'';
@@ -943,10 +1028,11 @@ function renderRoutes(){
       if(!own)model.value='';
       list.replaceChildren(...(own?modelState.catalogs[p]?.models||[]:[]).map(m=>el('option',{value:m.id})));
     };
-    provider.onchange=()=>{routesDirty=true;sync();};model.oninput=()=>{routesDirty=true;};
+    provider.onchange=()=>{sync();routesDirty=routeValues()!==routesSnapshot;};model.oninput=()=>{routesDirty=routeValues()!==routesSnapshot;};
     sync();
     return el('div',{className:'route-row'+(['director','operator'].includes(purpose)?' main':'')},el('div',{className:'route-name'},el('strong',{},name),el('small',{className:'muted'},help)),provider,model,list);
   }));
+  routesSnapshot=routeValues();
 }
 onSubmit($('routes-form'),async()=>{
   const routes={};
@@ -994,11 +1080,11 @@ $('moderation-save').onclick=()=>busy($('moderation-save'),async()=>{
 });
 
 /* QQ login: NapCat embedded full size (WSL), or SnowLuma's state and settings (Windows) */
-let qqBackend='napcat';
+let qqBackend='napcat',lumaEmbed='';
 async function enterQQ(){
   let status;
   try{status=await api('qq');}catch(error){if(error.status!==404)throw error;}
-  qqBackend=status?'snowluma':'napcat';renderPageActions();
+  qqBackend=status?'snowluma':'napcat';lumaEmbed=status?.embed||'';renderPageActions();
   const page=$('qq-luma').closest('.page');page.classList.toggle('embed',!status);page.classList.toggle('embed-luma',!!status);
   $('frame-qq').hidden=!!status;$('qq-luma').hidden=!status;
   if(!status)return openEmbed();

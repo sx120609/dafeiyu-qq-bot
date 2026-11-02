@@ -67,7 +67,7 @@ for (const mode of ['success', 'fallback', 'timeout', 'malformed', 'falseSuccess
       assert.equal(r.headers.get('Authorization'), 'Bearer synthetic-zhipu');
     }
     assert.ok(!result.content.includes('synthetic-zhipu')); assert.ok(!result.content.includes('synthetic-cloudflare'));
-    if (result.image !== undefined) { assert.deepEqual(result.image, png); assert.ok(result.sources[0]?.startsWith('AI 生成')); }
+    if (result.image !== undefined) { assert.deepEqual(result.image, png); assert.deepEqual(result.sources, [], 'no caption line on a drawn picture'); }
   });
 }
 

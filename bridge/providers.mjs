@@ -175,7 +175,9 @@ export async function generateCloudImage(prompt,profile,signal){
   const started=Date.now();
   const response=await fetch(cloudBase(profile)+'/images/generations',{method:'POST',
     headers:{'Content-Type':'application/json',Authorization:`Bearer ${profile.apiKey}`},
-    body:JSON.stringify({model:profile.imageModel,prompt,n:1,size:'1024x1024'}),
+    // OpenAI's image models take moderation 'low' (the default 'auto' refused an ordinary anime character, 11-03:
+    // "你的内容审核别搞那么严格啊"); APIs that do not know the field ignore it.
+    body:JSON.stringify({model:profile.imageModel,prompt,n:1,size:'1024x1024',moderation:'low'}),
     signal:signal?AbortSignal.any([signal,AbortSignal.timeout(180000)]):AbortSignal.timeout(180000),redirect:'error'});
   const raw=await response.text();
   if(response.status===400&&/content[_ ]?policy|moderation|safety|sensitive|违规|审核/i.test(raw))throw Object.assign(new Error('内容审核未通过'),{status:422});

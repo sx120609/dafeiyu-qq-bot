@@ -4,7 +4,7 @@ import path from 'node:path';
 // Beijing date of a timestamp: the day boundary the owner sees.
 export const usageDay=(time=Date.now())=>new Date(time+8*3600_000).toISOString().slice(0,10);
 const keep=120;
-const blank=()=>({calls:0,failures:0,ms:0,input:0,cached:0,output:0,reasoning:0,reportedCost:0});
+const blank=()=>({calls:0,failures:0,ms:0,input:0,cached:0,imageInput:0,output:0,reasoning:0,reportedCost:0});
 // List prices (USD per million tokens) for models the bot can use through Codex or the cloud API, so their
 // cost is estimated without the owner typing anything. From third-party price trackers in October 2026
 // (aitokenprice.com, benchlm.ai); gpt-6.1-terra is not listed anywhere and is set between Sol and Luna.
@@ -28,9 +28,11 @@ export const referencePrices={
   opus:{input:4,cachedInput:0.2,output:20},default:{input:4,cachedInput:0.2,output:20},
   sonnet:{input:2,cachedInput:0.2,output:10},haiku:{input:0.1,cachedInput:0.01,output:0.5,estimated:true},
   fable:{input:10,cachedInput:0.25,output:50},
-  // Image models are priced per token: text input, image output (OpenAI, 2026-11).
-  'gpt-image-2.5-flare':{input:5,cachedInput:1.25,output:30},
-  'gpt-image-2.5-sunburst':{input:5,cachedInput:1.25,output:30},
+  // Image models are priced per token, with images given to them (edits, references) at their own rate (OpenAI's
+  // pricing page, checked 2026-11-03; both GPT Image 2.5 variants cost the same per token — Sunburst, the
+  // accuracy-first one, spends more tokens per picture than Flare, the speed-first one).
+  'gpt-image-2.5-flare':{input:5,cachedInput:1.25,imageInput:8,cachedImageInput:2,output:30},
+  'gpt-image-2.5-sunburst':{input:5,cachedInput:1.25,imageInput:8,cachedImageInput:2,output:30},
   // Voice: the realtime models' output is audio, priced at the audio rate; input is the text to read.
   'gpt-realtime-2.1-mini':{input:0.6,cachedInput:0.06,output:20},
   'gpt-realtime-2.1':{input:4,cachedInput:0.4,output:64},
@@ -61,6 +63,7 @@ export class UsageLedger{
     // OpenAI chat names its fields prompt/completion; the image, Realtime and Anthropic APIs say input/output.
     row.input+=usage.prompt_tokens||usage.input_tokens||0;
     row.cached+=usage.cached_tokens||usage.prompt_tokens_details?.cached_tokens||usage.input_tokens_details?.cached_tokens||usage.input_token_details?.cached_tokens||0;
+    row.imageInput=(row.imageInput||0)+(usage.input_tokens_details?.image_tokens||0);
     row.output+=usage.completion_tokens||usage.output_tokens||0;
     row.reasoning+=usage.reasoning_tokens||0;row.reportedCost+=Number(usage.cost_usd)||0;
     for(const old of Object.keys(days).sort().slice(0,-keep))delete days[old];
@@ -77,8 +80,9 @@ export class UsageLedger{
     if(row.reportedCost>0)return {usd:row.reportedCost,source:'reported'};
     const found=this.priceFor(provider,model);
     if(!found)return {usd:0,source:'unpriced'};
-    const {price}=found,fresh=Math.max(0,row.input-row.cached);
-    return {usd:(fresh*(price.input||0)+row.cached*(price.cachedInput??price.input??0)+row.output*(price.output||0))/1e6,source:found.source};
+    // Images given to an image model have their own input rate; the rest of the input is text.
+    const {price}=found,images=row.imageInput||0,fresh=Math.max(0,row.input-row.cached-images);
+    return {usd:(fresh*(price.input||0)+row.cached*(price.cachedInput??price.input??0)+images*(price.imageInput??price.input??0)+row.output*(price.output||0))/1e6,source:found.source};
   }
   summary({days=7,now=Date.now()}={}){
     const dates=[...Array(days).keys()].map(i=>usageDay(now-(days-1-i)*86400_000));
