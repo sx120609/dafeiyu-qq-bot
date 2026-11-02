@@ -325,8 +325,11 @@ export class QQEngine {
         this.agentNotes = state.agentNotes ?? [];
         this.kicks = state.kicks ?? [];
         this.agentTurns = (state.agentTurns ?? []).map(turn => {
+          // Marked once: a turn recovered on an earlier start keeps seconds 0, and was marked again on every restart
+          // (11-02 14:34: the note carried the same remark three times).
+          const unfinished = '（引擎重启时还没做完，后面的可能没发出去）';
           if (turn.decision === 'thinking') { turn.decision = 'failed'; turn.note = '引擎重启，这批没看完'; }
-          else if (turn.seconds === 0) turn.note += '（引擎重启时还没做完，后面的可能没发出去）';
+          else if (turn.seconds === 0 && !turn.note.startsWith('引擎重启') && !turn.note.endsWith(unfinished)) turn.note += unfinished;
           return turn;
         });
         if (state.memoryBooks) this.memoryBooks = state.memoryBooks;
@@ -400,9 +403,9 @@ export class QQEngine {
     return hints;
   }
 
-  importSticker({data, title, emotion, context, source, author, license, publicSharing}) {
+  async importSticker({data, title, emotion, context, source, author, license, publicSharing}) {
     if (this.busy || this.runtimeBusy || !this.storageOK) throw new AppFailure('请等待当前操作完成后导入表情');
-    this.stickerLibrary.importImage(data, {title, emotion, context, source, author, license, publicSharing});
+    await this.stickerLibrary.importImage(data, {title, emotion, context, source, author, license, publicSharing});
   }
 
   // MARK: Telling the owner (告状)
@@ -446,14 +449,14 @@ export class QQEngine {
 
   /// "把这个表情存一下": an admin (or the bot's own account) has the picture in question kept in the
   /// sticker library. Anyone else is told to ask an admin, so a stranger cannot fill the library.
-  saveStickerFromChat(image, args, message, target) {
+  async saveStickerFromChat(image, args, message, target) {
     if (!(message.isOwner || this.config.isAdmin(message.sender))) {
       return new ModelToolResult({content: '没存：只有管理员能往表情库里加图，请对方找管理员说一声。'});
     }
     const item = QQStickerLibrary.saveToolArguments(args);
     if (!item) return new ModelToolResult({content: '表情的名字或情绪没给全，没存。'});
     try {
-      this.importSticker({data: image, title: item.title, emotion: item.emotion, context: item.context,
+      await this.importSticker({data: image, title: item.title, emotion: item.emotion, context: item.context,
         source: '', author: '群友投稿', license: '', publicSharing: false});
       this.record(target.id, JobState.confirmed, '表情已存进表情库：' + item.title);
       return new ModelToolResult({content: `已存进表情库：${item.title}（${item.emotion}）。以后合适的时候会用。`});
@@ -1224,7 +1227,7 @@ export class QQEngine {
         const now = nowSeconds();
         this.pipelineFailures = [...this.pipelineFailures.filter(time => now - time < 600), now];
         if (this.pipelineFailures.length >= 2) {
-          const warning = 'QQ 连续两次发不出消息（EventChecker），可能被腾讯限制或踢下线了：去「QQ 登录」看看是否要重新扫码';
+          const warning = 'QQ 连续两次发不出消息（EventChecker），可能被腾讯限制或踢下线了：去「QQ 登录」看看机器人的 QQ 是否要重新登录';
           this.error = warning; this.record(undefined, JobState.failed, warning);
         }
       }
@@ -1236,7 +1239,7 @@ export class QQEngine {
 
   /// QQ logged the account out. The engine stops instead of pretending to be connected, and says what to do.
   kickedOffline(detail) {
-    const reason = 'QQ 被踢下线了' + (detail === '' ? '' : `（${prefix(detail, 120)}）`) + '：在控制台「QQ 登录」用机器人的手机 QQ 重新扫码，登录后会自动恢复回复';
+    const reason = 'QQ 被踢下线了' + (detail === '' ? '' : `（${prefix(detail, 120)}）`) + '：在机器人那个 QQ 窗口里重新登录，登录后会自动恢复回复';
     this.kickedAt = new Date();
     this.kicks = [...this.kicks, new QQKick({at: new Date(), sendsLastHour: this.sends.sent(3600), sendsLastTenMinutes: this.sends.sent(600)})].slice(-30);
     this.record(undefined, JobState.failed, reason);

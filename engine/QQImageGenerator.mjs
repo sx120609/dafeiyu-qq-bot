@@ -82,7 +82,7 @@ export class QQImageGenerator {
           url.query !== undefined || url.fragment !== undefined) {
         throw new GenerationFailure('Codex 图像通道仅支持本机模型网关', true);
       }
-      const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 240, signal,
+      const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 900, signal,
         headers: {Authorization: 'Bearer ' + key, 'Content-Type': 'application/json'}, body: JSON.stringify({prompt})}, 16_000_000);
       const object = parseDictionary(data);
       if (status === 422) throw new GenerationFailure('内容审核未通过，不切换模型', false);
@@ -93,7 +93,7 @@ export class QQImageGenerator {
         const reason = message !== undefined ? prefix(message, 200) : `HTTP ${status}`;
         throw new GenerationFailure(`模型网关没画出来（${reason}）`, true);
       }
-      try { LinuxImages.process(image, 'generated'); } catch { throw new GenerationFailure('生成图片校验失败', true); }
+      try { await LinuxImages.process(image, 'generated'); } catch { throw new GenerationFailure('生成图片校验失败', true); }
       return image;
     }
     const url = provider === 'zhipu'
@@ -137,7 +137,7 @@ export class QQImageGenerator {
       if (!decoded || decoded.length > 8_000_000) throw new GenerationFailure('图片数据缺失或无效', true);
       bytes = decoded;
     }
-    try { LinuxImages.process(bytes, 'generated'); } catch { throw new GenerationFailure('图片解码或尺寸校验失败', true); }
+    try { await LinuxImages.process(bytes, 'generated'); } catch { throw new GenerationFailure('图片解码或尺寸校验失败', true); }
     return bytes; // Preserve the provider's image and watermark; no prompt or image is stored locally.
   }
 

@@ -436,6 +436,9 @@ export const agentMethods = {
       if (calling) await this.sayStuck(error, target, epoch, signal);
     } finally {
       this.agentThinking.delete(key);
+      // Each finished turn reaches the disk at once; otherwise a restart before the next save showed it as
+      // unfinished (11-03: a reply already sent was saved as "thinking").
+      if (this.storageOK) { try { this.persist(); } catch {} }
     }
   },
 
@@ -768,7 +771,7 @@ export const agentMethods = {
               if (id !== undefined) chosen = available.find(item => item.id === id);
             }
             if (!chosen) { done.push(`没有编号为「${about}」的表情包，先用 search_stickers 搜`); continue; }
-            const data = this.stickerLibrary.data(chosen);
+            const data = await this.stickerLibrary.data(chosen);
             if (!data) { done.push(`表情「${chosen.title}」的图片文件读不出来，没发`); continue; }
             this.check(epoch, target.key, target);
             await this.agentSend(target, [QQPolicy.stickerSegment(data)], `[表情：${chosen.title}]`, answering, epoch, signal);
@@ -986,7 +989,7 @@ export const agentMethods = {
     if (picture === undefined) picture = (await this.agentFrames(pictures, 1, epoch, target, signal))[0];
     if (picture === undefined) return '图片下载不下来，没存。';
     const rest = {...input}; delete rest.message;
-    return this.saveStickerFromChat(picture, JSON.stringify(rest), asker, target).content;
+    return (await this.saveStickerFromChat(picture, JSON.stringify(rest), asker, target)).content;
   },
 
   /// essence / mute / unmute: the manage_chat actions that need QQ group-admin rights.

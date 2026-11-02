@@ -96,7 +96,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
   const isBusy=()=>testing||generations.busy;
   const recentMetrics=[];
-  let imageBusy=false;
+  // Pictures are drawn one at a time, the rest wait their turn (11-02 18:20–18:26 a second request was refused
+  // outright with "已有图片在生成", six times, and the bot told the group its drawing had failed).
+  let imageQueue=Promise.resolve(),imagesWaiting=0;
   const integrations=new Integrations({runtime,...integrationConfig,auth});
   const runtimeControl=new RuntimeControl({runtime,integrations,host,...(runtimeExecute?{execute:runtimeExecute}:{})});
   autostart??=new Autostart({root,...(runtimeExecute?{execute:runtimeExecute}:{})});
@@ -318,8 +320,11 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       }catch(e){send(200,{content:'工具没拿到结果：'+e.message,sources:[]});}return;
     }
     if(req.url==='/v1/images/generations'){
-      if(imageBusy){send(429,{error:{message:'已有图片在生成，请稍后再试'}});return;}
-      imageBusy=true;const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
+      if(imagesWaiting>=4){send(429,{error:{message:'排队画的图太多了，请稍后再试'}});return;}
+      const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
+      imagesWaiting++;let release;const previous=imageQueue;imageQueue=new Promise(resolve=>release=resolve);
+      await previous;imagesWaiting--;
+      if(controller.signal.aborted){release();return;}
       // The cloud API draws first when the owner named an image model for it; the local Codex client is the fallback.
       const cloud=settings.value.profiles.cloud,viaCloud=cloud.protocol==='openai'&&!!cloud.apiKey&&!!cloud.imageModel;
       try{
@@ -329,7 +334,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
         if(!result)try{result=await metered('codex',{model:'image'},'image','',()=>generateCodexImage(data.prompt,config,controller.signal));}
           catch(e){if(cloudFailure&&e.status!==422)e.message=`云端 API：${cloudFailure.message}；本机 Codex：${e.message}`;throw e;}
         send(200,result);
-      }catch(e){send(e.status||503,{error:{message:e.message}});}finally{imageBusy=false;}return;
+      }catch(e){send(e.status||503,{error:{message:e.message}});}finally{release();}return;
     }
     if(req.url==='/console/api/runtime/action'){
       if(changing){send(409,{error:'已有配置或运行操作正在进行，请稍候'});return;}

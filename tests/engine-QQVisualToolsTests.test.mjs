@@ -57,7 +57,7 @@ test('googleRanksEvidenceAndDoesNotConfuseErrorsWithNoMatches', () => {
 for (const mode of ['ok', 'capacity', 'length', 'badJSON', 'error200', 'denied']) {
   test(`officialRequestsAreBoundedAndAuthenticated(${mode})`, async () => {
     const {session, captured} = fixture(mode);
-    const frames = QQIncomingImages.frames(animatedFixture());
+    const frames = await QQIncomingImages.frames(animatedFixture());
     try {
       const text = await new QQVisualTools({session}).describe({images: frames, context: '合成动图', key: 'synthetic-zhipu'});
       assert.ok(['ok', 'capacity'].includes(mode)); assert.ok(text.includes('向右移动'));
@@ -83,7 +83,7 @@ for (const mode of ['ok', 'capacity', 'length', 'badJSON', 'error200', 'denied']
 
 test('cancellationAndMissingKeysDoNotProduceObservations', async () => {
   const {session, captured} = fixture('hold');
-  const tool = new QQVisualTools({session}), frame = QQIncomingImages.frames(animatedFixture())[0];
+  const tool = new QQVisualTools({session}), frame = (await QQIncomingImages.frames(animatedFixture()))[0];
   const missing = await tool.search({image: frame, key: ''}); assert.equal(missing.sources.length, 0); assert.equal(captured.length, 0);
   const controller = new AbortController();
   const task = tool.describe({images: [frame], context: 'synthetic', key: 'fixture', signal: controller.signal});
@@ -94,7 +94,7 @@ test('cancellationAndMissingKeysDoNotProduceObservations', async () => {
 
 test('fallbackReservesQuotaBeforeSecondRequest', async () => {
   const {session, captured} = fixture('capacity');
-  const frame = QQIncomingImages.frames(animatedFixture())[0];
+  const frame = (await QQIncomingImages.frames(animatedFixture()))[0];
   let calls = 0;
   const reserve = async () => { calls += 1; if (calls > 1) throw new CancellationError(); };
   await assert.rejects(new QQVisualTools({session}).describe({images: [frame], context: 'synthetic', key: 'fixture', beforeAttempt: reserve}), CancellationError);

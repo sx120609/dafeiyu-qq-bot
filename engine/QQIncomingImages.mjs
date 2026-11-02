@@ -26,7 +26,7 @@ export class QQIncomingImages {
   /** load(_:maxFrames:) — `load(value, maxFrames = 6, {signal})`; `load(value, {maxFrames, signal})` works too. */
   async load(value, maxFrames = 6, options = {}) {
     if (isDictionary(maxFrames)) options = maxFrames;
-    return QQIncomingImages.frames(await this.download(value, options), maxFramesOf(maxFrames));
+    return await QQIncomingImages.frames(await this.download(value, options), maxFramesOf(maxFrames));
   }
   /// The picture as it was sent, for saving a sticker: decoding it into frames would lose a GIF's animation.
   async download(value, {signal} = {}) {
@@ -38,7 +38,7 @@ export class QQIncomingImages {
     return data;
   }
   /** frames(_:maxFrames:) — `frames(data, maxFrames = 6)` (or `{maxFrames}`); JPEG frames of at most 1280 px. */
-  static frames(data, maxFrames = 6) {
+  static async frames(data, maxFrames = 6) {
     return LinuxImages.process(data, 'frames', {maxFrames: maxFramesOf(maxFrames)});
   }
 }

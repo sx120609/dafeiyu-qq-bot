@@ -292,3 +292,18 @@ test('swiftWrittenStateLoadsAndIsWrittenBackInTheSameShape', () => {
     assert.equal(engineAt(directory).agentTurns.length, 1);
   } finally { removeDirectory(directory); }
 });
+
+// 11-02 14:34: a turn cut off by a restart got the same "not finished" remark again on every later restart.
+test('aTurnCutOffByARestartIsMarkedOnce', async () => {
+  const {QQAgentTurn} = await import('../engine/QQEngine.mjs');
+  const directory = tempDirectory();
+  try {
+    const engine = engineAt(directory);
+    engine.agentTurns.push(new QQAgentTurn({at: new Date(), chat: '群·测试', key: 'group:99999', batch: [], decision: 'thinking'}),
+      new QQAgentTurn({at: new Date(), chat: '群·测试', key: 'group:99999', batch: [], decision: 'reply', note: '说到一半'}));
+    engine.persist();
+    for (let start = 0; start < 3; start++) engineAt(directory).persist();
+    const notes = engineAt(directory).agentTurns.slice(-2).map(turn => turn.note);
+    assert.deepEqual(notes, ['引擎重启，这批没看完', '说到一半（引擎重启时还没做完，后面的可能没发出去）']);
+  } finally { removeDirectory(directory); }
+});

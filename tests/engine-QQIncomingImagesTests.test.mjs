@@ -13,27 +13,27 @@ const animatedFixture = () => {
   return Buffer.from(images.animated, 'base64');
 };
 
-test('animatedFramesCoverMotionAndRespectSharedBudget', () => {
+test('animatedFramesCoverMotionAndRespectSharedBudget', async () => {
   const gif = animatedFixture();
-  const frames = QQIncomingImages.frames(gif);
+  const frames = await QQIncomingImages.frames(gif);
   assert.ok(frames.length >= 4 && frames.length <= 6);
   assert.notDeepEqual(frames[0], frames.at(-1));
-  assert.equal(QQIncomingImages.frames(gif, 2).length, 2);
-  assert.equal(QQIncomingImages.frames(gif, 1).length, 1);
+  assert.equal((await QQIncomingImages.frames(gif, 2)).length, 2);
+  assert.equal((await QQIncomingImages.frames(gif, 1)).length, 1);
   const still = frames[0];
-  assert.equal(QQIncomingImages.frames(still).length, 1);
+  assert.equal((await QQIncomingImages.frames(still)).length, 1);
 });
 
-test('restrictsSourceAndDecodesToBoundedJPEG', () => {
+test('restrictsSourceAndDecodesToBoundedJPEG', async () => {
   for (const url of ['file:///secret', 'https://127.0.0.1/x', 'https://multimedia.nt.qq.com.cn.evil.org/a', 'https://x:y@gchat.qpic.cn/a', 'https://gchat.qpic.cn:123/a']) {
     assert.equal(QQIncomingImages.allowedURL(url), undefined, url);
   }
   assert.equal(QQIncomingImages.allowedURL('http://gchat.qpic.cn/a')?.scheme, 'https');
-  assert.throws(() => QQIncomingImages.frames(Buffer.from('invalid')));
+  await assert.rejects(QQIncomingImages.frames(Buffer.from('invalid')));
   const library = new QQStickerLibrary({directory: path.join(root, 'Resources', 'QQStickers')});
-  const data = library.data(library.items[0]);
+  const data = await library.data(library.items[0]);
   assert.ok(data);
-  const frames = QQIncomingImages.frames(data);
+  const frames = await QQIncomingImages.frames(data);
   assert.ok(frames.length >= 1 && frames.length <= 3);
   for (const frame of frames) {
     assert.deepEqual([...frame.subarray(0, 2)], [255, 216]);

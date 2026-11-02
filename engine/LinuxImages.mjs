@@ -9,7 +9,7 @@
 // 20 MB output check below bounds the output, but there is no address-space cap.
 import fs from 'node:fs';
 import path from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {AppFailure, resources, temporaryDirectory, uuid} from './swift.mjs';
 import {decodeBase64} from './foundation.mjs';
 
@@ -29,7 +29,9 @@ const bootstrap = [
 
 export class LinuxImages {
   /** process(_:mode:options:) → [Data]; throws AppFailure. options is [String: Int]. */
-  static process(data, mode, options = {}) {
+  // Async in Node (Swift ran it synchronously on its own thread): a synchronous child process would stop the
+  // whole engine — every chat, the QQ connection, the control page — for each image, up to the 30 s limit.
+  static async process(data, mode, options = {}) {
     const directoryOfResources = resources();
     if (data.length > 32_000_000 || !directoryOfResources) throw new AppFailure('图片过大或资源目录不可用');
     const directory = path.join(temporaryDirectory(), 'dafeiyu-image-' + uuid());
@@ -39,18 +41,23 @@ export class LinuxImages {
       fs.writeFileSync(input, JSON.stringify({image: Buffer.from(data).toString('base64'), mode, options}));
       fs.writeFileSync(output, '', {mode: 0o600});
       const stdin = fs.openSync(input, 'r'), stdout = fs.openSync(output, 'w');
-      let result;
+      let status;
       try {
-        result = spawnSync(process.env.DAFEIYU_PYTHON || 'python',
-          ['-P', '-c', bootstrap, path.join(directoryOfResources, 'Linux', 'image-helper.py')],
-          {stdio: [stdin, stdout, 'ignore'], timeout: 30_000, killSignal: 'SIGKILL', windowsHide: true});
+        status = await new Promise(resolve => {
+          const child = spawn(process.env.DAFEIYU_PYTHON || 'python',
+            ['-P', '-c', bootstrap, path.join(directoryOfResources, 'Linux', 'image-helper.py')],
+            {stdio: [stdin, stdout, 'ignore'], windowsHide: true});
+          const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+          child.on('error', () => { clearTimeout(timer); resolve(-1); });
+          child.on('exit', code => { clearTimeout(timer); resolve(code); });
+        });
       } finally {
         fs.closeSync(stdin); fs.closeSync(stdout);
       }
       let encoded;
       try {
         const size = fs.statSync(output).size;
-        if (result.status === 0 && !result.error && size <= 20_000_000) encoded = JSON.parse(fs.readFileSync(output, 'utf8'));
+        if (status === 0 && size <= 20_000_000) encoded = JSON.parse(fs.readFileSync(output, 'utf8'));
       } catch { encoded = undefined; }
       if (!Array.isArray(encoded) || !encoded.every(item => typeof item === 'string')) {
         throw new AppFailure('图片格式、尺寸或处理时间不符合要求；请检查 Python Pillow 安装');

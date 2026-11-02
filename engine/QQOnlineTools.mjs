@@ -88,7 +88,7 @@ export class QQOnlineTools {
           !['Public domain', 'CC0', 'CC BY 2.0', 'CC BY 3.0', 'CC BY 4.0', 'CC BY-SA 2.0', 'CC BY-SA 2.5', 'CC BY-SA 3.0', 'CC BY-SA 4.0'].includes(license)) continue;
       try {
         const bytes = await this.fetch(imageURL, 3_000_000, signal);
-        const output = LinuxImages.process(bytes, 'search')[0];
+        const output = (await LinuxImages.process(bytes, 'search'))[0];
         const title = prefix(asString(page.title) ?? '网络图片', 120);
         const artist = prefix((asString(meta.Artist?.value) ?? '作者见来源页').replace(/<[^>]+>/g, ''), 120);
         const attribution = `Wikimedia Commons · ${artist} · ${license}（缩略图转 PNG）\n${source}`;

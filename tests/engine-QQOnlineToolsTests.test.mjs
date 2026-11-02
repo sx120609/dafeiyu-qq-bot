@@ -27,7 +27,7 @@ function fixture() {
       data = '{"query":{"pages":{"1":{"index":1,"title":"File:Fixture.png","imageinfo":[{"thumburl":"https://upload.wikimedia.org/test.png","descriptionurl":"https://commons.wikimedia.org/wiki/File:Fixture.png","extmetadata":{"LicenseShortName":{"value":"CC0"},"Artist":{"value":"Fixture artist"}}}]}}}}';
     } else if (url.host === 'upload.wikimedia.org') {
       const library = new QQStickerLibrary({directory: stickers});
-      data = library.data(library.items[0]);
+      data = await library.data(library.items[0]);
     } else if (url.host === 'api.deepseek.com') {
       const object = JSON.parse(init.body);
       const messages = object.messages;

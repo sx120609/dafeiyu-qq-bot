@@ -38,9 +38,11 @@ export class ModelResult {
 }
 
 export class HTTPFailure extends Error {
-  constructor(code) {
+  constructor(code, detail) {
     // Which model runs is the local gateway's choice (Claude, Codex or a cloud API), so the message names none.
-    super(code === 401 ? '模型接口凭证无效（401）' : code === 402 ? '模型接口余额不足（402）' : code === 429 ? '模型接口限流（429）' : `模型接口请求失败（HTTP ${code}）`);
+    // The gateway's own reason comes along (11-01 02:05 a turn failed with only "HTTP 400" and no way to tell why).
+    super((code === 401 ? '模型接口凭证无效（401）' : code === 402 ? '模型接口余额不足（402）' : code === 429 ? '模型接口限流（429）' : `模型接口请求失败（HTTP ${code}）`) +
+      (detail ? '：' + String(detail).slice(0, 160) : ''));
     this.name = 'HTTPFailure'; this.code = code;
   }
   get errorDescription() { return this.message; }
@@ -270,7 +272,11 @@ export class DeepSeekClient {
     while (true) {
       try {
         const {data, response} = await sessionData(this.session, request);
-        if (response.statusCode !== 200) throw new HTTPFailure(response.statusCode);
+        if (response.statusCode !== 200) {
+          let detail;
+          try { const object = JSON.parse(Buffer.from(data).toString('utf8')); detail = object?.error?.message ?? object?.error; } catch {}
+          throw new HTTPFailure(response.statusCode, typeof detail === 'string' ? detail : undefined);
+        }
         return data;
       } catch (error) {
         if (!(error instanceof URLError && this.loopback && attempt < 10 &&

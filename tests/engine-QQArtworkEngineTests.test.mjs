@@ -395,7 +395,7 @@ test('publicImagesHaveAttributionAndStrictInputs', async () => {
   assert.ok(!QQArtworkLibrary.animeGirl({tags: ['風景', '空'], artist: '17429', id: '999'}));
   assert.ok(!QQArtworkLibrary.animeGirl({tags: ['女の子', '写真', '原神'], artist: '17429', id: '999'}));
   assert.ok(!QQArtworkLibrary.animeGirl({tags: ['男性', '原神'], artist: '17429', id: '999'}));
-  assert.throws(() => QQArtworkLibrary.normalized(Buffer.from('bad image'), settings));
+  await assert.rejects(QQArtworkLibrary.normalized(Buffer.from('bad image'), settings));
   assert.deepEqual(state.problems, []);
 });
 

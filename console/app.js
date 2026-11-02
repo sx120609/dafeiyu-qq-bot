@@ -1025,6 +1025,8 @@ async function openEmbed(reload=false){
 
 /* Settings */
 async function enterSettings(){
+  // The Xiaohongshu / Bilibili helpers were the original project's browser panels in WSL; the Windows engine has none.
+  api('qq').then(()=>{$('social-card').hidden=true;},()=>{$('social-card').hidden=false;});
   const status=await api('autostart'),box=$('autostart');
   box.checked=status.enabled;box.disabled=!status.supported||(!status.installed&&!status.enabled);
   $('autostart-hint').textContent=!status.supported?(status.reason||'当前环境不支持'):!status.installed?'启动器 Dafeiyu.exe 尚未生成，暂时无法设置。':'登录 Windows 后自动在后台启动大肥鱼，托盘里会出现图标。';

@@ -14,7 +14,7 @@ const directory = path.resolve(import.meta.dirname, '..', 'upstream', 'Resources
 const temporary = () => path.join(os.tmpdir(), crypto.randomUUID().toUpperCase());
 const later = (date, seconds) => new Date(date.getTime() + seconds * 1000);
 
-test('communityCatalogImportsIndependentlyWithoutChangingBuiltInPack', () => {
+test('communityCatalogImportsIndependentlyWithoutChangingBuiltInPack', async () => {
   const community = path.join(path.dirname(directory), 'PhotoStickers');
   const catalog = new QQStickerLibrary({directory: community});
   const records = JSON.parse(fs.readFileSync(path.join(community, 'manifest.json'), 'utf8'));
@@ -25,9 +25,9 @@ test('communityCatalogImportsIndependentlyWithoutChangingBuiltInPack', () => {
   try {
     const local = new QQStickerLibrary({directory: undefined, localDirectory: folder});
     for (const item of catalog.items) {
-      const bytes = catalog.data(item);
+      const bytes = await catalog.data(item);
       assert.ok(bytes, item.id);
-      local.importImage(bytes, {title: item.title, emotion: item.emotion, context: item.context ?? '', source: item.source,
+      await local.importImage(bytes, {title: item.title, emotion: item.emotion, context: item.context ?? '', source: item.source,
         author: item.author ?? '', license: item.license ?? '', publicSharing: false});
     }
     assert.equal(local.items.length, catalog.items.length);
@@ -38,7 +38,7 @@ test('communityCatalogImportsIndependentlyWithoutChangingBuiltInPack', () => {
   }
 });
 
-test('resourcePackValidatesBeforeImportAndRetainsPerImageMetadata', () => {
+test('resourcePackValidatesBeforeImportAndRetainsPerImageMetadata', async () => {
   const item = new QQStickerLibrary({directory}).items[0];
   assert.ok(item);
   const bytes = fs.readFileSync(path.join(directory, item.file));
@@ -65,15 +65,15 @@ test('resourcePackValidatesBeforeImportAndRetainsPerImageMetadata', () => {
   }
 });
 
-test('everyBundledImagePassesIntegrityAndDecodeChecks', () => {
+test('everyBundledImagePassesIntegrityAndDecodeChecks', async () => {
   const library = new QQStickerLibrary({directory});
   assert.equal(library.items.length, 37);
   assert.ok(library.items.every(item => item.character === 'deepseek-whale-maid'));
   assert.ok(!library.items.some(item => item.id.startsWith('pysio-')));
-  for (const item of library.items) assert.ok(library.data(item) !== undefined, item.id);
+  for (const item of library.items) assert.ok(await library.data(item) !== undefined, item.id);
 });
 
-test('contentCooldownSurvivesSerializationAndExpires', () => {
+test('contentCooldownSurvivesSerializationAndExpires', async () => {
   const library = new QQStickerLibrary({directory}), now = new Date();
   const used = [];
   for (const _ of library.items) {
@@ -97,42 +97,42 @@ test('contentCooldownSurvivesSerializationAndExpires', () => {
   assert.ok(Object.values(groups).every(group => group.length <= 3));
 });
 
-test('askingForAStickerIsRecognised', () => {
+test('askingForAStickerIsRecognised', async () => {
   for (const text of ['那你随便发个表情', '来张表情包', '斗图', '表情呢？', '甩个表情过来', '给我发点表情']) assert.ok(QQStickerLibrary.requested(text), text);
   for (const text of ['这表情好可爱', '你的表情控制不了', '发个奶龙看看', '今天心情不错', '上面那个表情笑死', '看来这表情不行']) assert.ok(!QQStickerLibrary.requested(text), text);
 });
 
-test('tamperedOrMissingFilesCannotBecomeOutgoingMedia', () => {
+test('tamperedOrMissingFilesCannotBecomeOutgoingMedia', async () => {
   const library = new QQStickerLibrary({directory});
   const item = library.items[0];
   assert.ok(item);
   const changed = new QQStickerLibrary.Item({id: item.id, title: item.title, emotion: item.emotion, file: item.file, sha256: 'bad', source: item.source});
-  assert.equal(library.data(changed), undefined);
+  assert.equal(await library.data(changed), undefined);
   const traversal = new QQStickerLibrary.Item({id: item.id, title: item.title, emotion: item.emotion, file: '../secret.png', sha256: item.sha256, source: item.source});
-  assert.equal(library.data(traversal), undefined);
+  assert.equal(await library.data(traversal), undefined);
   // Windows also separates paths with "\".
   const backslash = new QQStickerLibrary.Item({id: item.id, title: item.title, emotion: item.emotion, file: '..\\secret.png', sha256: item.sha256, source: item.source});
-  assert.equal(library.data(backslash), undefined);
+  assert.equal(await library.data(backslash), undefined);
   assert.equal(new QQStickerLibrary({directory: undefined}).items.length, 0);
   const bundled = new QQStickerLibrary({directory, localDirectory: os.tmpdir()});
   const bytes = fs.readFileSync(path.join(directory, item.file));
-  assert.throws(() => bundled.importImage(bytes, {title: '重复的内置图', emotion: 'joy', context: '', source: '', author: '', license: '', publicSharing: false}));
+  await assert.rejects(bundled.importImage(bytes, {title: '重复的内置图', emotion: 'joy', context: '', source: '', author: '', license: '', publicSharing: false}));
 });
 
-test('localImportPersistsMetadataAndRejectsDuplicatesAndUnsafeFiles', () => {
+test('localImportPersistsMetadataAndRejectsDuplicatesAndUnsafeFiles', async () => {
   const folder = temporary();
   try {
     const library = new QQStickerLibrary({directory: undefined, localDirectory: folder});
     const bytes = fs.readFileSync(path.join(directory, 'neutral.png'));
-    assert.throws(() => library.importImage(Buffer.from('not an image'), {title: '测试', emotion: 'joy', context: '轻松庆祝', source: '', author: '', license: '', publicSharing: false}));
-    assert.throws(() => library.importImage(bytes, {title: '测试', emotion: 'joy', context: '', source: 'file:///secret', author: '', license: '', publicSharing: false}));
-    assert.throws(() => library.importImage(bytes, {title: '测试', emotion: 'joy', context: '', source: '', author: '', license: '', publicSharing: true}));
-    library.importImage(bytes, {title: '测试招呼', emotion: 'neutral', context: '普通问候', source: '', author: '', license: '', publicSharing: false});
+    await assert.rejects(library.importImage(Buffer.from('not an image'), {title: '测试', emotion: 'joy', context: '轻松庆祝', source: '', author: '', license: '', publicSharing: false}));
+    await assert.rejects(library.importImage(bytes, {title: '测试', emotion: 'joy', context: '', source: 'file:///secret', author: '', license: '', publicSharing: false}));
+    await assert.rejects(library.importImage(bytes, {title: '测试', emotion: 'joy', context: '', source: '', author: '', license: '', publicSharing: true}));
+    await library.importImage(bytes, {title: '测试招呼', emotion: 'neutral', context: '普通问候', source: '', author: '', license: '', publicSharing: false});
     const item = library.items[0];
     assert.ok(item);
-    assert.ok(library.data(item) !== undefined);
+    assert.ok(await library.data(item) !== undefined);
     assert.equal(item.publicSharing, false);
-    assert.throws(() => library.importImage(bytes, {title: '换个文件名仍是同图', emotion: 'joy', context: '', source: '', author: '', license: '', publicSharing: false}));
+    await assert.rejects(library.importImage(bytes, {title: '换个文件名仍是同图', emotion: 'joy', context: '', source: '', author: '', license: '', publicSharing: false}));
     const restored = new QQStickerLibrary({directory: undefined, localDirectory: folder});
     assert.equal(restored.items.length, 1);
     assert.equal(restored.items[0]?.context, '普通问候');
@@ -145,7 +145,7 @@ test('localImportPersistsMetadataAndRejectsDuplicatesAndUnsafeFiles', () => {
   }
 });
 
-test('adminsCanKeepAChatPictureAsASticker', () => {
+test('adminsCanKeepAChatPictureAsASticker', async () => {
   assert.equal(QQStickerLibrary.saveToolArguments('{"title":"  ","emotion":"joy"}'), undefined);
   assert.equal(QQStickerLibrary.saveToolArguments('{"title":"开心","emotion":"joy"}')?.context, '开心');
 });

@@ -358,7 +358,7 @@ export class QQArtworkLibrary {
           throw error;
         }
         let image;
-        try { image = QQArtworkLibrary.normalized(bytes, config); } catch { continue; }
+        try { image = await QQArtworkLibrary.normalized(bytes, config); } catch { continue; }
         downloaded = image; break;
       }
       if (downloaded === undefined) {
@@ -512,8 +512,8 @@ export class QQArtworkLibrary {
     return data;
   }
   /** normalized(_:config:) */
-  static normalized(data, config) {
-    return LinuxImages.process(data, 'artwork', {minLongEdge: config.minLongEdge, minShortEdge: config.minShortEdge})[0];
+  static async normalized(data, config) {
+    return (await LinuxImages.process(data, 'artwork', {minLongEdge: config.minLongEdge, minShortEdge: config.minShortEdge}))[0];
   }
   // Selected and visually checked anime/game female character works; all still pass current detail filters.
   static featuredIDs = ['53325959', '50533824', '49590533', '73164819', '29118503', '28260838'];

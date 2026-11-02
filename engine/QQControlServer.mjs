@@ -120,7 +120,7 @@ export class QQControlServer {
           .replaceAll('DeepSeek 原有识图', '当前模型直接识图')
           .replaceAll('id="imageGenPrimary">', 'id="imageGenPrimary"><option value="codex">模型网关生图（云端 API 或本机 Codex，独立于聊天模型）</option>')
           .replaceAll('value="deepseek-flash"', 'value="dafeiyu-active"')
-          .replaceAll('<footer>持续更新完善中</footer>', '<footer>连接方式和模型请在模型控制台选择；凭证自动加载，QQ 扫码后自动核对账号。</footer>'));
+          .replaceAll('<footer>持续更新完善中</footer>', '<footer>连接方式和模型请在模型控制台选择；凭证自动加载，机器人的 QQ 登录后自动核对账号。</footer>'));
       }
       this.reply(connection, id, 200, served, type); return;
     }
@@ -138,7 +138,7 @@ export class QQControlServer {
     if (method === 'GET' && pathname.startsWith('/api/sticker/')) {
       const stickerID = pathname.slice('/api/sticker/'.length);
       const item = engine.stickerLibrary.items.find(entry => entry.id === stickerID);
-      const data = item ? engine.stickerLibrary.data(item) : undefined;
+      const data = item ? await engine.stickerLibrary.data(item) : undefined;
       if (!item || !data) { this.reply(connection, id, 404); return; }
       this.reply(connection, id, 200, data, item.file.endsWith('.png') ? 'image/png' : item.file.endsWith('.webp') ? 'image/webp' : 'image/jpeg'); return;
     }
@@ -164,7 +164,7 @@ export class QQControlServer {
             const image = request.stickerImage !== undefined ? decodeBase64(request.stickerImage) : undefined;
             const item = request.sticker;
             if (!image || !item) throw new AppFailure('缺少图片或表情信息');
-            engine.importSticker({data: image, title: item.title, emotion: item.emotion, context: item.context,
+            await engine.importSticker({data: image, title: item.title, emotion: item.emotion, context: item.context,
               source: item.source, author: item.author, license: item.license, publicSharing: item.publicSharing});
             break;
           }

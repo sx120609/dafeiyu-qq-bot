@@ -153,7 +153,7 @@ export class QQStickerLibrary {
     return [...matching.slice(0, 12), ...gentle.slice(0, 4)];
   }
   /** data(for:) → Buffer or undefined. */
-  data(item) {
+  async data(item) {
     const directory = item.id.startsWith('local-') ? this.localDirectory : this.directory;
     // NSString.lastPathComponent only knows "/"; on Windows "\" and drive letters must not reach a path either.
     const file = item.file;
@@ -166,7 +166,7 @@ export class QQStickerLibrary {
     let data;
     try { data = fs.readFileSync(target); } catch { return undefined; }
     if (data.length !== size.size || hex(data) !== item.sha256) return undefined;
-    try { LinuxImages.process(data, 'sticker'); } catch { return undefined; }
+    try { await LinuxImages.process(data, 'sticker'); } catch { return undefined; }
     return data;
   }
 
@@ -175,7 +175,7 @@ export class QQStickerLibrary {
   static importBytes = 16_000_000;
   /** importImage(_:title:emotion:context:source:author:license:publicSharing:) —
    *  `importImage(bytes, {title, emotion, context, source, author, license, publicSharing})`. Throws AppFailure. */
-  importImage(bytes, {title, emotion, context, source, author, license, publicSharing}) {
+  async importImage(bytes, {title, emotion, context, source, author, license, publicSharing}) {
     const localDirectory = this.localDirectory;
     if (!localDirectory || !(bytes.length >= 1 && bytes.length <= QQStickerLibrary.importBytes) || trim(title) === '' ||
         count(title) > 80 || count(context) > 300 || count(source) > 500 || count(author) > 80 || count(license) > 100) {
@@ -189,7 +189,7 @@ export class QQStickerLibrary {
     if (publicSharing && (author === '' || license === '' || source === '')) throw new AppFailure('公开分享需要作者、许可和来源；未确认的图片请仅保存在本机');
     const originalHash = hex(bytes);
     if (this.items.some(item => item.sha256 === originalHash)) throw new AppFailure('这张图片已存在，未重复导入');
-    const normalized = LinuxImages.process(bytes, 'sticker-import')[0];
+    const normalized = (await LinuxImages.process(bytes, 'sticker-import'))[0];
     if (normalized.length > 3_000_000) throw new AppFailure('解码后的图片超过 3 MB，请缩小后导入');
     const hash = hex(normalized);
     if (this.items.some(item => item.sha256 === hash)) throw new AppFailure('这张图片已存在，未重复导入');

@@ -53,7 +53,7 @@ test('kickedOfflineDisconnectsAndSaysWhatToDo', async () => {
     r.fixture.inject([{post_type: 'notice', notice_type: 'bot_offline', self_id: 12345, user_id: 12345, tag: 'BotOfflineEvent', message: '你的用户身份已失效'}]);
     await wait(() => !engine.connected, 4);
     assert.ok(!engine.connected);
-    assert.ok(engine.status.includes('踢下线') && engine.status.includes('扫码'));
+    assert.ok(engine.status.includes('踢下线') && engine.status.includes('重新登录'));
     assert.notEqual(engine.kickedAt, undefined);
     assert.ok(engine.logs.some(entry => entry.detail.includes('用户身份已失效')));
   } finally { await r.stop(); }
