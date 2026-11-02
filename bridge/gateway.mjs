@@ -19,6 +19,7 @@ import {VoiceSettings,toSilk} from './voice.mjs';
 import {ComputerControl} from './computer.mjs';
 import {AgentTools} from './agent-tools.mjs';
 import {QQHost} from './qq-host.mjs';
+import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
@@ -142,7 +143,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     const pathname=new URL(req.url,origin).pathname;
     if(req.method==='GET'&&consoleAssets[pathname]){
       const filename=consoleAssets[pathname];
-      try{const data=await fs.readFile(path.join(root,'console',filename));res.writeHead(200,{'Content-Type':assetTypes[path.extname(filename)],'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",'Referrer-Policy':'no-referrer','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(data);}catch{send(404,{error:'控制台资源缺失'});}return;
+      try{const data=await fs.readFile(path.join(root,'console',filename));res.writeHead(200,{'Content-Type':assetTypes[path.extname(filename)],'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self'; frame-src 'self'"+(host?' http://127.0.0.1:'+(config.snowlumaProxyPort||18192):'')+"; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",'Referrer-Policy':'no-referrer','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(data);}catch{send(404,{error:'控制台资源缺失'});}return;
     }
     const consoleBearer=site.local&&req.headers.authorization==='Bearer '+config.consoleToken;
     if(pathname.startsWith('/console/api/auth')){
@@ -414,9 +415,10 @@ export async function startGateway(config,configFile){
   const computer=await new ComputerControl({runtime}).load();
   const agentTools=await new AgentTools({runtime}).load();
   // On Windows the gateway process also runs SnowLuma and the engine; in WSL systemd and supervisor.py do.
-  const host=process.platform==='win32'?new QQHost({root,runtime,gatewayToken:config.token,port:config.port||18191}):null;
+  const host=process.platform==='win32'?new QQHost({root,runtime,gatewayToken:config.token,port:config.port||18191,embedPort:config.snowlumaProxyPort||18192}):null;
   const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools,host});
   await fs.writeFile(path.join(runtime,'console-url.txt'),`http://127.0.0.1:${config.port||18191}/console/#${config.consoleToken}`,{mode:0o600});
-  server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();host?.start();});
+  server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();
+    if(host){host.start();startSnowLumaProxy({auth,luma:()=>host.luma,port:config.snowlumaProxyPort||18192,consoleOrigin:`http://127.0.0.1:${config.port||18191}`});}});
   return server;
 }

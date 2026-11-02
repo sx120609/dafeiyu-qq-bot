@@ -95,7 +95,7 @@ namespace Dafeiyu
             if (Recorded("host.pid") == null)
             {
                 var info = new ProcessStartInfo(Node, "\"" + Path.Combine(Root, "bridge", "main.mjs") + "\"");
-                info.UseShellExecute = false; info.CreateNoWindow = true; info.WorkingDirectory = Root;
+                info.UseShellExecute = false; info.CreateNoWindow = true; info.WorkingDirectory = Root; info.EnvironmentVariables["DAFEIYU_HIDDEN"] = "1";
                 var started = Process.Start(info);
                 File.WriteAllText(RuntimeFile("host.pid"), started.Id.ToString(), new UTF8Encoding(false));
             }

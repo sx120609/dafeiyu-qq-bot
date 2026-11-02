@@ -3,8 +3,9 @@ import path from 'node:path';
 import {createWriteStream,mkdirSync,statSync,renameSync} from 'node:fs';
 import {format} from 'node:util';
 import {startGateway} from './gateway.mjs';
-// Started hidden by the tray launcher on Windows: no console, so its output goes to .runtime/logs/gateway.log.
-if(process.platform==='win32'&&!process.stdout.isTTY){
+// Started hidden by the tray launcher on Windows (DAFEIYU_HIDDEN: a hidden console still looks like a terminal),
+// so its output goes to .runtime/logs/gateway.log.
+if(process.platform==='win32'&&(process.env.DAFEIYU_HIDDEN||!process.stdout.isTTY)){
   const dir=path.join(import.meta.dirname,'..','.runtime','logs'),file=path.join(dir,'gateway.log');
   mkdirSync(dir,{recursive:true});
   try{if(statSync(file).size>20_000_000)renameSync(file,file+'.1');}catch{}

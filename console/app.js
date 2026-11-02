@@ -135,7 +135,7 @@ function renderPageActions(){
   const actions=$('page-actions');actions.replaceChildren();
   const button=(label,handler,name)=>{const b=el('button',{type:'button',className:'btn small ghost'},...(name?[icon(name)]:[]),label);b.onclick=()=>busy(b,handler);actions.append(b);};
   if(current==='qq'&&qqBackend==='napcat'){button('重新连接',()=>openEmbed(true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
-  if(current==='qq'&&qqBackend==='snowluma')button('刷新',enterQQ,'refresh');
+  if(current==='qq'&&qqBackend==='snowluma'){button('刷新',async()=>{$('frame-luma').removeAttribute('src');await enterQQ();},'refresh');}
   if(['activity','usage','abilities','tools','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,abilities:enterAbilities,tools:enterTools,rhythm:enterRhythm}[current],'refresh');
 }
 
@@ -1000,29 +1000,20 @@ async function enterQQ(){
   let status;
   try{status=await api('qq');}catch(error){if(error.status!==404)throw error;}
   qqBackend=status?'snowluma':'napcat';renderPageActions();
-  const page=$('qq-luma').closest('.page');page.classList.toggle('embed',!status);
+  const page=$('qq-luma').closest('.page');page.classList.toggle('embed',!status);page.classList.toggle('embed-luma',!!status);
   $('frame-qq').hidden=!!status;$('qq-luma').hidden=!status;
   if(!status)return openEmbed();
   const p=status.process;
   const tone=!status.running?'bad':!p?'warn':p.injected&&p.loggedIn?'ok':'warn';
   $('ql-badge').className='badge '+tone;
-  $('ql-badge').textContent={ok:'已连上',warn:'等待中',bad:'未运行'}[tone];
+  $('ql-badge').textContent={ok:'已连上',warn:'等待中',bad:'SnowLuma 没在运行'}[tone];
   $('ql-account').textContent=status.account||'还没设';
-  $('ql-luma').textContent=status.running?'运行中':'没在运行';
-  $('ql-process').textContent=status.error?status.error:!status.passwordSet?'填好管理密码后才能查看':!p?'没找到，请用机器人的号登录 QQ':p.injected?(p.loggedIn?`已挂上 · 进程 ${p.pid}`:`已挂上，等 QQ 登录 · 进程 ${p.pid}`):`正在挂上 · 进程 ${p.pid}`+(p.error?' · '+p.error:'');
-  $('ql-webui').href=status.webui;
-  if(document.activeElement!==$('ql-account-input'))$('ql-account-input').value=status.account||'';
-  $('ql-password-hint').textContent=status.passwordSet?'已保存，不会显示出来；要换才重新填。':'SnowLuma 管理页的登录密码，第一次用要先在管理页改掉初始密码。';
+  $('ql-process').textContent=!status.running?'正在拉起…':status.error?status.error:!p?'没找到登录着机器人号的 QQ，请在这台电脑上另开一个 QQ 登录它':p.injected?(p.loggedIn?`已挂上 · 进程 ${p.pid}`:`已挂上，等 QQ 登录 · 进程 ${p.pid}`):`正在挂上 · 进程 ${p.pid}`+(p.error?' · '+p.error:'');
+  // The embedded pages come from a loopback port, so they only open on this computer.
+  const local=['127.0.0.1','localhost'].includes(location.hostname);
+  $('ql-remote').hidden=local;$('frame-luma').hidden=!local;
+  if(local&&status.running&&status.embed&&!$('frame-luma').src)$('frame-luma').src=status.embed;
 }
-$('ql-form').onsubmit=event=>{
-  event.preventDefault();
-  const account=$('ql-account-input').value.trim(),password=$('ql-password').value;
-  if(!qqPattern.test(account)){$('ql-error').textContent='QQ 号格式不正确';return;}
-  $('ql-error').textContent='';
-  busy(event.submitter||$('ql-form').querySelector('button'),async()=>{
-    await api('qq',{account,...(password?{password}:{})});$('ql-password').value='';toast('已保存');await enterQQ();
-  });
-};
 
 /* Embedded NapCat, full size inside the console */
 async function openEmbed(reload=false){

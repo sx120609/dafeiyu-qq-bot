@@ -46,7 +46,7 @@ test('SnowLuma hooks only the bot account\'s QQ, never the owner\'s, and only on
 test('SnowLuma without a password, or with a wrong one, says what to do',async()=>{
   const ui=await fakeWebui({processes:[]});
   try{
-    await assert.rejects(new SnowLuma({settings:{account:'10001',webuiPort:ui.port},logs:os.tmpdir()}).botProcess(),/还没填 SnowLuma 管理密码/);
+    await assert.rejects(new SnowLuma({settings:{account:'10001',webuiPort:ui.port},logs:os.tmpdir()}).botProcess(),/管理密码还没设好/);
     await assert.rejects(new SnowLuma({settings:{account:'10001',password:'wrong',webuiPort:ui.port},logs:os.tmpdir()}).botProcess(),/管理密码不对/);
   }finally{ui.server.close();}
 });
@@ -64,4 +64,22 @@ test('QQ settings keep the password write-only and accept only a QQ number',asyn
     const status=await host.qqStatus();
     assert.equal(status.passwordSet,true);assert.equal('password' in status,false);
   }finally{await fs.rm(runtime,{recursive:true,force:true});}
+});
+
+test('the bot sets SnowLuma\'s admin password itself, in SnowLuma\'s own format',async()=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'snowluma-'));
+  try{
+    await fs.mkdir(path.join(dir,'config'));
+    await fs.writeFile(path.join(dir,'config','webui.json'),JSON.stringify({passwordHash:'0'.repeat(128),passwordSalt:'1'.repeat(32),mustChangePassword:true,generatedAt:'2026-11-02T17:31:43.998Z',updatedAt:'x',totp:{secret:'s'}}));
+    const luma=new SnowLuma({settings:{dir,account:'10001'},logs:os.tmpdir()});
+    const password=await luma.takeOverPassword();
+    const saved=JSON.parse(await fs.readFile(path.join(dir,'config','webui.json'),'utf8'));
+    const crypto=await import('node:crypto');
+    const hash=crypto.scryptSync(password,Buffer.from(saved.passwordSalt,'hex'),64,{N:16384,r:8,p:1}).toString('hex');
+    assert.equal(saved.passwordHash,hash);
+    assert.deepEqual([saved.mustChangePassword,saved.generatedAt,'totp' in saved],[false,'2026-11-02T17:31:43.998Z',false]);
+    // SnowLuma's own rules: 10+ characters, lower, upper, a symbol, no spaces.
+    assert.ok(password.length>=10&&/[a-z]/.test(password)&&/[A-Z]/.test(password)&&/[^A-Za-z0-9\s]/.test(password)&&!/\s/.test(password));
+    assert.equal(luma.settings.password,password);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });

@@ -375,6 +375,9 @@ input[type=file]{height:auto;padding:8px 10px}
   .row-actions{white-space:normal}
   .toast{left:16px;right:16px;bottom:16px}
 }
-/* Numbered how-to steps (QQ 登录 on Windows) */
-.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;color:var(--ink-2);font-size:13px;line-height:1.6}
+/* QQ 登录 on Windows: a line of state over SnowLuma's own pages */
 .page.embed #qq-luma{display:none}
+.luma{display:flex;flex-direction:column;gap:var(--gap);height:calc(100vh - 130px);min-height:520px}
+.luma-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px}
+.luma-bar .grow{flex:1}
+#frame-luma{flex:1;width:100%;border:1px solid var(--line);border-radius:12px;background:var(--surface)}

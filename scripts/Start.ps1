@@ -11,7 +11,7 @@ if(Test-Path $pidFile){$running=Get-Process -Id ([int](Get-Content -Raw $pidFile
 if(-not $running){
     # CreateNoWindow: no console to close by accident; the gateway writes .runtime/logs/gateway.log itself.
     $info=[Diagnostics.ProcessStartInfo]::new($node,"`"$workspace\bridge\main.mjs`"")
-    $info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.WorkingDirectory=$workspace
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.WorkingDirectory=$workspace;$info.EnvironmentVariables['DAFEIYU_HIDDEN']='1'
     $process=[Diagnostics.Process]::Start($info)
     [IO.File]::WriteAllText($pidFile,[string]$process.Id,[Text.UTF8Encoding]::new($false))
 }
