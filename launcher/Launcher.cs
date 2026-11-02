@@ -1,6 +1,6 @@
 // Tray launcher for the local Dafeiyu deployment. Built with the .NET Framework compiler
-// that ships with Windows (C# 5): see launcher/build.ps1. Every WSL command runs without a
-// console window, so nothing appears on screen and nothing can be closed by accident.
+// that ships with Windows (C# 5): see launcher/build.ps1. The bot runs as hidden node.exe processes,
+// so nothing appears on screen and nothing can be closed by accident.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -40,19 +40,16 @@ namespace Dafeiyu
 
     sealed class Backend
     {
-        public const string Distro = "Ubuntu";
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "Dafeiyu";
         public readonly string Root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         readonly JavaScriptSerializer json = new JavaScriptSerializer();
-        string linuxRoot;
 
-        public string Wsl { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"); } }
         string RuntimeFile(string name) { return Path.Combine(Root, ".runtime", name); }
 
         public Dictionary<string, object> BridgeConfig()
         {
-            return json.Deserialize<Dictionary<string, object>>(File.ReadAllText(RuntimeFile("bridge.json")));
+            return json.Deserialize<Dictionary<string, object>>(File.ReadAllText(RuntimeFile("bridge-windows.json")));
         }
         public string BaseUrl
         {
@@ -65,77 +62,58 @@ namespace Dafeiyu
         }
         string ConsoleToken { get { return (string)BridgeConfig()["consoleToken"]; } }
 
-        public static string Run(string file, string arguments, int timeout)
-        {
-            var info = new ProcessStartInfo(file, arguments);
-            info.UseShellExecute = false; info.CreateNoWindow = true;
-            info.RedirectStandardOutput = true; info.RedirectStandardError = true;
-            info.StandardOutputEncoding = Encoding.UTF8;
-            using (var process = Process.Start(info))
-            {
-                var output = process.StandardOutput.ReadToEndAsync();
-                var error = process.StandardError.ReadToEndAsync();
-                if (!process.WaitForExit(timeout)) { try { process.Kill(); } catch { } throw new TimeoutException(file + " timed out"); }
-                if (process.ExitCode != 0) throw new InvalidOperationException((error.Result + output.Result).Trim());
-                return output.Result;
-            }
-        }
-        string WslRun(string arguments, int timeout) { return Run(Wsl, "-d " + Distro + " " + arguments, timeout); }
-
-        string LinuxRoot
+        // node.exe from bridge-windows.json ("node"), else the one on PATH.
+        string Node
         {
             get
             {
-                if (linuxRoot == null) linuxRoot = WslRun("-- wslpath -u \"" + Root.Replace('\\', '/') + "\"", 30000).Trim();
-                return linuxRoot;
+                object value;
+                try { if (BridgeConfig().TryGetValue("node", out value) && File.Exists(Convert.ToString(value))) return Convert.ToString(value); } catch { }
+                foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
+                {
+                    try { var file = Path.Combine(dir.Trim(), "node.exe"); if (File.Exists(file)) return file; } catch { }
+                }
+                throw new FileNotFoundException("找不到 node.exe，请安装 Node.js 24 或更新版本");
             }
         }
 
-        // WSL shuts the distro down once no Windows process is attached, so one windowless
-        // wsl.exe stays attached for as long as the bot should run.
-        void EnsureKeepalive()
-        {
-            var file = RuntimeFile("wsl-keepalive.json");
-            try
-            {
-                var record = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(file));
-                var process = Process.GetProcessById(Convert.ToInt32(record["pid"]));
-                if (process.ProcessName.Equals("wsl", StringComparison.OrdinalIgnoreCase)) return;
-            }
-            catch { }
-            var info = new ProcessStartInfo(Wsl, "-d " + Distro + " --exec /bin/bash " + LinuxRoot + "/scripts/keepalive.sh");
-            info.UseShellExecute = false; info.CreateNoWindow = true;
-            var started = Process.Start(info);
-            File.WriteAllText(file, "{\"pid\":" + started.Id + "}", new UTF8Encoding(false));
-        }
-        void StopKeepalive()
+        // A process recorded in .runtime/<name>.pid, if it is still a node.exe.
+        Process Recorded(string name)
         {
             try
             {
-                var record = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(RuntimeFile("wsl-keepalive.json")));
-                var process = Process.GetProcessById(Convert.ToInt32(record["pid"]));
-                if (process.ProcessName.Equals("wsl", StringComparison.OrdinalIgnoreCase)) process.Kill();
+                var process = Process.GetProcessById(int.Parse(File.ReadAllText(RuntimeFile(name)).Trim()));
+                return process.ProcessName.Equals("node", StringComparison.OrdinalIgnoreCase) ? process : null;
             }
-            catch { }
+            catch { return null; }
         }
 
+        // The gateway process (bridge/main.mjs) runs SnowLuma and the engine itself (bridge/qq-host.mjs);
+        // it writes its own log under .runtime/logs, so it keeps running after the tray exits.
         public void Start()
         {
-            EnsureKeepalive();
-            WslRun("-u root -- systemctl start docker", 120000);
-            WslRun("-u root -- docker start qq-ai", 120000);
-            WslRun("-- systemctl --user start dafeiyu-bot.service", 120000);
+            if (Recorded("host.pid") == null)
+            {
+                var info = new ProcessStartInfo(Node, "\"" + Path.Combine(Root, "bridge", "main.mjs") + "\"");
+                info.UseShellExecute = false; info.CreateNoWindow = true; info.WorkingDirectory = Root;
+                var started = Process.Start(info);
+                File.WriteAllText(RuntimeFile("host.pid"), started.Id.ToString(), new UTF8Encoding(false));
+            }
             for (int i = 0; i < 90; i++)
             {
                 try { Request("GET", "/healthz", null, false); return; } catch { Thread.Sleep(1000); }
             }
             throw new TimeoutException("控制台服务没有在 90 秒内就绪");
         }
+        // Ends the gateway, the engine and SnowLuma. QQ itself keeps running (and signed in).
         public void Stop()
         {
-            try { WslRun("-- systemctl --user stop dafeiyu-bot.service dafeiyu-codex.service", 60000); } catch { }
-            try { WslRun("-u root -- docker stop qq-ai", 60000); } catch { }
-            StopKeepalive();
+            foreach (var name in new[] { "host.pid", "engine.pid", "snowluma.pid" })
+            {
+                var process = Recorded(name);
+                if (process == null) continue;
+                try { process.Kill(); process.WaitForExit(10000); } catch { }
+            }
         }
 
         public Dictionary<string, object> Request(string method, string route, string body, bool authorized)
@@ -232,7 +210,7 @@ namespace Dafeiyu
             open.Font = new Font(open.Font, FontStyle.Bold);
             toggle.Click += delegate { Act(running ? "bot-pause" : "bot-resume"); };
             var restartBot = new ToolStripMenuItem("重启机器人", null, delegate { Act("bot-restart"); });
-            var restartNapcat = new ToolStripMenuItem("重启 NapCat", null, delegate { Act("napcat-restart"); });
+            var restartNapcat = new ToolStripMenuItem("重启 SnowLuma", null, delegate { Act("napcat-restart"); });
             autostartItem.Click += delegate
             {
                 try { backend.AutostartEnabled = !autostartItem.Checked; autostartItem.Checked = backend.AutostartEnabled; }
@@ -289,9 +267,9 @@ namespace Dafeiyu
                 running = active && bot.TryGetValue("running", out value) && value is bool && (bool)value;
                 // Tencent dropped the session: say so once, and keep it in the menu until messages arrive again.
                 bool kicked = active && bot.TryGetValue("kickedAt", out value) && value != null;
-                if (kicked && !kickedNotified) Notify("QQ 被腾讯踢下线了，机器人收不到也发不出消息。打开控制台的「QQ 登录」用机器人的手机 QQ 重新扫码。", ToolTipIcon.Warning);
+                if (kicked && !kickedNotified) Notify("QQ 被腾讯踢下线了，机器人收不到也发不出消息。在机器人那个 QQ 窗口里重新登录。", ToolTipIcon.Warning);
                 kickedNotified = kicked;
-                string text = !active ? "机器人引擎离线" : kicked ? "QQ 被踢下线，请在控制台扫码" : !connected ? "未连接 QQ，请在控制台扫码" : running ? "正在回复" : "已暂停回复";
+                string text = !active ? "机器人引擎离线" : kicked ? "QQ 被踢下线，请在控制台扫码" : !connected ? "未连接 QQ，请登录机器人的 QQ" : running ? "正在回复" : "已暂停回复";
                 SetStatus(text, "大肥鱼 · " + text);
                 toggle.Text = running ? "暂停回复" : "开始回复";
                 toggle.Enabled = connected && !busy;

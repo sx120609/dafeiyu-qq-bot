@@ -1,3 +1,3 @@
 @echo off
-rem Starts the tray launcher; it brings up WSL, NapCat and the bot without any console window.
+rem Starts the tray launcher; it brings up the bot (gateway, SnowLuma, engine) without any console window.
 start "" "%~dp0Dafeiyu.exe"

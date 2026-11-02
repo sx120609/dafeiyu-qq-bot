@@ -1,4 +1,5 @@
 import {watchBilibiliLive,captureLiveFrame} from './bilibili-live.mjs';
+import {ffmpeg} from './platform.mjs';
 import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns/promises';
@@ -152,7 +153,7 @@ export class PublicContent{
     try{
       const input=path.join(dir,'input.video');await fs.writeFile(input,response.body,{mode:0o600});
       const format=url.pathname.toLowerCase().endsWith('.webm')?'matroska':'mov';
-      await runProcess('/usr/bin/ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-threads','2','-filter_threads','1','-protocol_whitelist','file,pipe','-f',format,'-i',input,'-t','35','-vf','fps=1/10:round=up,scale=640:-2','-frames:v','3',path.join(dir,'frame-%02d.jpg')],'',{timeout:30000});
+      await runProcess(ffmpeg(),['-nostdin','-hide_banner','-loglevel','error','-threads','2','-filter_threads','1','-protocol_whitelist','file,pipe','-f',format,'-i',input,'-t','35','-vf','fps=1/10:round=up,scale=640:-2','-frames:v','3',path.join(dir,'frame-%02d.jpg')],'',{timeout:30000});
       const files=(await fs.readdir(dir)).filter(x=>/^frame-\d+\.jpg$/.test(x)).sort();if(!files.length)throw new Error('没有提取到有效画面');
       const images=await Promise.all(files.map(x=>fs.readFile(path.join(dir,x))));
       const observations=this.analyze?await this.analyze('以下是公开短视频前35秒范围内的抽帧。描述实际可见内容，不假装听过音轨。',images):'已取得抽帧，未进行模型观察。';
@@ -183,7 +184,7 @@ export class PublicContent{
       const media=play.data?.durl?.[0]?.url;
       if(play.code!==0||!media)throw new Error('没有可用的公开视频流');
       const address=new URL(media);if(address.protocol!=='https:'||!/(^|\.)bilivideo\.(com|cn)$/.test(address.hostname))throw new Error('不支持该视频来源');
-      await runProcess('/usr/bin/ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-threads','2','-filter_threads','1','-rw_timeout','10000000','-tls_verify','1','-user_agent',bilibiliHeaders['User-Agent'],'-headers','Referer: '+url+'\r\n','-i',address.href,'-t','35','-vf','fps=1/12,scale=640:-2','-frames:v','3',path.join(dir,'frame-%02d.jpg')],'',{timeout:35000});
+      await runProcess(ffmpeg(),['-nostdin','-hide_banner','-loglevel','error','-threads','2','-filter_threads','1','-rw_timeout','10000000','-tls_verify','1','-user_agent',bilibiliHeaders['User-Agent'],'-headers','Referer: '+url+'\r\n','-i',address.href,'-t','35','-vf','fps=1/12,scale=640:-2','-frames:v','3',path.join(dir,'frame-%02d.jpg')],'',{timeout:35000});
       const files=(await fs.readdir(dir)).filter(x=>/^frame-\d+\.jpg$/.test(x)).sort();
       if(files.length&&this.analyze){
         const images=await Promise.all(files.slice(0,3).map(x=>fs.readFile(path.join(dir,x))));

@@ -2,15 +2,28 @@
 
 基于 [SAKURAfan1023/dafeiyu-bot](https://github.com/SAKURAfan1023/dafeiyu-bot)，上游版本 `cc8170396bc68266077204576f8469e414b5c44c`。原项目接 DeepSeek，这里换成本机模型：本机 Codex（复用 ChatGPT 登录）、本机官方 Claude Code，或自己的云端 API，在控制台里切换。QQ 引擎、人格、表情、会话记忆和原面板保留。
 
+2026-11-03 起整个机器人直接跑在 Windows 上，不再用 WSL（用户：“其实我不想用任何wsl了”“wsl太占性能了”）：引擎从 Swift 改写成 Node（`engine/`），QQ 由 Windows 上的 SnowLuma 接管，详见下面「在 Windows 上运行」。`upstream/` 里原作者的 Swift 引擎和 WSL 脚本留作对照和回滚，不再使用。
+
 ## 日常使用
 
-- **启动**：双击 `Dafeiyu.exe`（或 `Start.cmd`）。它在后台拉起 WSL、Docker、NapCat 和机器人，不弹任何终端窗口，托盘里出现大肥鱼图标，然后打开控制台。
-- **托盘菜单**：打开控制台、暂停/开始回复、重启机器人、重启 NapCat、开机自启、停止大肥鱼并退出、只退出托盘（机器人继续运行）。双击图标也会打开控制台。
+- **启动**：双击 `Dafeiyu.exe`（或 `Start.cmd`）。它在后台拉起网关，网关再拉起 SnowLuma 和引擎，不弹任何终端窗口，托盘里出现大肥鱼图标，然后打开控制台。
+- **托盘菜单**：打开控制台、暂停/开始回复、重启机器人、重启 SnowLuma、开机自启、停止大肥鱼并退出、只退出托盘（机器人继续运行）。双击图标也会打开控制台。
 - **开机自启**：托盘菜单或控制台「设置」里开关，写入当前用户的 `HKCU\…\Run\Dafeiyu`，默认关闭。
 - **控制台**：`http://127.0.0.1:18191/console/`，只监听本机。第一次从启动器或 `Console.cmd` 打开时设置密码，之后用密码登录；密码在「设置」里随时改，改完其他浏览器需要重新登录。
 - **远程打开（frp 等隧道）**：设置过密码后，用隧道的域名访问 `/console/` 也可以，必须登录；直接打开 `/bot/` 或 NapCat 页面会先跳到登录。通过隧道只能用控制台和它内嵌的页面，模型接口 `/v1/*` 和启动器令牌只认本机地址。连续输错 5 次密码锁 30 秒，再错锁定时间翻倍（最长 1 小时）。隧道是明文 HTTP 时密码和登录 Cookie 会明文过网，建议在 frp 上配 HTTPS。
-- **QQ 掉线需要重新扫码时**：控制台「QQ 登录」页直接扫。扫完监督程序自动核对账号、重连，并恢复到你上次的回复状态（在回复就继续回复，暂停就保持暂停）。
-- `Stop.cmd` 停止全部组件；`Status.cmd` 查看状态。
+- **QQ 掉线需要重新登录时**：在机器人那个 QQ 窗口里重新登录。登上后网关自动核对账号、重连，并恢复到你上次的回复状态（在回复就继续回复，暂停就保持暂停）。
+- `Stop.cmd` 停止网关、引擎和 SnowLuma（QQ 窗口不动）；`Status.cmd` 查看各进程、内存和状态。日志在 `.runtime/logs/`（`gateway.log`、`engine.log`、`snowluma.log`，超过 20 MB 换新）。
+
+## 在 Windows 上运行（2026-11-03 起）
+
+原来是 WSL 里的 Docker 跑 NapCat（一个 Linux 版 QQ）、systemd 管 Swift 引擎和 Node 网关，WSL 常驻约 2 GB。现在全部是 Windows 进程：
+
+- **网关**（`node bridge/main.mjs`，配置 `.runtime/bridge-windows.json`，Windows 路径；WSL 的 `bridge.json` 保留不动）：模型接口和控制台照旧，另外由 `bridge/qq-host.mjs` 接过原来 systemd 和 `scripts/supervisor.py` 的活——拉起 SnowLuma 和引擎、引擎退出 5 秒后重启、QQ 登上后核对账号再连、按上次的选择恢复回复。Windows 不会随父进程结束子进程，所以引擎和 SnowLuma 的 pid 记在 `.runtime/engine.pid`、`snowluma.pid`，新网关先结束旧引擎再起新的。
+- **引擎**（`node engine/main.mjs`）：`upstream/Sources` 逐文件改写成 Node，类型名、字段名和存盘格式与 Swift 版一致（日期仍按 Swift 的“2001 年起的秒数”存），WSL 里的 `qq-state.json` 和表情库原样搬到 `.runtime/engine/` 就能用；控制接口（`/api/status`、`/api/action`、`X-QQ-Control`）不变，控制台照常代理。原来的 Swift 测试都改成了 `tests/engine-*.test.mjs`，`npm test` 一起跑。
+- **QQ = SnowLuma**（`D:\Dev\Projects\SnowLuma`，v2.3.4）：把钩子挂进 Windows 版官方 QQ.exe，提供 NapCat 兼容的 OneBot 接口（我们用到的动作它都支持）。只给机器人号用：OneBot 配置只写在 `config/onebot_<机器人QQ号>.json` 里（全局的 `onebot.json` 是空的），全部只监听 127.0.0.1；它的自动挂载（会挂进这台电脑上**所有** QQ.exe，包括主人自己的 QQ）关掉，由网关在 SnowLuma 的进程列表里找登录着机器人号的那个 QQ 进程，只给它挂。重启 SnowLuma 不会让 QQ 下线。
+- **登录**：在这台电脑上另开一个 QQ 窗口登录机器人的号（主人自己的 QQ 照常用）。第一次用要打开 SnowLuma 管理页（`http://127.0.0.1:5099`）同意协议、改掉初始密码，再把新密码和机器人 QQ 号填到控制台「QQ 登录」（密码存 `.runtime/snowluma.json`，只写不回显）。SnowLuma 连续输错密码会锁登录，所以网关被拒后一分钟内不再试。
+- **其他换成 Windows 的部分**：自建工具的沙箱只靠 Node 的 `--permission`（Node 25 起它也禁网络，Windows 上没有 `unshare`）；语音直接把 WAV 交给 SnowLuma，由它自己转 SILK（不再要 pilk）；B 站截帧用 `D:\Dev\Tools\ffmpeg`（gyan.dev 的 essentials 构建，`bridge-windows.json` 的 `ffmpeg`）；图片处理仍是 `upstream/Resources/Linux/image-helper.py`，用 Windows 的 Python + Pillow 跑（`resource` 模块在 Windows 上没有，所以没有内存上限，30 秒超时和 20 MB 输出上限照旧）；超级模式直接调 `cmd.exe`。
+- **回滚到 WSL**：停掉 Windows 网关（`Stop.cmd`），在 WSL 里 `systemctl --user start dafeiyu-codex.service dafeiyu-bot.service` 并启动 NapCat 容器；那边的状态停在切换那一刻。
 
 ## 控制台页面
 
@@ -121,7 +134,7 @@
 
 - **它写什么**：名字（`my_` 开头）、说明、参数的 JSON Schema、一段 async JavaScript 函数体（只拿得到 `args` 和 `tools`，用 `fetch` / `tools.fetch` 访问外网，`console.log` 写日志，`return` 结果），外加一组测试参数。
 - **怎么启用**：网关（`bridge/agent-tools.mjs`）先用测试参数跑一遍，跑通了才存进 `.runtime/agent-tools.json` 并启用；跑不通就把错误和日志还给它，它改好再写一遍。同名会覆盖。引擎每一轮问网关要启用中的工具定义（`/v1/agent-tools`），刚写好的当轮就能调用（`operateAgent` 的 `extraTools` 每轮重新取）；调用走 `/v1/agent-tools/run`。超过 20 秒没跑完就转后台。
-- **沙箱**（`bridge/tool-sandbox.mjs`）：每次调用起一个单独的 Node 进程，套在 `unshare -rn` 里（自己没有网络，只有回环），加 Node 的 `--permission`（读不了文件、开不了子进程、加载不了本地模块），内存 128 MB，60 秒到时强杀。访问外网只能让网关代办：只许 http/https，域名解析后的每个地址都必须是公网（本机、内网、链路本地、运营商 NAT、组播都拒绝），跳转最多 3 次且每次重新检查，每次调用最多 20 个请求，响应最多 2 MB。
+- **沙箱**（`bridge/tool-sandbox.mjs`）：每次调用起一个单独的 Node 进程，WSL 里套在 `unshare -rn` 里（Windows 上由 Node 的权限模式禁网络）（自己没有网络，只有回环），加 Node 的 `--permission`（读不了文件、开不了子进程、加载不了本地模块），内存 128 MB，60 秒到时强杀。访问外网只能让网关代办：只许 http/https，域名解析后的每个地址都必须是公网（本机、内网、链路本地、运营商 NAT、组播都拒绝），跳转最多 3 次且每次重新检查，每次调用最多 20 个请求，响应最多 2 MB。
 - **控制台**「工具」页能看全部自建工具的代码、开关、试跑、删除，也列出全部内置工具。最多 50 个自建工具。
 
 ## 代理模式（所有会话）

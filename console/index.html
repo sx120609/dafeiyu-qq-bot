@@ -103,14 +103,14 @@
             <div class="card-head"><h3>服务</h3></div>
             <dl class="kv">
               <dt>QQ 账号</dt><dd id="sv-account">–</dd>
-              <dt>NapCat</dt><dd id="sv-napcat">–</dd>
+              <dt id="sv-napcat-label">NapCat</dt><dd id="sv-napcat">–</dd>
               <dt>机器人引擎</dt><dd id="sv-engine">–</dd>
               <dt>会话</dt><dd id="sv-targets">–</dd>
               <dt>长期记忆</dt><dd id="sv-memory">–</dd>
             </dl>
             <div class="actions">
               <button class="btn small" type="button" data-runtime="bot-restart">重启机器人</button>
-              <button class="btn small" type="button" data-runtime="napcat-restart">重启 NapCat</button>
+              <button id="sv-napcat-restart" class="btn small" type="button" data-runtime="napcat-restart">重启 NapCat</button>
             </div>
             <p class="muted small gap-top">重启后会自动重连 QQ，并按你上次的选择恢复或保持暂停。</p>
           </div>
@@ -591,7 +591,42 @@
       </div>
     </section>
 
-    <section class="page embed" data-page="qq" hidden><iframe id="frame-qq" title="NapCat QQ 登录与管理"></iframe></section>
+    <section class="page embed" data-page="qq" hidden>
+      <iframe id="frame-qq" title="NapCat QQ 登录与管理"></iframe>
+      <!-- QQ on Windows through SnowLuma: the bot account signs in in its own QQ window -->
+      <div id="qq-luma" class="col" hidden>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>QQ 状态</h3><span id="ql-badge" class="badge"></span></div>
+            <dl class="kv">
+              <dt>机器人 QQ</dt><dd id="ql-account">–</dd>
+              <dt>SnowLuma</dt><dd id="ql-luma">–</dd>
+              <dt>机器人的 QQ 窗口</dt><dd id="ql-process">–</dd>
+            </dl>
+            <div class="actions">
+              <a id="ql-webui" class="btn small" href="http://127.0.0.1:5099" target="_blank" rel="noopener">打开 SnowLuma 管理页</a>
+              <button class="btn small" type="button" data-runtime="napcat-restart">重启 SnowLuma</button>
+            </div>
+            <p class="muted small gap-top">重启 SnowLuma 不会让 QQ 下线，也不用重新登录。</p>
+          </div>
+          <form id="ql-form" class="card col" novalidate>
+            <div class="card-head flush"><h3>设置</h3></div>
+            <label class="field"><span>机器人 QQ 号</span><input id="ql-account-input" inputmode="numeric" maxlength="12"><small class="muted">只给这个号的 QQ 挂上 SnowLuma，这台电脑上别的 QQ 一概不碰。</small></label>
+            <label class="field"><span>SnowLuma 管理密码</span><input id="ql-password" type="password" autocomplete="off" maxlength="128"><small id="ql-password-hint" class="muted"></small></label>
+            <p id="ql-error" class="form-error" role="alert"></p>
+            <div class="actions"><button class="btn primary" type="submit">保存</button></div>
+          </form>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>怎么登录</h3></div>
+          <ol class="steps">
+            <li>在这台电脑上再开一个 QQ 窗口，用机器人的号登录。你自己的 QQ 照常用，不受影响。</li>
+            <li>第一次用时打开 SnowLuma 管理页，按提示同意协议、改掉初始密码，再把新密码填到右边保存。</li>
+            <li>之后这里会自动给机器人的 QQ 挂上 SnowLuma 并连上；被踢下线时，在机器人那个 QQ 窗口里重新登录即可。</li>
+          </ol>
+        </div>
+      </div>
+    </section>
 
     <!-- 设置 -->
     <section class="page" data-page="settings" hidden>

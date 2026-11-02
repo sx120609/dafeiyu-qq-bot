@@ -5,9 +5,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
+import {cmd} from './platform.mjs';
 
 const work='D:\\Dev\\Workspaces\\dafeiyu-computer';
-const workWsl='/mnt/d/Dev/Workspaces/dafeiyu-computer';
+const workWsl=process.platform==='win32'?work:'/mnt/d/Dev/Workspaces/dafeiyu-computer';
 const brief=(task,confirmed)=>`你在主人自己的 Windows 电脑上，替主人做他在 QQ 里交代的一件事。你有这台电脑的完全权限（命令行、文件、PowerShell、已安装的程序）。
 要做的事：
 ${task}
@@ -57,12 +58,12 @@ export class ComputerControl{
   async append(entry){await fs.appendFile(this.log,JSON.stringify(entry)+'\n',{mode:0o600});}
 }
 
-// The Windows Codex, reached through WSL interop; its last message is the answer.
+// The Windows Codex (from WSL through interop); its last message is the answer.
 function codex(prompt){
   return new Promise((resolve,reject)=>{
-    const out=`${workWsl}/last-${Date.now()}.txt`,outWin=out.replace(workWsl,work).replaceAll('/','\\');
-    const child=spawn('/mnt/c/Windows/System32/cmd.exe',['/c','codex','exec','--skip-git-repo-check','-s','danger-full-access','-c','approval_policy="never"','-C',work,'-o',outWin,'-'],
-      {cwd:workWsl,stdio:['pipe','ignore','pipe']});
+    const name=`last-${Date.now()}.txt`,out=path.join(workWsl,name),outWin=work+'\\'+name;
+    const child=spawn(cmd,['/c','codex','exec','--skip-git-repo-check','-s','danger-full-access','-c','approval_policy="never"','-C',work,'-o',outWin,'-'],
+      {cwd:workWsl,stdio:['pipe','ignore','pipe'],windowsHide:true});
     let stderr='';child.stderr.on('data',d=>{stderr=(stderr+d).slice(-2000);});
     // No time limit: a long job (installing, building, a big download) runs as long as it takes.
     child.on('error',e=>reject(e));

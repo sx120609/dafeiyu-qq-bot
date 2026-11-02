@@ -2,17 +2,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {runProcess} from './providers.mjs';
+import {reg} from './platform.mjs';
 
 const key='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const valueName='Dafeiyu';
-const reg='/mnt/c/Windows/System32/reg.exe';
 
 // Windows sign-in start for the tray launcher, toggled from the console. Only this one
 // fixed Run value is ever read or written.
 export class Autostart{
   constructor({root,execute=runProcess,launcher}){
     this.execute=execute;
-    this.launcher=launcher??(()=>{try{return execFileSync('wslpath',['-w',path.join(root,'Dafeiyu.exe')],{encoding:'utf8'}).trim();}catch{return null;}})();
+    this.launcher=launcher??(process.platform==='win32'?path.join(root,'Dafeiyu.exe'):(()=>{try{return execFileSync('wslpath',['-w',path.join(root,'Dafeiyu.exe')],{encoding:'utf8'}).trim();}catch{return null;}})());
     this.launcherFile=path.join(root,'Dafeiyu.exe');
   }
   get command(){return `"${this.launcher}" --autostart`;}

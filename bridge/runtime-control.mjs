@@ -1,7 +1,8 @@
 import {runProcess} from './providers.mjs';
 
 export class RuntimeControl{
-  constructor({runtime,integrations,execute=runProcess}){this.runtime=runtime;this.integrations=integrations;this.execute=execute;this.busy=false;this.last=null;}
+  // host: the Windows QQHost (qq-host.mjs) that runs SnowLuma and the engine; without it, NapCat and systemd in WSL.
+  constructor({runtime,integrations,execute=runProcess,host=null}){this.runtime=runtime;this.integrations=integrations;this.execute=execute;this.host=host;this.busy=false;this.last=null;}
   async panel(action,values={},{timeout=10000}={}){
     const {base,token}=await this.integrations.botTarget();
     const headers={'X-QQ-Control':token,Origin:base,'Content-Type':'application/json'};
@@ -64,8 +65,16 @@ export class RuntimeControl{
     if(parsed.protocol!=='http:'||parsed.hostname!=='127.0.0.1')throw new Error('社交平台面板地址无效');
     return {url};
   }
-  async napcat(action){return this.execute('/usr/bin/sudo',['-n','/usr/local/bin/dafeiyu-qq-runtime',action],'',{timeout:45000});}
-  async engine(action){return this.execute('/usr/bin/systemctl',['--user',action,'dafeiyu-bot.service'],'',{timeout:30000});}
+  async napcat(action){
+    if(!this.host)return this.execute('/usr/bin/sudo',['-n','/usr/local/bin/dafeiyu-qq-runtime',action],'',{timeout:45000});
+    // The console reads Docker's inspect shape; SnowLuma's state is given the same way.
+    const s=await this.host.qq(action);
+    return JSON.stringify({Status:s.running?(s.process?.injected?'running':'waiting'):'exited',Running:s.running,Restarting:false,StartedAt:s.startedAt,SnowLuma:s});
+  }
+  async engine(action){
+    if(!this.host)return this.execute('/usr/bin/systemctl',['--user',action,'dafeiyu-bot.service'],'',{timeout:30000});
+    await this.host[action]();return '';
+  }
   async status(){
     const result={busy:this.busy,last:this.last,napcat:{state:'unknown'},bot:{state:'unknown'}};
     const [nap,bot]=await Promise.allSettled([this.napcat('status'),this.panel()]);
@@ -79,7 +88,7 @@ export class RuntimeControl{
   async overview(){
     const result={busy:this.busy,last:this.last,napcat:{state:'unknown'},bot:{state:'unknown'}};
     const [nap,bot]=await Promise.allSettled([this.napcat('status'),this.panel()]);
-    if(nap.status==='fulfilled'){const data=JSON.parse(nap.value);result.napcat={state:data.Status,running:data.Running,restarting:data.Restarting,startedAt:data.StartedAt};}
+    if(nap.status==='fulfilled'){const data=JSON.parse(nap.value);result.napcat={state:data.Status,running:data.Running,restarting:data.Restarting,startedAt:data.StartedAt,backend:data.SnowLuma?'snowluma':'napcat'};}
     else result.napcat.error='无法读取 NapCat 状态';
     if(bot.status==='fulfilled'){
       const d=bot.value,targets=d.config.targets;

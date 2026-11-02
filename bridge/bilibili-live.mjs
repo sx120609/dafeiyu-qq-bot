@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {runProcess} from './providers.mjs';
+import {ffmpeg} from './platform.mjs';
 
 const clean = (v, n=200) => String(v ?? '').replace(/<[^>]*>/g,'').trim().slice(0,n);
 const roomID = v => /^[1-9]\d{0,14}$/.test(String(v)) ? String(v) : null;
@@ -76,7 +77,7 @@ export async function captureLiveFrame(media, referer, {runtime,fetch,analyze,ru
     if(response.body.subarray(0,3).toString()!=='FLV')throw new Error('直播流不是 FLV');
     const input=path.join(dir,'input.flv'),output=path.join(dir,'frame.jpg');
     await fs.writeFile(input,response.body,{mode:0o600});
-    await run(process.platform==='win32'?'ffmpeg':'/usr/bin/ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-threads','2','-filter_threads','1','-protocol_whitelist','file,pipe','-f','flv','-i',input,'-an','-vf','scale=640:-2','-frames:v','1',output],'',{timeout:15000});
+    await run(ffmpeg(),['-nostdin','-hide_banner','-loglevel','error','-threads','2','-filter_threads','1','-protocol_whitelist','file,pipe','-f','flv','-i',input,'-an','-vf','scale=640:-2','-frames:v','1',output],'',{timeout:15000});
     const image=await fs.readFile(output);
     if(!image.length||image.length>2_000_000)throw new Error('未取得有效截图');
     const result={status:'captured',frameCount:1,capturedAt:new Date().toISOString(),evidence:'本次直播流起始片段截取1帧；可能存在直播延迟；未读取音轨，未持续观看'};

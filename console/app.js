@@ -13,7 +13,7 @@ const pages={
   rhythm:['节奏与额度','什么时候说话、主动找谁、一天能发多少'],
   model:['模型','连接方式，以及每种活交给哪个模型'],
   moderation:['管理员','谁能管机器人，谁不理'],
-  qq:['QQ 登录','NapCat 管理页，扫码登录机器人的 QQ'],
+  qq:['QQ 登录','登录机器人的 QQ，看它连没连上'],
   settings:['设置','控制台密码、开机自启和其他平台']
 };
 const aliases={agent:'activity',features:'abilities',images:'abilities',voice:'abilities',chat:'rhythm',limits:'rhythm'};
@@ -118,7 +118,7 @@ function route(){
   renderPageActions();
   $('app').querySelector('.main').scrollTop=0;
   const enter={overview:refreshOverview,activity:enterActivity,usage:enterUsage,chats:enterChats,persona:enterPersona,abilities:enterAbilities,
-    tools:enterTools,rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:()=>openEmbed(),settings:enterSettings}[page];
+    tools:enterTools,rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:enterQQ,settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
   schedulePolling();
 }
@@ -134,7 +134,8 @@ window.addEventListener('hashchange',()=>{
 function renderPageActions(){
   const actions=$('page-actions');actions.replaceChildren();
   const button=(label,handler,name)=>{const b=el('button',{type:'button',className:'btn small ghost'},...(name?[icon(name)]:[]),label);b.onclick=()=>busy(b,handler);actions.append(b);};
-  if(current==='qq'){button('重新连接',()=>openEmbed(true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
+  if(current==='qq'&&qqBackend==='napcat'){button('重新连接',()=>openEmbed(true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
+  if(current==='qq'&&qqBackend==='snowluma')button('刷新',enterQQ,'refresh');
   if(['activity','usage','abilities','tools','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,abilities:enterAbilities,tools:enterTools,rhythm:enterRhythm}[current],'refresh');
 }
 
@@ -155,8 +156,9 @@ function botState(o){
   const b=o.bot||{};
   if(b.state!=='active')return {tone:'bad',label:'机器人引擎离线',sub:b.error||'正在重启，或尚未启动'};
   // NapCat still says "logged in" after Tencent drops the session, so this stays up until messages arrive again.
-  if(b.kickedAt)return {tone:'bad',label:'QQ 被踢下线了',sub:`${shortDate(b.kickedAt)} 被腾讯踢下线，收不到也发不出消息。到「QQ 登录」用机器人的手机 QQ 重新扫码；扫完收到新消息后这里自动恢复。`};
-  if(!b.connected)return {tone:'warn',label:'未连接 QQ',sub:o.supervisor?.qqLoggedIn?'QQ 已登录，正在自动连接…':'到「QQ 登录」页扫码登录机器人的 QQ'};
+  const luma=o.napcat?.backend==='snowluma';
+  if(b.kickedAt)return {tone:'bad',label:'QQ 被踢下线了',sub:`${shortDate(b.kickedAt)} 被腾讯踢下线，收不到也发不出消息。${luma?'在机器人那个 QQ 窗口里重新登录':'到「QQ 登录」用机器人的手机 QQ 重新扫码'}；收到新消息后这里自动恢复。`};
+  if(!b.connected)return {tone:'warn',label:'未连接 QQ',sub:o.supervisor?.qqLoggedIn?'QQ 已登录，正在自动连接…':luma?'在这台电脑上用机器人的号登录 QQ，详见「QQ 登录」页':'到「QQ 登录」页扫码登录机器人的 QQ'};
   if(b.running&&o.availability?.limited)return {tone:'warn',label:'模型限流，等待恢复',sub:`模型服务返回 429，还需等待约 ${o.availability.retryAfter} 秒；QQ 连接正常。`};
   const scope=`私聊 ${b.targets.private} 个 · 群 ${b.targets.group} 个`;
   if(b.running)return {tone:'ok',label:'正在回复',sub:`QQ ${b.account} · ${scope}`};
@@ -189,7 +191,9 @@ async function refreshOverview(){
     return el('li',{},el('time',{},clock(r.timestamp)),el('span',{className:'who',title:r.target},r.target||'—'),el('span',{className:'what'},el('b',{className:tone},r.title),r.detail));
   });
   $('ov-records').replaceChildren(...(records.length?records:[el('li',{className:'empty'},'还没有运行记录')]));
-  const napState={running:'运行中',exited:'已停止',restarting:'重启中',created:'未启动',paused:'已暂停'}[o.napcat?.state];
+  const napState={running:'运行中',waiting:'运行中，等机器人的 QQ',exited:'已停止',restarting:'重启中',created:'未启动',paused:'已暂停'}[o.napcat?.state];
+  const qqName=o.napcat?.backend==='snowluma'?'SnowLuma':'NapCat';
+  $('sv-napcat-label').textContent=qqName;$('sv-napcat-restart').textContent='重启 '+qqName;
   $('sv-account').textContent=b.account||'—';
   $('sv-napcat').textContent=napState||o.napcat?.error||'未知';
   $('sv-engine').textContent=b.state==='active'?(b.status||'运行中'):(b.error||'离线');
@@ -207,7 +211,7 @@ $('ov-toggle').onclick=()=>busy($('ov-toggle'),async()=>{
   toast(result.message);await refreshOverview();
 });
 for(const button of $$('[data-runtime]'))button.onclick=()=>{
-  const name={'bot-restart':'重启机器人','napcat-restart':'重启 NapCat'}[button.dataset.runtime];
+  const name={'bot-restart':'重启机器人','napcat-restart':qqBackend==='snowluma'?'重启 SnowLuma':'重启 NapCat'}[button.dataset.runtime];
   if(!confirm(`确定${name}吗？期间机器人会离线一小会儿。`))return;
   busy(button,async()=>{const result=await api('runtime/action',{action:button.dataset.runtime});toast(result.message);await refreshOverview();});
 };
@@ -989,6 +993,36 @@ $('moderation-save').onclick=()=>busy($('moderation-save'),async()=>{
   const result=await api('moderation',moderationDraft);
   moderation={...moderation,...result};moderationDraft={admins:[...result.admins],blocked:[...result.blocked]};renderModeration();toast('名单已保存，立即生效');
 });
+
+/* QQ login: NapCat embedded full size (WSL), or SnowLuma's state and settings (Windows) */
+let qqBackend='napcat';
+async function enterQQ(){
+  let status;
+  try{status=await api('qq');}catch(error){if(error.status!==404)throw error;}
+  qqBackend=status?'snowluma':'napcat';renderPageActions();
+  const page=$('qq-luma').closest('.page');page.classList.toggle('embed',!status);
+  $('frame-qq').hidden=!!status;$('qq-luma').hidden=!status;
+  if(!status)return openEmbed();
+  const p=status.process;
+  const tone=!status.running?'bad':!p?'warn':p.injected&&p.loggedIn?'ok':'warn';
+  $('ql-badge').className='badge '+tone;
+  $('ql-badge').textContent={ok:'已连上',warn:'等待中',bad:'未运行'}[tone];
+  $('ql-account').textContent=status.account||'还没设';
+  $('ql-luma').textContent=status.running?'运行中':'没在运行';
+  $('ql-process').textContent=status.error?status.error:!status.passwordSet?'填好管理密码后才能查看':!p?'没找到，请用机器人的号登录 QQ':p.injected?(p.loggedIn?`已挂上 · 进程 ${p.pid}`:`已挂上，等 QQ 登录 · 进程 ${p.pid}`):`正在挂上 · 进程 ${p.pid}`+(p.error?' · '+p.error:'');
+  $('ql-webui').href=status.webui;
+  if(document.activeElement!==$('ql-account-input'))$('ql-account-input').value=status.account||'';
+  $('ql-password-hint').textContent=status.passwordSet?'已保存，不会显示出来；要换才重新填。':'SnowLuma 管理页的登录密码，第一次用要先在管理页改掉初始密码。';
+}
+$('ql-form').onsubmit=event=>{
+  event.preventDefault();
+  const account=$('ql-account-input').value.trim(),password=$('ql-password').value;
+  if(!qqPattern.test(account)){$('ql-error').textContent='QQ 号格式不正确';return;}
+  $('ql-error').textContent='';
+  busy(event.submitter||$('ql-form').querySelector('button'),async()=>{
+    await api('qq',{account,...(password?{password}:{})});$('ql-password').value='';toast('已保存');await enterQQ();
+  });
+};
 
 /* Embedded NapCat, full size inside the console */
 async function openEmbed(reload=false){

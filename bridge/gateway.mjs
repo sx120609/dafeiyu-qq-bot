@@ -18,6 +18,7 @@ import {ProviderBackoff,withDeadline} from './provider-health.mjs';
 import {VoiceSettings,toSilk} from './voice.mjs';
 import {ComputerControl} from './computer.mjs';
 import {AgentTools} from './agent-tools.mjs';
+import {QQHost} from './qq-host.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
@@ -88,7 +89,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime})}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -96,7 +97,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
   const recentMetrics=[];
   let imageBusy=false;
   const integrations=new Integrations({runtime,...integrationConfig,auth});
-  const runtimeControl=new RuntimeControl({runtime,integrations,...(runtimeExecute?{execute:runtimeExecute}:{})});
+  const runtimeControl=new RuntimeControl({runtime,integrations,host,...(runtimeExecute?{execute:runtimeExecute}:{})});
   autostart??=new Autostart({root,...(runtimeExecute?{execute:runtimeExecute}:{})});
   // Every model call is metered for the usage page, whether it succeeds or not.
   const metered=async(provider,profile,purpose,chat,call)=>{
@@ -214,6 +215,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/v1/voice'){send(200,voice.available());return;}
       // The tools the agent wrote for itself, as definitions for this turn.
       if(req.url==='/v1/agent-tools'){send(200,{tools:agentTools.definitions()});return;}
+      // QQ on Windows (SnowLuma): its state, the bot account, and whether its admin password is saved (never the password).
+      if(req.url==='/console/api/qq'){if(!host){send(404,{error:'QQ 由 NapCat 管理'});return;}try{send(200,await host.qqStatus());}catch(e){fail(e);}return;}
       if(req.url==='/console/api/tools'){
         let builtin=[];try{builtin=(await runtimeControl.panel()).agentToolCatalog||[];}catch{}
         send(200,{...agentTools.view(),builtin});return;
@@ -253,6 +256,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       try{send(200,await runtimeControl.engineAction(action,values));}catch(e){fail(e);}return;
     }
     if(req.url==='/console/api/social'){try{send(200,await runtimeControl.socialPanel(data.platform));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/qq'){if(!host){send(404,{error:'QQ 由 NapCat 管理'});return;}try{send(200,await host.saveSettings(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/voice'){try{send(200,await voice.update(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/computer'){try{send(200,{...await computer.update(data),history:await computer.history()});}catch(e){fail(e);}return;}
     if(req.url==='/v1/agent-tools/create'){try{send(200,await agentTools.create(data));}catch(e){fail(e);}return;}
@@ -274,7 +278,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
         const {audio,type,usage:spent}=await voice.speak(data.text);
         usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:true,ms:Date.now()-started,usage:spent});
         // QQ gets SILK; the console's preview gets something a browser plays.
-        if(!preview){send(200,{audio:(await toSilk(audio,type)).toString('base64'),type:'audio/silk'});return;}
+        if(!preview){send(200,{audio:(await toSilk(audio,type)).toString('base64'),type:process.platform==='win32'?type:'audio/silk'});return;}
         send(200,{audio:audio.toString('base64'),type});
       }catch(e){usage.record({provider:'voice',model:voice.value.model,purpose:'voice',chat,ok:false,ms:Date.now()-started});fail(e);}
       return;
@@ -409,8 +413,10 @@ export async function startGateway(config,configFile){
   const voice=await new VoiceSettings({runtime}).load();
   const computer=await new ComputerControl({runtime}).load();
   const agentTools=await new AgentTools({runtime}).load();
-  const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools});
+  // On Windows the gateway process also runs SnowLuma and the engine; in WSL systemd and supervisor.py do.
+  const host=process.platform==='win32'?new QQHost({root,runtime,gatewayToken:config.token,port:config.port||18191}):null;
+  const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools,host});
   await fs.writeFile(path.join(runtime,'console-url.txt'),`http://127.0.0.1:${config.port||18191}/console/#${config.consoleToken}`,{mode:0o600});
-  server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();});
+  server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();host?.start();});
   return server;
 }

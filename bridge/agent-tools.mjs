@@ -1,6 +1,6 @@
 // Tools the agent writes for itself (create_tool). Each one is a JavaScript function body run in a sandbox:
-// a separate Node process with no network of its own (`unshare -rn`), no files and no child processes
-// (Node's --permission), 128 MB and 60 seconds. It reaches the internet only through fetch, which the gateway
+// a separate Node process with no network, no files and no child processes (Node's --permission, which on
+// Node 25+ also denies sockets; in WSL `unshare -rn` takes its network away as well), 128 MB and 60 seconds. It reaches the internet only through fetch, which the gateway
 // carries out here for public addresses only, at most 20 requests a run. A tool is enabled only after a test
 // run with the agent's own test arguments succeeded.
 import fs from 'node:fs/promises';
@@ -16,8 +16,9 @@ const TYPES=new Set(['string','number','integer','boolean','array','object']);
 const MAX_TOOLS=50,RUN_MS=60000,FETCHES=20,BODY=2_000_000;
 
 export function sandboxProcess(){
-  return spawn('unshare',['-rn',process.execPath,'--permission','--allow-fs-read='+runner,'--max-old-space-size=128',runner],
-    {stdio:['pipe','pipe','pipe'],env:{PATH:process.env.PATH||'/usr/bin:/bin',LANG:'C.UTF-8'}});
+  const node=[process.execPath,'--permission','--allow-fs-read='+runner,'--max-old-space-size=128',runner];
+  if(process.platform==='win32')return spawn(node[0],node.slice(1),{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{SystemRoot:process.env.SystemRoot,LANG:'C.UTF-8'}});
+  return spawn('unshare',['-rn',...node],{stdio:['pipe','pipe','pipe'],env:{PATH:process.env.PATH||'/usr/bin:/bin',LANG:'C.UTF-8'}});
 }
 
 // Loopback, private, link-local, carrier-grade NAT, benchmarking, multicast and reserved ranges stay out of reach.

@@ -1,11 +1,11 @@
 $ErrorActionPreference='Stop'
-& wsl -d Ubuntu -- systemctl --user stop dafeiyu-bot.service dafeiyu-codex.service
-& wsl -d Ubuntu -u root -- docker stop qq-ai | Out-Null
-$workspace=Split-Path -Parent $PSScriptRoot
-$keepaliveFile=Join-Path $workspace '.runtime/wsl-keepalive.json'
-if(Test-Path $keepaliveFile){
-    $record=Get-Content -Raw $keepaliveFile | ConvertFrom-Json
-    $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($record.pid)" -ErrorAction SilentlyContinue
-    if($process.Name -eq 'wsl.exe' -and $process.CommandLine -like '*bot-gpt-ds-codex-qq/scripts/keepalive.sh*'){Stop-Process -Id $process.ProcessId}
+# Ends the gateway, the engine and SnowLuma (each only if its recorded pid is still a node.exe). QQ keeps running.
+$runtime=Join-Path (Split-Path -Parent $PSScriptRoot) '.runtime'
+foreach($name in 'host.pid','engine.pid','snowluma.pid'){
+    $file=Join-Path $runtime $name
+    if(-not (Test-Path $file)){continue}
+    $process=Get-Process -Id ([int](Get-Content -Raw $file)) -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'node'
+    if($process){Stop-Process -Id $process.Id -Confirm:$false;$process.WaitForExit(10000) | Out-Null}
+    Remove-Item $file -ErrorAction SilentlyContinue
 }
-Write-Output 'Dafeiyu engine, Codex adapter and QQ runtime stopped.'
+Write-Output 'Dafeiyu gateway, engine and SnowLuma stopped.'

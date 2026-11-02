@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {execFile} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {ffmpeg} from './platform.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const silkPython=path.join(os.homedir(),'.local/share/dafeiyu/voice-venv/bin/python');
@@ -19,10 +20,12 @@ const run=(file,args,timeout=30000)=>new Promise((resolve,reject)=>execFile(file
 /** Audio as QQ's SILK voice format. NapCat converts anything else with ffmpeg inside its container, which fails
  *  there (QQ answers 1200, 11-01), so the gateway does it: WAV is our 24 kHz PCM, MP3 is decoded with ffmpeg. */
 export async function toSilk(audio,type){
+  // SnowLuma (QQ on Windows) encodes any audio to SILK itself with its own ffmpeg addon.
+  if(process.platform==='win32')return audio;
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'silk-')),pcm=path.join(dir,'in.pcm'),silk=path.join(dir,'out.silk');
   try{
     if(type==='audio/wav')await fs.writeFile(pcm,audio.subarray(44));
-    else{const input=path.join(dir,'in.mp3');await fs.writeFile(input,audio);await run('/usr/bin/ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y','-i',input,'-f','s16le','-ar','24000','-ac','1',pcm]);}
+    else{const input=path.join(dir,'in.mp3');await fs.writeFile(input,audio);await run(ffmpeg(),['-nostdin','-hide_banner','-loglevel','error','-y','-i',input,'-f','s16le','-ar','24000','-ac','1',pcm]);}
     await run(silkPython,[path.join(here,'silk.py'),pcm,silk,'24000']).catch(error=>{throw new Error('语音转成 QQ 格式失败（先在 WSL 跑 scripts/setup-voice.sh）：'+error.message);});
     return await fs.readFile(silk);
   }finally{await fs.rm(dir,{recursive:true,force:true});}

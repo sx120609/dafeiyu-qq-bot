@@ -60,7 +60,8 @@ test('the sandbox has no files, no child processes and no network of its own',as
     const processes=await tools.execute('const cp=await import("node:child_process");return cp.execSync("id").toString();',{});
     assert.equal(processes.ok,false);assert.match(processes.error,/ERR_ACCESS_DENIED|permission/i);
     const socket=await tools.execute('const net=await import("node:net");return await new Promise((ok,no)=>{const s=net.connect(80,"1.1.1.1",()=>ok("connected"));s.on("error",e=>no(e));});',{});
-    assert.equal(socket.ok,false);assert.match(socket.error,/ENETUNREACH|EACCES|unreachable/i);
+    // WSL: unshare leaves no network; Windows: Node's permission model refuses the socket.
+    assert.equal(socket.ok,false);assert.match(socket.error,/ENETUNREACH|EACCES|unreachable|ERR_ACCESS_DENIED/i);
     const slow=await new AgentTools({runtime}).execute('return 40+2',{});
     assert.deepEqual([slow.ok,slow.output],[true,'42']);
   }finally{await fs.rm(runtime,{recursive:true,force:true});}
