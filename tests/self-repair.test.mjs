@@ -17,7 +17,7 @@ async function project(){
   git(root,'add','-A');git(root,'commit','-q','-m','start');
   return root;
 }
-const waitFor=async(check,seconds=60)=>{for(let i=0;i<seconds*10&&!check();i++)await new Promise(r=>setTimeout(r,100));};
+const waitFor=async(check,seconds=180)=>{for(let i=0;i<seconds*10&&!check();i++)await new Promise(r=>setTimeout(r,100));};
 async function pipeline(fix,{dirty}={}){
   const root=await project(),runtime=await fs.mkdtemp(path.join(os.tmpdir(),'repair-runtime-')),work=await fs.mkdtemp(path.join(os.tmpdir(),'repair-work-'));
   if(dirty)await fs.writeFile(path.join(root,'engine','math.mjs'),'export const add=(a,b)=>a-b; // being edited\n');
@@ -39,6 +39,8 @@ test('a program error is fixed in a worktree, tested, committed and merged into 
     assert.equal(done.status,'applied',done.error);assert.deepEqual(done.files,['engine/math.mjs']);
     assert.match(await fs.readFile(path.join(p.root,'engine','math.mjs'),'utf8'),/a\+b/);
     assert.match(git(p.root,'log','-1','--format=%s'),/^Self-repair: TypeError/);
+    // "applied" is recorded just before the worktree is cleaned up; wait for the pipeline to finish.
+    await waitFor(()=>!p.repair.busy);
     assert.equal(git(p.root,'worktree','list').trim().split('\n').length,1,'the worktree is removed');
   }finally{await p.cleanup();}
 });

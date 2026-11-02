@@ -122,9 +122,12 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 ## 6. 引擎怎么工作
 
 - **收消息**：`QQPolicy.incoming` 把 OneBot 事件变成 `QQIncoming`。超过 1 小时的旧消息不处理（只为重启后不回很久以前的话）。各种消息段（图片、表情、卡片、文件、语音、视频、合并转发……）都转成时间线里可读的文字，并提示用哪个工具打开。
-- **攒批**：新消息进会话时间线，安静 2 秒（或攒满 8 秒）成一批，交给指挥模型（用途 `director`）。
+- **攒批**：新消息进会话时间线。叫到它的（@、引用它、叫名字或群名片、私聊）立刻开一轮；别的群聊安静 2 秒（或攒满 8 秒）成一批，交给指挥模型（用途 `director`）。
 - **代理循环**（`QQEngine.agent.mjs` 的 `deliverAgentTurn` → `DeepSeekClient.operateAgent`）：
-  - 每轮最多 60 步，每步最多 24 个工具调用；查询类工具同时执行（`agentLookups`）。
+  - 每轮最多 60 步，每步最多 24 个工具调用；一次回复里的查询类工具（`agentLookups`）一开始就同时执行，动作按顺序执行。
+  - 动作旁边带 `end_turn` 就不再多问一轮（动作没成、查询回来、有新消息时才回去给它看）。处理函数返回 `{content, attention}`，`attention:false` 表示做成了、不用再看。
+  - 每批记下 `rounds`、`roundUsage`、`modelSeconds`、`toolSeconds`、`waitSeconds`、`firstSendSeconds`（`QQAgentTurn`，可选字段）。
+  - 程序错误（`QQRepair.isBug`）报给网关 `/v1/repair/report`；工具里的 bug 不让整轮失败，告诉代理“已报告”。代理自己用 `report_bug` 报。
   - 慢工具超时转后台（`agentPatience`），做完的结果、途中的新消息、戳一戳、贴表情、到点的提醒都送进正在跑的那一轮（`agentNews`）。
   - 8 个会话同时跑。
 - **权限档**（`core/QQAgentPlan.mjs` 的 `QQAgentLevel`）：基础、标准、完全，默认完全。决定能用哪些工具和动作。
@@ -136,7 +139,7 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 
 ## 7. 网关怎么工作
 
-- **模型**：本机 Codex（复用 ChatGPT 登录）、本机 Claude Code、云端 API（OpenAI 兼容或 Anthropic）。每种用途可以指定不同的模型，没指定就用当前连接。不设输出 token 上限。同时 8 路交互、2 路后台。每条面向聊天的调用都会附上一句底线：不聊国家领导人和时政敏感话题，不写色情和性暗示。
+- **模型**：本机 Codex（复用 ChatGPT 登录）、本机 Claude Code、云端 API（OpenAI 兼容或 Anthropic）。指挥的一批（`metadata.dafeiyu_session`）在 Claude Code 上是一个 Agent SDK 会话（`claude-session.mjs`），后面几轮只发新消息；其他调用仍是一次一个 `claude -p`。每种用途可以指定不同的模型，没指定就用当前连接。不设输出 token 上限。同时 8 路交互、2 路后台。每条面向聊天的调用都会附上一句底线：不聊国家领导人和时政敏感话题，不写色情和性暗示。
 - **画图**：先云端 API，再本机 Codex 的生图；多张同时画，不排队。
 - **自写工具**：机器人用 `create_tool` 说要求，`tool-writer.mjs` 让本机 Codex（Astra 模型，可联网查文档）写代码，网关用测试参数真跑，跑不通把报错还给它改，最多三稿，跑通才启用。工具可访问任何地址（含内网），有自己的存储，能调 QQ 的 OneBot 接口（只挡踢人、禁言、退群、删好友、删群文件、改机器人资料、拿登录凭证）。
 - **控制台接口**：`/console/api/*`，要登录。

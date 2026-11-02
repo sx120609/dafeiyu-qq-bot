@@ -99,7 +99,8 @@ test('spokenToButSilentIsRemindedOnce', async () => {
     await wait(() => engine.agentTurns.at(-1)?.note.endsWith('被点名了') === true);
     assert.equal(r.fixture.segments()[0]?.[0], 'at:');
     assert.equal(r.fixture.segments()[0]?.at(-1), 'text: 在呢在呢');
-    assert.equal(engine.agentTurns.at(-1).note, '提醒后出声：被点名了');
+    // The note keeps every step of the turn: what it thought before the reminder too (11-03).
+    assert.equal(engine.agentTurns.at(-1).note, '提醒后出声：刚回过了；被点名了');
     assert.ok(engine.agentReminders.length === 1 && engine.agentReminders[0].about === '问问他饭吃了没');
     assert.ok(JSON.stringify(QQPolicy.stickerSegment(Buffer.from([1]))).includes('动画表情'));
   } finally { await r.stop(); }

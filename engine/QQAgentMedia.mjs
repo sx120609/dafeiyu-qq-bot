@@ -210,7 +210,7 @@ export const mediaMethods = {
     const before = this.sends.confirmed;
     await this.agentSend(target, segments, text, answering, epoch, signal, override);
     state.sent.push(done);
-    if (this.sends.confirmed > before) { state.spoke = true; state.lastSentAt = new Date(); state.previous = ''; }
+    if (this.sends.confirmed > before) { state.spoke = true; state.lastSentAt = new Date(); state.firstSentAt ??= state.lastSentAt; state.previous = ''; }
     this.noteAgent(target, done, '');
     return undefined;
   },

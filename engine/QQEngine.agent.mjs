@@ -22,6 +22,8 @@ import {QQCustomTools} from './QQCustomTools.mjs';
 import {QQCompanionTools} from './QQCompanionTools.mjs';
 import {QQOnlineTools, ModelToolResult} from './QQOnlineTools.mjs';
 import {QQAgentMedia} from './QQAgentMedia.mjs';
+import {QQRepair} from './QQRepair.mjs';
+import crypto from 'node:crypto';
 
 import {identifier, intValue, describe, isCancellation, formatDate, iso8601, localZone, task, isInt64,
   QQAgentTurn, QQAgentTurnState, QQAgentToolBox, QQAgentGate, QQAgentJob, QQAgentNote, QQAgentReminder} from './QQEngine.types.mjs';
@@ -35,9 +37,11 @@ export const agentMethods = {
     const key = target.key;
     const pending = this.agentPending.get(key) ?? []; this.agentPending.delete(key);
     const calling = this.agentCalling.delete(key);
+    const firstPending = this.agentFirstPending.get(key);
     this.agentFirstPending.delete(key);
     const wake = this.agentWake.get(key) ?? []; this.agentWake.delete(key);
     const reacted = this.agentReacted.get(key) ?? []; this.agentReacted.delete(key);
+    const reactors = this.agentReactors.get(key) ?? []; this.agentReactors.delete(key);
     const finished = this.agentJobsDone.get(key) ?? []; this.agentJobsDone.delete(key);
     const happened = this.agentEvents.get(key) ?? []; this.agentEvents.delete(key);
     const events = this.groupRecentMessages.get(key) ?? [];
@@ -87,9 +91,14 @@ export const agentMethods = {
           if (!message.isOwner && message.sender !== account && !this.config.isBlocked(message.sender)) {
             members[QQMemoryBook.subject(account, key, message.sender)] = message.sender;
           }
+          // Someone only @-mentioned shows up in the timeline under a label too; tools refused it (11-03).
+          for (const user of message.mentionedUsers ?? []) {
+            if (user !== 'all' && user !== account && !this.config.isBlocked(user)) members[QQMemoryBook.subject(account, key, user)] ??= user;
+          }
         }
       } else members.PEER = target.number;
       for (const event of happened) { if (target.group && event.sender !== undefined) members[QQMemoryBook.subject(account, key, event.sender)] = event.sender; }
+      if (target.group) for (const user of reactors) members[QQMemoryBook.subject(account, key, user)] ??= user;
       // Every QQ face and emoji, the owner's favourites first; ones QQ refused before are left out.
       const favourites = this.config.effectiveReactions.effectiveEmojis;
       const emojis = target.group && bubbles0.has('reaction') ? QQReactionCatalog.all(favourites).filter(item => !this.rejectedReactionIDs.has(item.id)) : [];
@@ -97,6 +106,9 @@ export const agentMethods = {
       const imageOn = this.config.effectiveImageGeneration.enabled && bubbles0.has('image');
       const artworkOn = this.config.effectiveArtwork.enabled && this.config.effectiveArtwork.agentEnabled && tools0.has('find_artwork');
       const notes = [`现在是 ${iso8601(new Date())}，本机时区 ${localZone()}。`, QQAgentLevel.describe(level)];
+      // The name members see for it here: they call it that, and it did not know (11-03: called by its group card, it said that was "another whale").
+      const card = target.group ? await this.selfCard(target) : undefined;
+      if (card !== undefined) notes.push(`你在这个群的群名片是「${card}」，群友叫这个名字、@这个名字就是在叫你。`);
       const clock = date => formatDate(date, 'MM-dd HH:mm');
       if (wake.length) {
         notes.push('你之前给自己定的事到点了：' + wake.map(item => `（${clock(item.setAt)} 定的）${item.about}` + (item.say === '' ? '' : `；当时打算说：${item.say}`)).join('；') +
@@ -143,11 +155,10 @@ export const agentMethods = {
       const batchText = fresh.flatMap(id => inputs[id] ? [inputs[id].text] : []).join(' ');
       // The conversation so far: the group timeline, or for a private chat QQ's own history, which also
       // has what the owner typed by hand.
-      let timeline = '';
+      let timeline = '', groupContext;
       if (target.group) {
-        const context = QQGroupContext.fromEvents(events, events.at(-1)?.id ?? anchor.id, inputs, account);
-        if (!context) return;
-        timeline = context.context(7000, undefined, this.timelineSummaries[key]);
+        groupContext = QQGroupContext.fromEvents(events, events.at(-1)?.id ?? anchor.id, inputs, account);
+        if (!groupContext) return;
         notes.push(!fresh.length ? '这一轮没有新消息，下面是聊天现在的样子。' : '这一批新消息（从旧到新）：' + fresh.join('、') + '，都在下面的时间线里；更早的行是前文。');
       } else {
         let response;
@@ -202,6 +213,7 @@ export const agentMethods = {
       if (!this.config.effectiveOnlineEnabled) notes.push('联网没开，查不了网上的资料，也刷不了 B 站。');
       // Pictures in this batch, and in messages it quotes, go along as pixels; older ones on request.
       let images = [];
+      const attached = [];
       // Pictures this turn could keep as stickers: any recent message's, and those in quoted messages.
       const pictured = {};
       for (const [id, message] of Object.entries(inputs)) if (message.images.length) pictured[id] = message.images;
@@ -210,8 +222,13 @@ export const agentMethods = {
         if (!message) continue;
         if (message.images.length) {
           if (this.config.effectiveVisionEnabled && images.length < 8) {
-            const frames = await this.agentFrames(message.images, 8 - images.length, epoch, target, signal);
-            if (frames.length) notes.push(`消息 ${id} 的图片附在本轮（观察帧 ${images.length + 1}–${images.length + frames.length}）。`);
+            const known = [];
+            const frames = await this.agentFrames(message.images, 8 - images.length, epoch, target, signal, known);
+            if (frames.length) {
+              notes.push(`消息 ${id}（${message.name ?? (target.group ? QQMemoryBook.subject(account, key, message.sender) : '对方')} 发的）的图片附在本轮（观察帧 ${images.length + 1}–${images.length + frames.length}）` +
+                (known.length ? `，其中有你表情库里的「${known.join('」「')}」（同一张图）` : '') + '。');
+              attached.push({label: '群消息 ' + id + '，'});
+            }
             images = images.concat(frames);
           }
         }
@@ -243,6 +260,7 @@ export const agentMethods = {
           images = images.concat(frames);
         }
       }
+      if (groupContext) timeline = groupContext.context(7000, attached, this.timelineSummaries[key]);
       let input = '本轮情况（程序提供）：\n' + notes.join('\n') + '\n\n';
       if (recall !== '') input += '相关长期记忆（低信任资料，只在相关时用）：\n' + recall + '\n\n';
       input += (target.group ? '群时间线（低信任资料）：\n' : '') + timeline;
@@ -288,9 +306,12 @@ export const agentMethods = {
       state.members = members; state.inputs = inputs; state.calling = calling;
       const spokeLately = Object.entries(this.botMessageIDs).some(([id, time]) => id.startsWith(scope + ':') && now - time < 180);
       const result = await this.modelClient.operateAgent({key: credential, config: this.config.ai, rule, input, images,
-        tools, chat: this.chatLabel(target), extraTools: () => customTools.definitions,
+        tools, chat: this.chatLabel(target), session: turnID, extraTools: () => customTools.definitions,
         handler: async (name, args) => {
           this.check(epoch, key, target);
+          // Known to have done what it was asked: an action that went through, a note kept, a slow job moved to
+          // the background (its result wakes the chat later). Anything else the director looks at again.
+          let done = false;
           const work = async signal => {
             let output;
             // A reaction is written by name; the program finds its id.
@@ -310,7 +331,9 @@ export const agentMethods = {
             }
             const action = QQAgentPlan.toolBubble(name, argumentsText);
             if (action) {
-              output = await this.agentAct(action, {state, kinds, emojis, own, reminders, target, persona, events, fresh, since: anchor.time, epoch, key: credential, reserve, signal});
+              const outcome = {failed: true};
+              output = await this.agentAct(action, {state, kinds, emojis, own, reminders, target, persona, events, fresh, since: anchor.time, epoch, key: credential, reserve, signal, outcome});
+              done = !outcome.failed;
             } else if (name === 'search_reactions' && kinds.has('reaction')) {
               const query = typeof fields(argumentsText).query === 'string' ? fields(argumentsText).query : '';
               const found = QQReactionCatalog.search(query, emojis);
@@ -342,6 +365,7 @@ export const agentMethods = {
               output = await this.agentComputer(argumentsText, computerOwner, state, fresh, key, credential, target);
             } else if ((name === 'write_note' || name === 'delete_note') && tools0.has(name)) {
               output = this.agentNotebook(name, argumentsText, key);
+              done = /^(记下了|删掉了)/.test(output);
             } else if (name === 'read_qq_history' && tools0.has(name)) {
               output = await this.agentReadHistory(argumentsText, target);
             } else if (name === 'send_to_chat' && tools0.has(name)) {
@@ -352,6 +376,7 @@ export const agentMethods = {
               output = await this.agentGroupInfo(argumentsText, target, state.members);
             } else if (name === 'remember' && tools0.has(name)) {
               output = this.agentRemember(argumentsText, [...fresh, ...state.consumed], state.inputs, state.members, target);
+              done = output === '记下了。';
             } else if (name === 'model_info') {
               const identity = await this.modelClient.modelIdentity({key: credential, config: this.config.ai, signal});
               const parsed = parseDictionary(identity.text);
@@ -365,6 +390,9 @@ export const agentMethods = {
                   output = (prepared.image === undefined ? '没找到能发的插画：' : '找到了一张插画，要发就调用 send_artwork：') + prepared.caption;
                 } catch { output = '插画来源这会儿不可用。'; }
               } else output = '插画参数无效。';
+            } else if (name === 'report_bug' && tools0.has(name)) {
+              output = this.agentReportBug(argumentsText, target, turnID);
+              done = output.startsWith('报告了');
             } else if (name === 'notify_owner' && canNotifyOwner) {
               output = (await this.notifyOwner(argumentsText, anchor, target)).content;
             } else if (QQAgentMedia.names.has(name) && tools0.has(name) && (target.group || !QQAgentMedia.groupOnly.has(name))) {
@@ -378,14 +406,24 @@ export const agentMethods = {
           let output;
           const patience = this.agentPatience[name] ?? (name.startsWith('my_') ? 20 : undefined);
           // The background job is an unstructured task: pausing does not cancel it (its result is dropped instead).
-          if (patience !== undefined) output = await this.agentSettle(() => work(undefined), patience, name, args, target, epoch);
-          else output = await work(signal);
+          const moved = {background: false};
+          try {
+            if (patience !== undefined) output = await this.agentSettle(() => work(undefined), patience, name, args, target, epoch, moved);
+            else output = await work(signal);
+          } catch (error) {
+            // A fault in our own code (not an outage) goes to the self-repair report, and the director hears what
+            // happened instead of the turn failing and being retried into the same fault (11-03).
+            if (!QQRepair.isBug(error)) throw error;
+            this.reportBug(error, {kind: 'tool', tool: name, target, turnId: turnID});
+            output = `这个工具出了程序错误（${prefix(describe(error), 120)}），已经自动报告给维护程序。没做成，照实告诉对方，或者换个办法。`;
+          }
+          if (moved.background) done = true;
           // Whatever came in meanwhile goes along with every result, as it would to someone holding the phone.
           const news = this.agentNews(state, target);
           if (news.length) this.updateTurn(turnID, item => { item.batch.push(...news); });
           output += !news.length ? (name === 'check_new_messages' || name === 'wait' ? '没有新消息。' : '') : '\n\n这期间新来的消息：\n' + news.join('\n');
           this.updateTurn(turnID, item => { item.errands.push(new QQAgentTurn.Errand({tool: name, detail: prefix(args, 200), result: prefix(output, 600)})); });
-          return output;
+          return {content: output, attention: !done || news.length > 0};
         },
         finish: async () => {
           if (state.ownerAnswered) return undefined;
@@ -402,6 +440,10 @@ export const agentMethods = {
       this.check(epoch, key, target);
       this.updateTurn(turnID, item => {
         item.tokens = result.tokens; item.sent = state.sent.slice();
+        item.rounds = result.rounds?.length; item.roundUsage = result.rounds;
+        item.modelSeconds = result.modelSeconds; item.toolSeconds = result.toolSeconds;
+        if (firstPending !== undefined) item.waitSeconds = Math.max(0, (started.getTime() - firstPending.getTime()) / 1000);
+        if (state.firstSentAt !== undefined) item.firstSendSeconds = (state.firstSentAt.getTime() - started.getTime()) / 1000;
         item.decision = state.sent.length === 0 ? 'silence' : 'reply';
         item.note = state.ownerAnswered ? '主人亲自回了，这轮不发' : (state.nudged && state.spoke ? '提醒后出声：' : '') + result.note;
       });
@@ -411,6 +453,7 @@ export const agentMethods = {
       this.agentRetries.delete(key);
     } catch (error) {
       if (isCancellation(error) || !this.fence.permits(epoch)) return;
+      this.reportBug(error, {target, turnId: turn.id});
       // The key is wrong or the account is out of credit: retrying cannot help, so everything stops.
       if (error instanceof HTTPFailure && [401, 402].includes(error.code)) {
         this.updateTurn(turn.id, item => { item.decision = 'failed'; item.note = describe(error) + '（密钥或额度有问题，已暂停）'; item.seconds = (Date.now() - started.getTime()) / 1000; });
@@ -452,7 +495,7 @@ export const agentMethods = {
   /// Gives a slow tool `seconds` to finish. Still going after that, it carries on by itself and the turn moves on;
   /// when it is done, the chat's agent is woken with the result (11-01: "让他画图，他就会等到画图完成才接着回应…
   /// 他的并行操作有问题"). Meanwhile the chat is free for new turns.
-  async agentSettle(work, seconds, tool, args, target, epoch) {
+  async agentSettle(work, seconds, tool, args, target, epoch, moved) {
     const job = work();
     job.catch(() => {});
     const gate = new QQAgentGate();
@@ -462,13 +505,17 @@ export const agentMethods = {
       timer = setTimeout(() => { if (gate.open()) resolve(undefined); }, Math.max(0, seconds) * 1000);
     }).finally(() => clearTimeout(timer));
     if (early) return early.value;
+    if (moved) moved.background = true;
     const key = target.key;
     const record = new QQAgentJob({tool, detail: prefix(args, 300)});
     this.pushMap(this.agentJobs, key, record);
     this.noteAgent(target, `转到后台：${tool}`, '');
     task(async () => {
       const done = record.clone();
-      try { done.result = await job; } catch (error) { done.result = '没做成：' + prefix(describe(error), 200); }
+      try { done.result = await job; } catch (error) {
+        this.reportBug(error, {kind: 'tool', tool, target});
+        done.result = '没做成：' + prefix(describe(error), 200) + (QQRepair.isBug(error) ? '（这是程序的错误，已经自动报告）' : '');
+      }
       this.agentJobs.set(key, (this.agentJobs.get(key) ?? []).filter(item => item.id !== record.id));
       if (!(this.fence.permits(epoch) && this.config.targets.some(item => item.key === key && item.enabled))) return;
       this.pushMap(this.agentJobsDone, key, done);
@@ -480,7 +527,8 @@ export const agentMethods = {
   },
 
   /// One action tool call, checked like a plan bubble and carried out at once; the result says what happened.
-  async agentAct(action, {state, kinds, emojis, own, reminders, target, persona, events, fresh, since, epoch, key, reserve, signal}) {
+  /// `outcome.failed` says whether it went through (for end_turn; this call's own, as other calls run beside it).
+  async agentAct(action, {state, kinds, emojis, own, reminders, target, persona, events, fresh, since, epoch, key, reserve, signal, outcome = {}}) {
     const plan0 = {action: 'reply', bubbles: [action.bubble]};
     if (action.quote !== undefined) { plan0.target = action.quote; plan0.quote = true; }
     const raw = JSON.stringify(plan0);
@@ -491,6 +539,7 @@ export const agentMethods = {
     const plan = QQAgentPlan.decode(raw, state.messages, new Set(Object.keys(state.members)), new Set(emojis.map(item => item.id)), kinds,
       ownNow, reminderIDs);
     const bubble = plan?.bubbles[0];
+    outcome.failed = true;
     if (!plan || plan.action !== QQAgentPlan.Action.reply || !bubble) {
       return '没做：' + this.agentActRefusal(action, state, kinds, emojis, ownNow, reminderIDs);
     }
@@ -507,14 +556,19 @@ export const agentMethods = {
       if (gap > 0) await taskSleep(gap * 1000, signal);
     }
     const before = this.sends.confirmed;
-    const done = await this.performAgentPlan(plan, {target, persona, members: state.members, inputs: state.inputs, events, fresh,
-      emojis, epoch, key, reserve, signal});
-    state.sent.push(...done);
+    // A turn woken without new messages (a finished job, a reminder, a poke) still has someone to answer: the
+    // latest message it has read (11-03: drawings in such turns were dropped for want of one).
+    const latest = [...state.consumed, ...fresh].reverse().find(id => state.inputs[id] !== undefined);
+    const {done, sent, failed} = await this.performAgentPlan(plan, {target, persona, members: state.members, inputs: state.inputs, events,
+      fresh: latest === undefined ? fresh : [...fresh.filter(id => id !== latest), latest], emojis, epoch, key, reserve, signal});
+    // Only what went out is a sent message; a refusal listed there marked a silent turn as a reply (11-03).
+    state.sent.push(...sent);
+    outcome.failed = failed || done.length === 0;
     if (this.sends.confirmed > before) {
-      state.spoke = true; state.lastSentAt = new Date();
+      state.spoke = true; state.lastSentAt = new Date(); state.firstSentAt ??= state.lastSentAt;
       state.previous = bubble.case === 'text' || bubble.case === 'voice' ? bubble._0 : '';
     }
-    if (action.quote !== undefined && plan.target === undefined) return (done.length === 0 ? '什么也没做成。' : done.join('；')) + '（要引用的那条编号不对，没引用）';
+    if (action.quote !== undefined && plan.target === undefined) { outcome.failed = true; return (done.length === 0 ? '什么也没做成。' : done.join('；')) + '（要引用的那条编号不对，没引用）'; }
     return done.length === 0 ? '什么也没做成。' : done.join('；');
   },
   /// Which check an action failed, said plainly so the agent can fix it instead of guessing.
@@ -644,6 +698,8 @@ export const agentMethods = {
     try {
       await this.agentSend(other, [{type: 'text', data: {text: prefix(text, 800)}}], prefix(text, 800), undefined, epoch, signal);
       this.noteAgent(other, `受「${this.chatLabel(source)}」那边的请求在这里说了「${prefix(text, 40)}」`, '');
+      // And where it was asked: the next turn there knew nothing of it and said it had not been sent (11-03).
+      this.noteAgent(source, `替这里的人给「${other.name}」发了「${prefix(text, 40)}」`, '');
       this.record(source.id, JobState.confirmed, `代理替人给「${other.name}」带了话`);
       return `已发到「${other.name}」。`;
     } catch (error) {
@@ -682,6 +738,7 @@ export const agentMethods = {
       lines.push('[事件] ' + event.text);
     }
     lines.push(...take(this.agentReacted).map(item => '[表情] ' + item));
+    if (target.group) for (const user of take(this.agentReactors)) state.members[QQMemoryBook.subject(account, key, user)] ??= user;
     lines.push(...take(this.agentJobsDone).map(job => `[后台做完] ${job.tool}（${prefix(job.detail, 100)}）：` + prefix(job.result, 1500)));
     lines.push(...take(this.agentWake).map(reminder => '[到点] 你之前定的事：' + reminder.about + (reminder.say === '' ? '' : `（当时打算说：${reminder.say}）`)));
     const ids = this.agentPending.get(key);
@@ -706,6 +763,39 @@ export const agentMethods = {
       lines.push(line);
     }
     return lines;
+  },
+
+  /// A program fault, for the gateway's self-repair (QQRepair ignores what is not a bug).
+  reportBug(error, {kind = 'exception', tool, target, turnId} = {}) {
+    const key = this.runtimeCredentials?.deepSeekKey;
+    if (key) QQRepair.key = key;
+    return QQRepair.capture(error, {kind, tool, chatKey: target?.key, turnId});
+  },
+  /// report_bug: what the agent saw the program get wrong, in its own words.
+  agentReportBug(args, target, turnId) {
+    const input = fields(args);
+    const description = typeof input.description === 'string' ? trim(input.description) : '';
+    if (description === '') return '要写清楚哪里不对：哪个工具、你让它做什么、它返回了什么、哪里和实际对不上。';
+    const key = this.runtimeCredentials?.deepSeekKey;
+    if (key) QQRepair.key = key;
+    const outcome = QQRepair.agent(prefix(description, 2000), {tool: typeof input.tool === 'string' ? prefix(trim(input.tool), 80) : undefined, chatKey: target.key, turnId});
+    return outcome === 'sent' ? '报告了，维护程序会去查。'
+      : outcome === 'duplicate' ? '报告了（同样的问题刚报过一次，没再重复发）。'
+        : '没报告出去：这台机器没有接上本机网关。';
+  },
+  /// The bot's own name in a group (its group card, else its QQ nickname), asked of QQ at most every ten minutes.
+  async selfCard(target) {
+    const cached = this.selfCards.get(target.key);
+    if (cached && Date.now() - cached.at < 600_000) return cached.name;
+    let name;
+    try {
+      const response = await this.connection.action('get_group_member_info', {group_id: target.number, user_id: this.config.expectedSelfID});
+      const data = isDictionary(response?.data) ? response.data : {};
+      const card = typeof data.card === 'string' ? trim(data.card) : '', nickname = typeof data.nickname === 'string' ? trim(data.nickname) : '';
+      name = card !== '' ? card : nickname !== '' ? nickname : undefined;
+    } catch {}
+    this.selfCards.set(target.key, {name, at: Date.now()});
+    return name;
   },
 
   agentHasNews(key) {
@@ -740,8 +830,10 @@ export const agentMethods = {
   async performAgentPlan(plan, {target, persona, members, inputs, events, fresh, emojis, epoch, key, reserve, signal}) {
     const targetMessage = (plan.target !== undefined ? inputs[plan.target] : undefined) ?? (fresh.at(-1) !== undefined ? inputs[fresh.at(-1)] : undefined);
     const answering = targetMessage?.sender;
-    const done = [];
-    let quoted = false, previous = '';
+    const done = [], sent = [];
+    let failed = false, quoted = false, previous = '';
+    const success = text => { done.push(text); sent.push(text); };
+    const failure = text => { done.push(text); failed = true; };
     const names = {};
     for (const item of emojis) if (names[item.id] === undefined) names[item.id] = item.name;
     try {
@@ -755,11 +847,11 @@ export const agentMethods = {
             // A message that is only such a word is not sent, and a leading one is dropped before sending.
             let said = String(bubble._0 ?? '');
             if (/^(?:草+|6+|乐|典|绷)[\s，,。.！!？?～~…]*$/u.test(said.trim())) {
-              done.push('这句只有一个语气词，没发：接住对方说的具体那一点再说，或者这轮不说'); continue;
+              failure('这句只有一个语气词，没发：接住对方说的具体那一点再说，或者这轮不说'); continue;
             }
             said = said.replace(/^\s*草+[\s，,。.！!～~]+/u, '');
             const reply = persona.decode(JSON.stringify({text: said, emotion: 'neutral', intensity: 1}), '');
-            if (reply.isFallback) continue;
+            if (reply.isFallback) { failure('这句话没能发出（内容为空或无法发送），换个说法'); continue; }
             for (const [part, segment] of reply.segments.entries()) {
               if (part > 0) await taskSleep(QQAgentPlan.pause(previous) * 1000, signal);
               let segments = [{type: 'text', data: {text: segment}}];
@@ -771,7 +863,8 @@ export const agentMethods = {
               await this.agentSend(target, segments, segment, answering, epoch, signal);
               previous = segment;
             }
-            done.push('说「' + prefix(reply.text, 60) + '」');
+            // The whole text went out; a receipt cut at 60 characters read as a message cut short (11-03).
+            success('说「' + (count(reply.text) > 60 ? prefix(reply.text, 60) + '…」（全文已发出）' : reply.text + '」'));
             break;
           }
           case 'sticker': {
@@ -783,15 +876,15 @@ export const agentMethods = {
               const id = await this.modelClient.pickAgentSticker({key, config: this.config.ai, describe: about, context: recent, candidates: available, chat: this.chatLabel(target), reserve, signal});
               if (id !== undefined) chosen = available.find(item => item.id === id);
             }
-            if (!chosen) { done.push(`没有编号为「${about}」的表情包，先用 search_stickers 搜`); continue; }
+            if (!chosen) { failure(`没有编号为「${about}」的表情包，先用 search_stickers 搜`); continue; }
             const data = await this.stickerLibrary.data(chosen);
-            if (!data) { done.push(`表情「${chosen.title}」的图片文件读不出来，没发`); continue; }
+            if (!data) { failure(`表情「${chosen.title}」的图片文件读不出来，没发`); continue; }
             this.check(epoch, target.key, target);
             await this.agentSend(target, [QQPolicy.stickerSegment(data)], `[表情：${chosen.title}]`, answering, epoch, signal);
             this.lastStickerAt = new Date();
             const historyKey = this.config.expectedSelfID + ':' + target.key;
             (this.recentStickers[historyKey] ??= []).push(new QQStickerLibrary.Use({sha256: chosen.sha256, at: new Date()}));
-            previous = ''; done.push(`发表情「${chosen.title}」`);
+            previous = ''; success(`发表情「${chosen.title}」`);
             break;
           }
           case 'reaction': {
@@ -801,20 +894,22 @@ export const agentMethods = {
             try { await this.connection.action('set_msg_emoji_like', {message_id: message, emoji_id: emoji, set: true}); } catch { ok = false; }
             if (ok) {
               this.reactionsSent += 1;
-              done.push(`给「${prefix(inputs[message]?.text ?? '', 12)}」贴了${names[emoji] ?? emoji}`);
+              // The bot's own messages are not in `inputs`; their text is in the timeline (11-03: "给「」贴了").
+              const said = inputs[message]?.text ?? events.find(event => event.id === message)?.text;
+              success((said === undefined ? `给消息 ${message}` : `给「${prefix(said, 12)}」`) + `贴了${names[emoji] ?? emoji}`);
             } else {
-              this.rejectedReactionIDs.add(emoji); done.push(`贴${names[emoji] ?? emoji}被 QQ 拒了`);
+              this.rejectedReactionIDs.add(emoji); failure(`贴${names[emoji] ?? emoji}被 QQ 拒了`);
             }
             break;
           }
           case 'poke': {
             const number = members[bubble.member];
-            if (number === undefined) continue;
+            if (number === undefined) { failure(`成员 ${bubble.member} 找不到，没戳`); continue; }
             const [action, params] = target.group ? ['group_poke', {group_id: target.number, user_id: number}] : ['friend_poke', {user_id: number}];
             let ok = true;
             try { await this.connection.action(action, params); } catch { ok = false; }
             if (!ok) { try { await this.connection.action('send_poke', target.group ? {group_id: target.number, user_id: number} : {user_id: number}); } catch {} }
-            done.push('戳了戳' + (Object.values(inputs).find(input => input.sender === number)?.name ?? (target.group ? bubble.member : '对方')));
+            success('戳了戳' + (Object.values(inputs).find(input => input.sender === number)?.name ?? (target.group ? bubble.member : '对方')));
             break;
           }
           case 'voice': {
@@ -834,12 +929,12 @@ export const agentMethods = {
                   await this.agentSendAIVoice(target, words, this.qqVoiceCharacter, answering, epoch, signal);
                 }
               }
-              done.push('发了语音「' + prefix(words, 40) + '」');
+              success('发了语音「' + prefix(words, 40) + '」');
             } catch (error) {
               if (isCancellation(error)) throw error;
               // Synthesis or the voice send failed: the words still go out, as text.
               await this.agentSend(target, [{type: 'text', data: {text: words}}], words, answering, epoch, signal);
-              done.push(`语音没发成（${prefix(describe(error), 40)}），改发了文字`);
+              done.push(`语音没发成（${prefix(describe(error), 40)}），改发了文字`); sent.push('说「' + prefix(words, 60) + '」'); failed = true;
             }
             previous = words;
             break;
@@ -847,7 +942,7 @@ export const agentMethods = {
           case 'recall': {
             let ok = true;
             try { await this.connection.action('delete_msg', {message_id: bubble.message}); } catch { ok = false; }
-            done.push(ok ? '撤回了自己的一条消息' : '想撤回但 QQ 没让撤（可能超过两分钟了）');
+            if (ok) success('撤回了自己的一条消息'); else failure('想撤回但 QQ 没让撤（可能超过两分钟了）');
             break;
           }
           case 'later': {
@@ -856,55 +951,64 @@ export const agentMethods = {
             this.agentReminders.push(new QQAgentReminder({id, key: target.key, chat: this.chatLabel(target), due: addSeconds(new Date(), minutes * 60),
               setAt: new Date(), about, say}));
             this.persist();
-            done.push(`定了 ${minutes} 分钟后：${prefix(about, 30)}`);
+            success(`定了 ${minutes} 分钟后：${prefix(about, 30)}`);
             break;
           }
           case 'cancelLater': {
             const id = bubble._0;
             this.agentReminders = this.agentReminders.filter(item => !(item.id === id && item.key === target.key));
             this.persist();
-            done.push(`取消了定时 ${id}`);
+            success(`取消了定时 ${id}`);
             break;
           }
           case 'like': {
             const {member, times} = bubble;
             const number = members[member];
-            if (number === undefined) continue;
+            if (number === undefined) { failure(`成员 ${member} 找不到，没点赞`); continue; }
             let ok = true;
             try { await this.connection.action('send_like', {user_id: number, times}); } catch { ok = false; }
-            done.push(ok ? '给' + (Object.values(inputs).find(input => input.sender === number)?.name ?? (target.group ? member : '对方')) + `点了 ${times} 个赞` : '点赞被 QQ 拒了（可能今天点满了）');
+            if (ok) success('给' + (Object.values(inputs).find(input => input.sender === number)?.name ?? (target.group ? member : '对方')) + `点了 ${times} 个赞`);
+            else failure('点赞被 QQ 拒了（可能今天点满了）');
             break;
           }
           case 'artwork': {
             const artwork = this.agentArtwork.get(target.key); this.agentArtwork.delete(target.key);
-            if (!artwork || artwork.image === undefined) continue;
+            if (!artwork || artwork.image === undefined) { failure('没有可发的插画：先用 find_artwork 找'); continue; }
             this.check(epoch, target.key, target);
             await this.agentSend(target, [{type: 'text', data: {text: QQArtworkPrepared.credit(artwork.caption) + '\n'}},
               {type: 'image', data: {file: 'base64://' + base64(artwork.image)}}],
             '[插画] ' + prefix(artwork.caption, 60), answering, epoch, signal);
-            previous = ''; done.push('发了一张插画');
+            previous = ''; success('发了一张插画');
             break;
           }
           case 'image': {
             const prompt = bubble._0;
-            const prepared = targetMessage ? await this.prepareImage({request: prompt, proposed: prompt, proactive: false, epoch, message: targetMessage, target, key, signal}) : undefined;
+            // prepareImage only needs the chat's key from the message; a turn with nothing to answer still draws.
+            const prepared = await this.prepareImage({request: prompt, proposed: prompt, proactive: false, epoch, message: targetMessage ?? {key: target.key}, target, key, signal});
             const image = prepared?.image;
-            if (image === undefined) { done.push('想画图但没画出来'); continue; }
+            // Why it failed goes back to the agent, which used to guess a reason of its own (11-03).
+            if (image === undefined) {
+              const why = prepared?.content?.startsWith('本次未生成图片。请求需调整') ? prepared.content : prepared?.imageStatus ?? this.imageGenerationStatus ?? '图片接口没有返回图';
+              failure('没画出来：' + prefix(why, 200)); continue;
+            }
             this.check(epoch, target.key, target);
             const credit = prepared.sources.filter(source => !source.startsWith('http')).join('\n');
             const segments = [{type: 'image', data: {file: 'base64://' + base64(image)}}];
             if (credit !== '') segments.unshift({type: 'text', data: {text: credit + '\n'}});
             await this.agentSend(target, segments, '[画了一张图] ' + prefix(prompt, 60), answering, epoch, signal);
-            previous = ''; done.push('画了一张图');
+            previous = ''; success('画了一张图');
             break;
           }
         }
       }
     } catch (error) {
-      if (!isCancellation(error)) done.push('后面的没发出去：' + prefix(describe(error), 40));
+      if (!isCancellation(error)) {
+        this.reportBug?.(error, {kind: 'tool', tool: plan.bubbles[0]?.case, target});
+        failure('后面的没发出去：' + prefix(describe(error), 40));
+      }
     }
     this.noteAgent(target, done.length === 0 ? '想回但什么也没发出去' : done.join('，'), plan.note);
-    return done;
+    return {done, sent, failed};
   },
 
   /// A voice message in QQ's own AI voice (groups only), through the same limits and bookkeeping as other sends.
@@ -958,14 +1062,25 @@ export const agentMethods = {
       return isDictionary(resolved?.data) && typeof resolved.data.url === 'string' ? resolved.data.url : undefined;
     } catch { return undefined; }
   },
-  async agentFrames(references, limit, epoch, target, signal) {
+  /// `known`, when given, collects the titles of pictures that are byte for byte a sticker in its library: a
+  /// sticker of its own sent back was taken for something else, or for itself (11-03).
+  async agentFrames(references, limit, epoch, target, signal, known) {
     let frames = [];
+    const loader = this.incomingImageLoader;
     for (const reference of references.slice(0, 3)) {
       if (!(frames.length < limit)) break;
       const url = await this.agentImageURL(reference);
       try { this.check(epoch, target.key, target); } catch { continue; }
       let loaded;
-      try { loaded = await this.incomingImageLoader.load(url, Math.min(4, limit - frames.length), {signal}); } catch { continue; }
+      try {
+        if (known && typeof loader.download === 'function' && typeof loader.constructor.frames === 'function') {
+          const data = await loader.download(url, {signal});
+          const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+          const sticker = this.stickerLibrary.items.find(item => item.sha256 === sha256);
+          if (sticker && !known.includes(sticker.title)) known.push(sticker.title);
+          loaded = await loader.constructor.frames(data, Math.min(4, limit - frames.length));
+        } else loaded = await loader.load(url, Math.min(4, limit - frames.length), {signal});
+      } catch { continue; }
       frames = frames.concat(loaded);
     }
     return frames.slice(0, limit);

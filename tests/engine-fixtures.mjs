@@ -37,6 +37,7 @@ export class OneBotFixture {
     this.socket = undefined; this.connections = 0; this.unexpected = [];
     // The agent's QQ tools (QQAgentMedia): messages get_msg knows, group files, voice, forwards, members.
     this.messages = {}; this.groupFiles = {'/': {files: [], folders: []}}; this.fileURLs = {}; this.records = {}; this.pttText = undefined;
+    this.selfCard = undefined; // the bot's own group card, when a test gives it one
     this.forwards = {}; this.forwardPayloads = []; this.memberList = []; this.cards = []; this.typing = []; this.honor = undefined; this.calls = [];
   }
   failed(request, message) { this.send({status: 'failed', retcode: 100, data: null, message, wording: message, echo: request.echo}); }
@@ -142,7 +143,7 @@ export class OneBotFixture {
       }
       case 'get_group_member_info': {
         const member = String(params.user_id), group = String(params.group_id);
-        if (member === '12345') data = {user_id: 12345, shut_up_timestamp: Math.trunc(Date.now() / 1000) + 600};
+        if (member === '12345') data = {user_id: 12345, shut_up_timestamp: Math.trunc(Date.now() / 1000) + 600, ...(this.selfCard !== undefined ? {card: this.selfCard} : {})};
         else if (member === '77777' && group === '70005') data = {user_id: 77777, group_id: 70005, role: 'member'};
         else { this.send({status: 'failed', retcode: 200, data: null, message: 'not a member', echo: request.echo}); return; }
         break;

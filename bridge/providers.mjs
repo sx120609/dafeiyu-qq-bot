@@ -5,6 +5,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {runCodex,completion} from './server.mjs';
 import {rateLimitError} from './provider-health.mjs';
+import {claudeSessions} from './claude-session.mjs';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const win=p=>process.platform==='win32'?p:execFileSync('wslpath',['-w',p],{encoding:'utf8'}).trim();
 
@@ -62,11 +63,16 @@ export function useNativeSearch(body,provider){
 // it marks for prompt caching: identical from call to call, they are then read from the cache at a small
 // fraction of the input price, including every tool round of a reply. Inside the user message they were
 // paid in full each time. One file per distinct prompt, named by its hash; old ones are pruned.
+export async function claudeSystemText(messages){
+  const lead=[];for(const m of messages){if(m.role!=='system'||typeof m.content!=='string')break;lead.push(m.content);}
+  const base=await fs.readFile(path.join(here,'claude-instructions.txt'),'utf8');
+  return {text:lead.length?base+'\n\n# Character and rules for this QQ bot (from the application)\n'+lead.join('\n\n'):base,rest:messages.slice(lead.length)};
+}
 async function claudeSystemPrompt(messages,config){
   const lead=[];for(const m of messages){if(m.role!=='system'||typeof m.content!=='string')break;lead.push(m.content);}
   const base=path.join(here,'claude-instructions.txt');
   if(!lead.length)return {file:base,rest:messages};
-  const text=await fs.readFile(base,'utf8')+'\n\n# Character and rules for this QQ bot (from the application)\n'+lead.join('\n\n');
+  const {text}=await claudeSystemText(messages);
   const dir=path.join(config.tempRoot||path.join(here,'..','.runtime'),'claude-system');
   const file=path.join(dir,crypto.createHash('sha256').update(text).digest('hex').slice(0,24)+'.txt');
   try{await fs.access(file);}catch{
@@ -77,8 +83,27 @@ async function claudeSystemPrompt(messages,config){
   return {file,rest:messages.slice(lead.length)};
 }
 
-export async function runClaude(body,config,profile,signal,{webSearch=false,effort='medium'}={}){
+// The same restrictions as the command line below, for a persistent Agent SDK session (claude-session.mjs).
+export function claudeSessionOptions(config,profile,{webSearch=false,effort='medium'}={}){
+  return {pathToClaudeCodeExecutable:config.claude,cwd:config.tempRoot,env:claudeEnv(config),model:profile.model,effort,
+    tools:webSearch?['WebSearch']:[],allowedTools:webSearch?['WebSearch']:[],disallowedTools:['mcp__*'],strictMcpConfig:true,mcpServers:{},
+    settingSources:[],persistSession:false,outputFormat:{type:'json_schema',schema:claudeSchema},
+    extraArgs:{'safe-mode':null,restricted:null,'no-chrome':null,'permission-prompts':'none'}};
+}
+const claudeSchema=JSON.parse(await fs.readFile(path.join(here,'schema.json'),'utf8'));
+
+export async function runClaude(body,config,profile,signal,{webSearch=false,effort='medium',sessions=claudeSessions}={}){
   if(!config.claude)throw new Error('未检测到官方 Claude Code');
+  // A director turn is one session across its rounds (11-03, "更快速"): no start-up per round, and the growing
+  // conversation is cached. A lone call keeps the one-shot process. Only where the gateway runs on Windows next to
+  // claude.exe (the old WSL gateway launched it through interop); `claudeSessions:false` in the config turns it off.
+  const session=body.metadata?.dafeiyu_session;
+  if(typeof session==='string'&&session&&config.claudeSessions!==false&&(process.platform==='win32'||config.claudeSessions===true)){
+    const system=await claudeSystemText(body.messages);
+    // Spare sessions started ahead for the next turn (claudeWarmSessions, default 1: about 190 MB idle, saves ~1.5 s; 0 turns them off).
+    if(Number.isFinite(Number(config.claudeWarmSessions)))sessions.spareLimit=Number(config.claudeWarmSessions);
+    return sessions.run({key:session,system:system.text,rest:system.rest,body,options:claudeSessionOptions(config,profile,{webSearch,effort}),signal,model:profile.model});
+  }
   const system=await claudeSystemPrompt(body.messages,config);
   const content=[];const transcript=structuredClone(system.rest);
   for(const m of transcript)if(Array.isArray(m.content))for(let i=0;i<m.content.length;i++){

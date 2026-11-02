@@ -1,6 +1,7 @@
 // Types and small helpers of QQEngine.swift, shared by QQEngine.mjs and QQEngine.agent.mjs (both re-export them).
 import {AppFailure, uuid, dateFromSwift, dateToSwift} from './swift.mjs';
 import {CancellationError} from './BoundedDownload.mjs';
+import {QQRepair} from './QQRepair.mjs';
 import {QQPolicy} from './core/QQPolicy.mjs';
 
 /** `Int64(value) != nil` */
@@ -29,7 +30,8 @@ export function formatDate(date, pattern, timeZone) {
 /** ISO8601DateFormatter().string(from:) */
 export const iso8601 = date => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 /** Runs work the way `Task { }` does on the main actor: after the current job, errors caught. */
-export const task = work => { Promise.resolve().then(work).catch(error => { if (!isCancellation(error)) console.error(error); }); };
+// A fault in a background task is reported for repair as well as logged (QQRepair, 11-03).
+export const task = work => { Promise.resolve().then(work).catch(error => { if (!isCancellation(error)) { console.error(error); QQRepair.capture(error); } }); };
 export const sleepSync = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 // No plaintext fallback for macOS Keychain. Windows / Linux credentials are deliberately session-only (LinuxSupport).
@@ -107,6 +109,8 @@ export class QQAgentTurnState {
     this.previous = '';
     this.ownerChecked = false;
     this.ownerAnswered = false;
+    /// When the first message of the turn went out.
+    this.firstSentAt = undefined;
   }
 }
 /// One agent-mode turn, for the console's agent page: what came in, what it looked up, what it decided and did.
@@ -116,7 +120,8 @@ export class QQAgentTurn {
     static decode(json) { return new QQAgentTurn.Errand({tool: required(json, 'tool'), detail: required(json, 'detail'), result: required(json, 'result')}); }
     toJSON() { return {tool: this.tool, detail: this.detail, result: this.result}; }
   };
-  constructor({id = uuid(), at, chat, key, batch, errands = [], decision = 'thinking', sent = [], note = '', seconds = 0, tokens = 0}) {
+  constructor({id = uuid(), at, chat, key, batch, errands = [], decision = 'thinking', sent = [], note = '', seconds = 0, tokens = 0,
+    rounds, roundUsage, modelSeconds, toolSeconds, waitSeconds, firstSendSeconds}) {
     this.id = id; this.at = at; this.chat = chat; this.key = key;
     this.batch = batch;
     this.errands = errands;
@@ -126,18 +131,39 @@ export class QQAgentTurn {
     this.note = note;
     this.seconds = seconds;
     this.tokens = tokens;
+    // Where a turn's time and tokens go (11-03, measured to make it faster); optional, so older saved turns load.
+    /// Director rounds (model calls), and each round's seconds, input/output/cached tokens and tool calls.
+    this.rounds = rounds;
+    this.roundUsage = roundUsage;
+    /// Seconds waiting for the model, and carrying out tools (including the typing pauses between messages).
+    this.modelSeconds = modelSeconds;
+    this.toolSeconds = toolSeconds;
+    /// From the batch's first message to the start of the turn, and from the start to the first message sent.
+    this.waitSeconds = waitSeconds;
+    this.firstSendSeconds = firstSendSeconds;
   }
   static decode(json) {
     return new QQAgentTurn({id: required(json, 'id'), at: dateFromSwift(required(json, 'at')), chat: required(json, 'chat'), key: required(json, 'key'),
       batch: required(json, 'batch'), errands: required(json, 'errands').map(QQAgentTurn.Errand.decode), decision: required(json, 'decision'),
-      sent: required(json, 'sent'), note: required(json, 'note'), seconds: required(json, 'seconds'), tokens: required(json, 'tokens')});
+      sent: required(json, 'sent'), note: required(json, 'note'), seconds: required(json, 'seconds'), tokens: required(json, 'tokens'),
+      ...QQAgentTurn.timings(json)});
+  }
+  static timings(json) {
+    const number = value => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    const rows = Array.isArray(json.roundUsage) ? json.roundUsage.filter(row => row && typeof row === 'object').map(row =>
+      ({seconds: number(row.seconds) ?? 0, input: number(row.input) ?? 0, output: number(row.output) ?? 0, cached: number(row.cached) ?? 0, calls: number(row.calls) ?? 0})) : undefined;
+    return {rounds: number(json.rounds), roundUsage: rows, modelSeconds: number(json.modelSeconds), toolSeconds: number(json.toolSeconds),
+      waitSeconds: number(json.waitSeconds), firstSendSeconds: number(json.firstSendSeconds)};
   }
   toJSON() { return this.encode(dateToSwift(this.at)); }
   /** The control page's encoder (dateEncodingStrategy = .secondsSince1970) writes the date as Unix seconds. */
   toJSONSince1970() { return this.encode(this.at.getTime() / 1000); }
   encode(at) {
     return {id: this.id, at, chat: this.chat, key: this.key, batch: this.batch,
-      errands: this.errands.map(errand => errand.toJSON()), decision: this.decision, sent: this.sent, note: this.note, seconds: this.seconds, tokens: this.tokens};
+      errands: this.errands.map(errand => errand.toJSON()), decision: this.decision, sent: this.sent, note: this.note, seconds: this.seconds, tokens: this.tokens,
+      // Optional timing fields, left out while unknown (a turn still thinking, or one saved before 11-03).
+      ...Object.fromEntries(['rounds', 'roundUsage', 'modelSeconds', 'toolSeconds', 'waitSeconds', 'firstSendSeconds']
+        .filter(name => this[name] !== undefined).map(name => [name, this[name]]))};
   }
 }
 export const QQAgentTurn_Errand = QQAgentTurn.Errand;

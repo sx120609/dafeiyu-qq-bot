@@ -86,8 +86,10 @@ export class QQGroupContext {
       let text = QQGroupContext.readableText(event.text);
       const message = this.messages[event.id];
       if (hasImages(message)) {
+        // With `attached` given, only what really goes along is called attached: the agent attaches the batch's
+        // pictures, not every recent one, and was told older pictures were in front of it (11-03).
         text += shown.has(event.id) ? `[附图：画面随本轮附上，标注为群消息 ${event.id}]`
-          : event.id === this.anchorID ? '[附图：画面是本轮的“当前消息”图片]'
+          : event.id === this.anchorID && attached === undefined ? '[附图：画面是本轮的“当前消息”图片]'
             : '[附图：这次没重新附上画面。你之前回复里要是描述过它，那是你当时看着图说的，不是编的]';
       } else if (text === '') {
         text = '[语音、视频、卡片或表情，内容看不到，别猜]';

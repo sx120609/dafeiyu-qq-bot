@@ -89,6 +89,11 @@ export function decodeChatResponse(data) {
     const total = asInt(asDictionary(object.usage)?.total_tokens);
     if (total === undefined) throw new DecodingError('usage');
     usage = {total_tokens: total};
+    // Input, output and cached input as the gateway reports them, for the agent turn's per-round record (11-03).
+    for (const [name, field] of [['prompt_tokens', 'prompt'], ['completion_tokens', 'completion'], ['cached_tokens', 'cached']]) {
+      const value = asInt(object.usage[name]);
+      if (value !== undefined) usage[field] = value;
+    }
   }
   return {choices: decodedChoices, usage};
 }

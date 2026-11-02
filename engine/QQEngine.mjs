@@ -3,6 +3,7 @@
 // macOS-only parts (the QQ runtime script, the NapCat login code, sleep observers, caffeinate) are not ported.
 import fs from 'node:fs';
 import path from 'node:path';
+import {QQRepair} from './QQRepair.mjs';
 import {AppFailure, uuid, sleep, prefix, count, trim, now as nowSeconds, dateFromSwift, dateToSwift, resources, addSeconds, distantPast, distantFuture} from './swift.mjs';
 import {parseDictionary, isDictionary} from './foundation.mjs';
 import {CancellationError, URLError, taskSleep} from './BoundedDownload.mjs';
@@ -250,6 +251,8 @@ export class QQEngine {
     this.decisions = [];
     /// Reactions on the bot's messages waiting for the agent, and when it last looked because of one.
     this.agentReacted = new Map();
+    /// Who those reactions came from, so the agent can answer them by label (11-03: only senders were known).
+    this.agentReactors = new Map();
     /// Pokes and outreach waiting for the agent.
     this.agentEvents = new Map();
     this.agentReactionLookAt = new Map();
@@ -265,6 +268,8 @@ export class QQEngine {
     this.agentFirstPending = new Map();
     this.agentCalling = new Set();
     this.agentTimers = new Map();
+    /// The bot's own name in each group as QQ shows it (selfCard), for the agent and for telling when it is called.
+    this.selfCards = new Map();
     /// Chats whose director is thinking right now, and since when.
     this.agentThinking = new Map();
     /// Artwork found during a turn, sent if the plan asks for it.
@@ -513,6 +518,7 @@ export class QQEngine {
       this.error = '请同时填写 OneBot 令牌和模型接口凭证'; return false;
     }
     this.runtimeCredentials = new QQRuntimeCredentials({oneBotToken: token, deepSeekKey: key});
+    QQRepair.key = key; // the gateway key, for self-repair reports
     if (process.env.DAFEIYU_CODEX_URL !== undefined) this.imageCredentials.codexToken = key;
     this.error = undefined; this.status = '临时凭证已就绪，仅在本次应用运行期间使用';
     return true;
@@ -788,9 +794,11 @@ export class QQEngine {
     if (this.config.effectiveLoopProtectionEnabled && this.conversationFlow.shouldSilence(message.key, message.sender, message.text, now)) {
       this.decide(message, target, '不回：像是复读或机器人互聊，临时停接这个人'); return;
     }
+    // Its group card counts as its name too (11-03: members called it by its card and it did not know).
+    const card = message.group ? this.selfCards.get(message.key)?.name : undefined;
     const calling = !message.group || message.mentionsSelf ||
       (message.replyTo !== undefined && this.botMessageIDs[selfID + ':' + message.key + ':' + message.replyTo] !== undefined) ||
-      ['大肥鱼', '肥鱼', this.config.effectivePersona.customName ?? ''].some(name => name && message.text.includes(name));
+      ['大肥鱼', '肥鱼', this.config.effectivePersona.customName ?? '', count(card ?? '') >= 2 ? card : ''].some(name => name && message.text.includes(name));
     if (message.group && this.config.effectiveQuietHours.quiet(new Date()) && !calling) { this.decide(message, target, '不回：夜间安静时段，没人叫它'); return; }
     if (QQAgentLevel.answersOnlyWhenCalled(this.config.agentLevel(message.key)) && !calling) { this.decide(message, target, '不回：代理是基础权限，只在叫到它时看'); return; }
     this.decide(message, target, '交给代理：攒完这一批一起看');
@@ -1324,6 +1332,7 @@ export class QQEngine {
     const likes = Array.isArray(object.likes) && object.likes.every(isDictionary) ? object.likes : [];
     const emojis = likes.slice(0, 3).map(like => identifier(like.emoji_id)).filter(id => id !== undefined).map(QQEngine.reactionName);
     if (!emojis.length) return;
+    if (!(this.agentReactors.get(target.key) ?? []).includes(user)) this.pushMap(this.agentReactors, target.key, user);
     const list = this.pushMap(this.agentReacted, target.key, (name !== undefined ? `${name}(${label})` : label) + ` 给你的消息 ${message}「${prefix(said, 40)}」贴了 ` + emojis.join('、'));
     this.agentReacted.set(target.key, list.slice(-6));
     const now = new Date();
@@ -1372,7 +1381,7 @@ export class QQEngine {
     return all.flatMap(tool => {
       const fn = tool?.function, name = fn?.name;
       if (typeof name !== 'string') return [];
-      const level = name === 'computer_task' ? 'super' : ['check_new_messages', 'wait'].includes(name) ? 'basic'
+      const level = name === 'computer_task' ? 'super' : ['check_new_messages', 'wait', 'end_turn'].includes(name) ? 'basic'
         : QQAgentLevel.all.find(item => QQAgentLevel.tools(item).has(name) || (kindOf[name] !== undefined && QQAgentLevel.bubbleKinds(item).has(kindOf[name]))) ?? 'full';
       return [{name, description: typeof fn.description === 'string' ? fn.description : '', level}];
     });
@@ -1405,7 +1414,9 @@ export class QQEngine {
     if (calling) this.agentCalling.add(key);
     const first = this.agentFirstPending.get(key) ?? new Date();
     this.agentFirstPending.set(key, first);
-    this.armAgent(target, Math.max(0.2, Math.min(this.agentQuietSeconds, this.agentCollectSeconds - (Date.now() - first.getTime()) / 1000)));
+    // Someone calling it (@, a reply to it, its name, a private message) is looked at at once; what they add while
+    // it works reaches the running turn (agentNews). Group chatter still gathers into batches (11-03, "更快速").
+    this.armAgent(target, calling ? 0.2 : Math.max(0.2, Math.min(this.agentQuietSeconds, this.agentCollectSeconds - (Date.now() - first.getTime()) / 1000)));
   }
   armAgent(target, delay) {
     const key = target.key, epoch = this.fence.epoch;
@@ -1582,7 +1593,11 @@ export class QQEngine {
       const response = await this.connection.action(action, params);
       const id = isDictionary(response.data) ? identifier(response.data.message_id) : undefined;
       if (id === undefined || !isInt64(id)) throw new AppFailure('插画发送缺少确认 ID');
-      this.noteSent(target, id, (prepared.image === undefined ? '' : '（发了一张插画）') + prepared.caption, {remember: false});
+      // A scheduled post is the program's doing: said so in the timeline, or the agent took it for its own choice
+      // and apologised for (or recalled) "its" picture (11-03).
+      this.noteSent(target, id, (due !== undefined ? '[定时插画：程序按主人的设置自动发的，不是你这一轮发的] ' : '') +
+        (prepared.image === undefined ? '' : '（发了一张插画）') + prepared.caption, {remember: false});
+      if (due !== undefined) this.noteAgent(target, '程序按定时自动发了一张插画', '');
       if (ticket !== undefined) { this.sends.finish(ticket, true); this.artworkLedger.finish(ticket, true); } ticket = undefined;
       this.persist();
       this.activeGroupSubmissions.delete(submissionID);
