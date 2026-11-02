@@ -251,3 +251,25 @@ test('privateChatsCommandsAndPermissionLevels', async () => {
     assert.equal(directed(r.model).length, before);
   } finally { await r.stop(); }
 });
+
+/// 11-03: a bare filler word is not sent (the agent hears why), and a leading "草，" is dropped before sending.
+test('aBareFillerWordIsNotSent', async () => {
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: '不用'};
+    switch (results(messages).length) {
+      case 0: return call('send_message', {text: '草'});
+      case 1: return call('send_message', {text: '草，这图配色挺好'});
+      default: return {content: '回完了'};
+    }
+  });
+  try {
+    const engine = r.engine;
+    engine.add(engine.contacts.find(contact => contact.number === '99999'));
+    engine.config.targets[0].enabled = true;
+    engine.start();
+    r.fixture.inject([group(1, 54321, '@大肥鱼 看我新画的图')]);
+    await wait(() => engine.agentTurns[0]?.note === '回完了');
+    assert.deepEqual(r.fixture.segments(), [['text:这图配色挺好']]);
+    assert.ok(engine.agentTurns[0].errands[0].result.includes('没发'));
+  } finally { await r.stop(); }
+});

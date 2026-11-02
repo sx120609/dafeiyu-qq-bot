@@ -20,7 +20,8 @@ export class ReadSchedule {
 }
 
 export class SendLimits {
-  constructor({daily = 100, perChatDaily = 30, globalIntervalSeconds = 3, hourly} = {}) {
+  // The counts are kept for the console's numbers; nothing is refused on them any more (11-03: "把乱七八糟的过度防护全拆了").
+  constructor({daily = 100, perChatDaily = 30, globalIntervalSeconds = 1, hourly} = {}) {
     this.daily = daily; this.perChatDaily = perChatDaily; this.globalIntervalSeconds = globalIntervalSeconds;
     /** Most messages in any one hour, across all chats (a person does not keep up a steady stream for hours). */
     this.hourly = hourly;
@@ -78,13 +79,11 @@ export class SendUsage {
     if (this.day !== today) { this.day = today; this.attempts = 0; this.confirmed = 0; this.uncertain = 0; this.byChat = {}; this.pending = new Set(); }
   }
   /** `chat` is the chat's UUID string. */
+  /** Only the plain gap between two messages and the per-chat cooldown: no daily, per-chat or hourly cap, no
+   *  slowing down when busy and no random jitter (11-03: the owner had all of it removed). */
   allowance(chat, limits, chatCooldown, now = new Date()) {
     this.rollover(now);
-    if (this.attempts >= limits.daily) return SendAllowance.globalLimit;
-    if ((this.byChat[chat] ?? 0) >= limits.perChatDaily) return SendAllowance.chatLimit;
-    if (this.sent(3600, now) >= limits.effectiveHourly) return SendAllowance.hourlyLimit;
-    const gap = SendUsage.pacedGap(limits.globalIntervalSeconds, this.sent(600, now)) + (this.jitter ?? 0);
-    if (this.lastGlobal && (now - this.lastGlobal) / 1000 < gap) return SendAllowance.cooldown;
+    if (this.lastGlobal && (now - this.lastGlobal) / 1000 < limits.globalIntervalSeconds) return SendAllowance.cooldown;
     const last = this.lastByChat[chat];
     if (last && (now - last) / 1000 < chatCooldown) return SendAllowance.cooldown;
     return SendAllowance.allowed;
@@ -97,8 +96,6 @@ export class SendUsage {
     this.lastGlobal = now; this.lastByChat[chat] = now; this.pending.add(ticket);
     const seconds = now.getTime() / 1000;
     this.recent = [...(this.recent ?? []).filter(time => seconds - time < 3600), seconds];
-    // A one-second interval is a burst or test setting; human-scale intervals get a little randomness.
-    this.jitter = limits.globalIntervalSeconds >= 2 ? Math.random() * 2 : 0;
     return ticket;
   }
   finish(ticket, confirmed, now = new Date()) {

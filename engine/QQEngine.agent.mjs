@@ -579,9 +579,8 @@ export const agentMethods = {
     const text = typeof input.text === 'string' ? trim(input.text) : '';
     if (text === '') return '笔记是空的。';
     const scope = input.scope === 'global' ? '' : key;
-    if (!(this.agentNotes.filter(note => note.key === scope).length < (scope === '' ? 50 : 30))) return '笔记本记满了，先删掉几条做完或过时的。';
     const id = 'n' + uuid().slice(0, 6).toLowerCase();
-    this.agentNotes.push(new QQAgentNote({id, key: scope, at: new Date(), text: prefix(QQMemoryBook.redact(text), 200)}));
+    this.agentNotes.push(new QQAgentNote({id, key: scope, at: new Date(), text: prefix(QQMemoryBook.redact(text), 1000)}));
     try { this.persist(); } catch {}
     return `记下了（${id}）。`;
   },
@@ -745,7 +744,14 @@ export const agentMethods = {
         if (target.group && this.muted(target.key)) break;
         switch (bubble.case) {
           case 'text': {
-            const reply = persona.decode(JSON.stringify({text: bubble._0, emotion: 'neutral', intensity: 1}), '');
+            // The model copies its own recent lines, so one bare "草" grew into a habit (11-03, "经常乱说什么'草'").
+            // A message that is only such a word is not sent, and a leading one is dropped before sending.
+            let said = String(bubble._0 ?? '');
+            if (/^(?:草+|6+|乐|典|绷)[\s，,。.！!？?～~…]*$/u.test(said.trim())) {
+              done.push('这句只有一个语气词，没发：接住对方说的具体那一点再说，或者这轮不说'); continue;
+            }
+            said = said.replace(/^\s*草+[\s，,。.！!～~]+/u, '');
+            const reply = persona.decode(JSON.stringify({text: said, emotion: 'neutral', intensity: 1}), '');
             if (reply.isFallback) continue;
             for (const [part, segment] of reply.segments.entries()) {
               if (part > 0) await taskSleep(QQAgentPlan.pause(previous) * 1000, signal);
@@ -765,7 +771,7 @@ export const agentMethods = {
             const about = bubble._0;
             let chosen = this.stickerLibrary.items.find(item => item.id === about);
             if (!chosen) {
-              const available = this.stickerLibrary.available(this.recentStickers[this.config.expectedSelfID + ':' + target.key] ?? [], new Date(), persona.effectiveStickerRepeatHours);
+              const available = this.stickerLibrary.available([], new Date(), 0);
               const recent = events.slice(-8).map(event => event.subject + '：' + prefix(event.text, 80)).join('\n');
               const id = await this.modelClient.pickAgentSticker({key, config: this.config.ai, describe: about, context: recent, candidates: available, chat: this.chatLabel(target), reserve, signal});
               if (id !== undefined) chosen = available.find(item => item.id === id);
@@ -784,7 +790,6 @@ export const agentMethods = {
           case 'reaction': {
             const {message, emoji} = bubble;
             if (!target.group) continue;
-            if (!this.actionBudget('reaction', 20)) { done.push('这一小时贴表情贴得够多了，先不贴（防风控）'); continue; }
             let ok = true;
             try { await this.connection.action('set_msg_emoji_like', {message_id: message, emoji_id: emoji, set: true}); } catch { ok = false; }
             if (ok) {
@@ -798,7 +803,6 @@ export const agentMethods = {
           case 'poke': {
             const number = members[bubble.member];
             if (number === undefined) continue;
-            if (!this.actionBudget('poke', 8)) { done.push('这一小时戳得够多了，先不戳（防风控）'); continue; }
             const [action, params] = target.group ? ['group_poke', {group_id: target.number, user_id: number}] : ['friend_poke', {user_id: number}];
             let ok = true;
             try { await this.connection.action(action, params); } catch { ok = false; }
@@ -841,7 +845,6 @@ export const agentMethods = {
           }
           case 'later': {
             const {minutes, about, say} = bubble;
-            if (!(this.agentReminders.filter(item => item.key === target.key).length < 5 && this.agentReminders.length < 40)) { done.push('想定时但这里定的事太多了'); continue; }
             const id = 'r' + uuid().slice(0, 6).toLowerCase();
             this.agentReminders.push(new QQAgentReminder({id, key: target.key, chat: this.chatLabel(target), due: addSeconds(new Date(), minutes * 60),
               setAt: new Date(), about, say}));
@@ -860,7 +863,6 @@ export const agentMethods = {
             const {member, times} = bubble;
             const number = members[member];
             if (number === undefined) continue;
-            if (!this.actionBudget('like', 5)) { done.push('这一小时点赞点得够多了，先不点（防风控）'); continue; }
             let ok = true;
             try { await this.connection.action('send_like', {user_id: number, times}); } catch { ok = false; }
             done.push(ok ? '给' + (Object.values(inputs).find(input => input.sender === number)?.name ?? (target.group ? member : '对方')) + `点了 ${times} 个赞` : '点赞被 QQ 拒了（可能今天点满了）');
@@ -1205,7 +1207,7 @@ export const agentMethods = {
         if (!this.config.effectiveOnlineEnabled) return '联网没开。';
         const query = prefix(typeof input.query === 'string' ? input.query : '', 60), focus = prefix(typeof input.focus === 'string' ? input.focus : '', 100);
         const rule = new ChatRule({name: '刷B站助手'});
-        rule.prompt = '[BILIBILI] 你替 QQ 里的机器人去 B 站刷视频，不聊天、不扮演角色。先用 browse_videos 看列表（query 空就是热门），从里面挑一两个最有意思、适合拿来聊的（涉政、色情、血腥的不选），再用 inspect_video 点开看字幕和画面。最后用中文交回：每个视频的标题、BV 号、实际讲了什么、好玩在哪。只说你真的读到的；只看了列表、没点开的要说明只看了简介。';
+        rule.prompt = '[BILIBILI] 你替 QQ 里的机器人去 B 站刷视频，不聊天、不扮演角色。先用 browse_videos 看列表（query 空就是热门），从里面挑一两个最有意思、适合拿来聊的（涉政、色情的不选），再用 inspect_video 点开看字幕和画面。最后用中文交回：每个视频的标题、BV 号、实际讲了什么、好玩在哪。只说你真的读到的；只看了列表、没点开的要说明只看了简介。';
         const video = new Set(['browse_videos', 'inspect_video']);
         const result = await this.modelClient.reply({key, config: this.config.ai, rule, history: [],
           text: '要刷的：' + (query === '' ? '热门' : `搜「${query}」`) + (focus === '' ? '' : `，想找${focus}`),
@@ -1244,7 +1246,7 @@ const describeValue = value => typeof value === 'string' ? value : typeof value 
 
 export const agentSaveStickerDefinition = {type: 'function', function: {
   name: 'save_sticker',
-  description: '把某条消息里的图存进你的表情库，以后聊天合适时会发。只在对方明确让你存、收藏、记住这个表情时用。先看清画面：色情擦边、政治、血腥暴力、真人隐私、广告二维码一律不存。',
+  description: '把某条消息里的图存进你的表情库，以后聊天合适时会发。只在对方明确让你存、收藏、记住这个表情时用。先看清画面：色情、政治敏感的不存。',
   parameters: {type: 'object', additionalProperties: false, required: ['message', 'title', 'emotion', 'context'], properties: {
     message: {type: 'string', description: '带图的那条消息编号（别人引用的那条带图消息也行）'},
     title: {type: 'string', description: '简短名字，写清画面和配字'},

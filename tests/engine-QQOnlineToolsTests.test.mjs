@@ -104,7 +104,7 @@ test('fixedProvidersReturnSourcesAndValidatedImage', async () => {
 
 test('invalidQueriesNeverReachNetwork', async () => {
   const offline = async () => { throw new Error('network reached'); };
-  for (const [name, args] of [['open_url', '{"query":"cat"}'], ['search_web', '{"query":"http://127.0.0.1"}'], ['search_images', '{"query":"sk-syntheticsecret"}'], ['search_web', '{"query":"cat","url":"file:///secret"}']]) {
+  for (const [name, args] of [['open_url', '{"query":"cat"}'], ['search_web', '{"query":"my api key"}'], ['search_images', '{"query":"sk-syntheticsecret"}'], ['search_web', '{"query":"cat","url":"file:///secret"}']]) {
     const result = await new QQOnlineTools({session: offline}).execute(name, args);
     assert.ok(result.image === undefined && result.sources.length === 0);
     assert.ok(result.content.includes('未'), result.content);

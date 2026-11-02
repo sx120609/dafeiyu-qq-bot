@@ -100,8 +100,8 @@ test('Codex and Claude replace hand-written text search with their own web searc
 });test('every chat-facing call carries the China compliance rule; memory consolidation does not need it',()=>{
   const body={messages:[{role:'system',content:'persona'},{role:'user',content:'hi'}]};
   const routed=withCompliance(body);
-  assert.match(routed.messages[0].content,/^persona\n【合规要求/);assert.match(routed.messages[0].content,/中华人民共和国法律法规/);
+  assert.match(routed.messages[0].content,/^persona\n【底线】/);assert.match(routed.messages[0].content,/时政敏感/);
   assert.equal(body.messages[0].content,'persona');
-  assert.match(withCompliance({messages:[{role:'user',content:'hi'}]}).messages[0].content,/^【合规要求/);
+  assert.match(withCompliance({messages:[{role:'user',content:'hi'}]}).messages[0].content,/^【底线】/);
   const memory={...body,metadata:{dafeiyu_purpose:'memory'}};assert.equal(withCompliance(memory),memory);
 });

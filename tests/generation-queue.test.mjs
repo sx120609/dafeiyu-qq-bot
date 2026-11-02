@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {GenerationQueue} from '../bridge/generation-queue.mjs';
 const tick=()=>new Promise(setImmediate);
 test('two chats run beside memory; queued chats are prioritized and cancellable',async()=>{
-  const queue=new GenerationQueue();const started=[],release={};
+  const queue=new GenerationQueue({lanes:2,backgroundLanes:1});const started=[],release={};
   const task=name=>()=>new Promise(r=>{started.push(name);release[name]=r;});
   const jobs=[queue.run(task('memory'),{background:true}),queue.run(task('chat1')),queue.run(task('chat2'))];
   await tick();assert.deepEqual(started,['memory','chat1','chat2']);

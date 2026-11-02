@@ -28,7 +28,8 @@ export function validateRequest(body) {
 }
 
 // Keep whatever is usable instead of failing the whole reply: unknown or malformed tool calls are
-// dropped, extra calls beyond two are ignored, and a JSON reply wrapped in prose or fences is unwrapped.
+// dropped, and a JSON reply wrapped in prose or fences is unwrapped. Up to sixteen calls a response, so the agent
+// can look several things up at once (it was two until 11-03).
 export function completion(body, envelope, usage = {}) {
   let content = typeof envelope.content === 'string' ? envelope.content : '';
   const allowed = new Set((body.tools || []).map(t => t.function.name));
@@ -37,7 +38,7 @@ export function completion(body, envelope, usage = {}) {
     try { args = typeof t.arguments === 'string' ? JSON.parse(t.arguments) : t.arguments; } catch { return []; }
     if (!allowed.has(t?.name) || !args || typeof args !== 'object' || Array.isArray(args)) return [];
     return [{id:'call_'+crypto.randomUUID(), type:'function', function:{name:t.name,arguments:JSON.stringify(args)}}];
-  }).slice(0, 2);
+  }).slice(0, 16);
   if (!calls.length) {
     // The agent's director may end a turn with nothing left to say; anything else needs words.
     if (!content.trim()) { if (body.metadata?.dafeiyu_purpose === 'director') content = '（结束）'; else throw new Error('Empty reply'); }

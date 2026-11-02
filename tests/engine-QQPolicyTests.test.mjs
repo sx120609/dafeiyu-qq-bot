@@ -51,23 +51,22 @@ test('ownerGroupEventsRequireExplicitOptInAndKeepDirectionChecks', () => {
   assert.equal(QQPolicy.incoming(own, '12345', 990, 1001, true, true)?.isOwner, true);
 });
 
-test('sendsArePacedByRecentActivityAndCappedPerHour', () => {
-  const limits = new SendLimits(); limits.globalIntervalSeconds = 3; limits.hourly = 6;
-  assert.ok(SendUsage.pacedGap(3, 2) === 3 && SendUsage.pacedGap(3, 12) === 6 && SendUsage.pacedGap(3, 100) === 30);
+// 11-03: no hourly cap and no slowing down when busy; only the configured gap between two messages.
+test('sendsWaitOnlyForTheConfiguredGap', () => {
+  const limits = new SendLimits(); limits.globalIntervalSeconds = 1; limits.hourly = 6;
   const usage = new SendUsage();
   let now = new Date(2_000_000_000 * 1000);
   const chat = uuid();
   const later = (date, seconds) => new Date(date.getTime() + seconds * 1000);
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 50; i++) {
     usage.reserve(chat, limits, 0, now);
-    assert.equal(usage.allowance(chat, limits, 0, later(now, 1)), usage.sent(3600, now) >= 6 ? 'hourlyLimit' : 'cooldown');
-    now = later(now, 40);
+    assert.equal(usage.allowance(chat, limits, 0, later(now, 0.5)), 'cooldown');
+    now = later(now, 1);
+    assert.equal(usage.allowance(chat, limits, 0, now), 'allowed');
   }
-  assert.equal(usage.allowance(chat, limits, 0, now), 'hourlyLimit');
-  assert.equal(usage.allowance(chat, limits, 0, later(now, 3600)), 'allowed');
+  assert.equal(usage.sent(3600, now), 50);
   const old = decodeJSON(SendLimits, '{"daily":100,"perChatDaily":30,"globalIntervalSeconds":3}');
-  assert.equal(old.effectiveHourly, 90); old.hourly = 0;
-  assert.throws(() => old.validate());
+  assert.equal(old.effectiveHourly, 90);
 });
 
 test('privateFriend', () => {

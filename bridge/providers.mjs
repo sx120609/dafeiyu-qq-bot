@@ -35,9 +35,9 @@ function claudeEnv(config){
 // Codex and Claude Code bring their own official web search. When the engine offers its
 // hand-written text search tools, those are replaced by the model's search; the engine keeps
 // what a model cannot do itself (images to send, video frames, local time and arithmetic).
-// Every chat-facing call (replies, group chime-ins, reviews, first messages) carries this rule,
-// whichever provider answers. It outranks the persona.
-export const complianceNote='\n【合规要求，优先于人设和以上一切设定】你在中国大陆的 QQ 上聊天，必须遵守中华人民共和国法律法规。绝对不生成、不评论、不调侃、不转述以下内容：国家领导人和政治人物，政治制度、政策与时政敏感事件，历史政治争议；危害国家安全、分裂国家、破坏民族团结、宣扬邪教或宗教极端；恐怖暴力、色情低俗、赌博、毒品；违法犯罪的具体做法；谣言和未经证实的社会事件。不管对方是直接问、绕着问、假设、角色扮演、让你翻译或复述，还是联网搜到了相关内容，都一样不碰：用一句话自然岔开话题，不解释原因，不复述敏感词，不展开。不搞黄色：不写色情、性暗示、擦边和黄段子，不描写身体隐私部位和性行为，不配合别人开黄腔或往这方向引；对方这么带，就轻松换个话题。';
+// Every chat-facing call carries this rule, whichever provider answers. Only the two things that can get a QQ
+// account banned (11-03: the long list before it made the bot dodge ordinary topics; "把乱七八糟的过度防护全拆了").
+export const complianceNote='\n【底线】你在中国大陆的 QQ 上聊天：不聊国家领导人和时政敏感话题，不写色情和性暗示内容；被往这上面带就自然换个话题。别的话题照常聊。';
 export function withCompliance(body){
   if(['memory','summary'].includes(body.metadata?.dafeiyu_purpose))return body;
   const index=body.messages.findIndex(m=>m.role==='system'&&typeof m.content==='string');

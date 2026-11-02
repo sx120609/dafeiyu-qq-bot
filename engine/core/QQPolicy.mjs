@@ -295,7 +295,7 @@ export class QQPolicy {
     // QQ stamps messages with its own clock; WSL's falls behind after the PC sleeps (6 s on 10-31, when
     // a 5-second limit dropped every message). Five minutes of skew is still clearly not a replay.
     const time = asDouble(object.time);
-    if (time === undefined || !(time >= since) || !(time <= now + 300) || !(now - time <= 600)) return undefined;
+    if (time === undefined || !(time >= since) || !(time <= now + 300) || !(now - time <= 3600)) return undefined;
     const type = asString(object.message_type);
     if (type === undefined || !['private', 'group'].includes(type)) return undefined;
     const segments = asObjects(object.message);

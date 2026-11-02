@@ -11,7 +11,9 @@ test('blankLinesBecomeSeparateMessages', () => {
   assert.ok(!reply.isFallback);
   assert.deepEqual(reply.segments, ['在呢', '刚看了下，那家店周三休息\n要不换周四？']);
   const many = p.decode('{"text":"1\\n\\n2\\n\\n3\\n\\n4\\n\\n5\\n\\n6\\n\\n7","emotion":"neutral","intensity":0}', '');
-  assert.deepEqual(many.segments, ['1', '2', '3\n4\n5\n6\n7']);
+  assert.deepEqual(many.segments, ['1', '2', '3', '4', '5', '6', '7']);
+  const lots = p.decode(JSON.stringify({text: Array.from({length: 12}, (_, i) => String(i + 1)).join('\n\n')}), '');
+  assert.deepEqual(lots.segments, ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10\n11\n12']);
 });
 
 test('pagesBehindAReplyAreKeptButNeverSent', () => {
@@ -32,13 +34,15 @@ test('lenientDecodingKeepsUsableReplies', () => {
   assert.ok(!link.isFallback);
   const fenced = p.decode('```json\n{"text":"嗯"}\n```', '');
   assert.ok(!fenced.isFallback && fenced.text === '嗯');
-  assert.ok(p.decode('{"text":"[CQ:image,file=x]"}', '').isFallback);
+  // CQ-looking text is just text (it goes out as a plain text segment); a key-looking string is still refused.
+  assert.ok(!p.decode('{"text":"[CQ:image,file=x]"}', '').isFallback);
+  assert.ok(p.decode('{"text":"sk-abcdefghijklmnop"}', '').isFallback);
   assert.ok(p.decode('not json', '').isFallback);
   // An object wrapped in a sentence is still the reply; plain words can stand in for one.
   const wrapped = p.decode('好的，回复如下：{"text":"在呢","emotion":"joy","intensity":1} 以上', '');
   assert.ok(!wrapped.isFallback && wrapped.text === '在呢');
   assert.equal(p.prose('Deepseek 才不会委屈,它连情绪都没有')?.text, 'Deepseek 才不会委屈，它连情绪都没有');
-  assert.equal(p.prose('{"text":'), undefined); assert.equal(p.prose('   '), undefined); assert.equal(p.prose('[CQ:image,file=x]'), undefined);
+  assert.equal(p.prose('{"text":'), undefined); assert.equal(p.prose('   '), undefined); assert.equal(p.prose('sk-abcdefghijklmnop'), undefined);
 });
 
 test('asciiPunctuationInChineseBecomesFullWidth', () => {

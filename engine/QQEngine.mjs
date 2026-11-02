@@ -417,15 +417,10 @@ export class QQEngine {
       message: {type: 'string', description: '给主人的一两句话：发生了什么、谁、要不要他处理'}
     }}
   }};
-  /// At most three a day and one every ten minutes, so a quarrel cannot turn into a stream of DMs.
   async notifyOwner(args, message, target) {
     const owner = this.config.effectiveAdminIDs.find(id => id !== this.config.expectedSelfID);
     if (owner === undefined) return new ModelToolResult({content: '没有配置管理员，联系不上主人。'});
     const now = nowSeconds();
-    this.ownerNotices = this.ownerNotices.filter(time => now - time < 86400);
-    if (!(this.ownerNotices.length < 3 && now - (this.ownerNotices.at(-1) ?? 0) >= 600)) {
-      return new ModelToolResult({content: '今天已经找过主人好几次了（或刚找过），这次没发；先自己应付一下。'});
-    }
     const fields = parseDictionary(args);
     const text = typeof fields?.message === 'string' ? trim(fields.message) : '';
     if (!text) return new ModelToolResult({content: '要告诉主人的话是空的，没发。'});
@@ -860,7 +855,7 @@ export class QQEngine {
     const now = nowSeconds();
     if (!(modelFailure && this.fence.permits(epoch) && this.connected && !this.muted(target.key) && now - (this.stuckNoticeAt.get(target.key) ?? 0) >= 600)) return;
     this.stuckNoticeAt.set(target.key, now);
-    const text = error instanceof HTTPFailure && error.code === 429 ? '本鱼吃撑了，模型那边在限流，过会儿再叫我' : '脑子卡了一下没想出来，等会儿再问我一次';
+    const text = error instanceof HTTPFailure && error.code === 429 ? '模型那边在限流，过会儿再叫我' : '脑子卡了一下没想出来，等会儿再问我一次';
     let ticket;
     try { ticket = await this.reserveSend(epoch, target, signal); } catch { return; }
     const submissionID = uuid();
@@ -1705,14 +1700,11 @@ export class QQEngine {
   }
   reserveModel(epoch, scope, target) {
     this.check(epoch, scope, target);
-    if (!this.usage.reserve(this.config.ai.dailyLimit)) throw new AppFailure('QQ 今日模型调用已达上限');
+    // Counted for the console, never refused: there is no daily cap on model calls (11-03).
+    this.usage.reserve(Infinity);
     this.persist();
   }
   async reserveSend(epoch, target, signal) {
-    const limits = this.config.ai.effectiveSendLimits;
-    if (this.sends.allowance(target.id, limits, this.config.ai.cooldownSeconds) === SendAllowance.hourlyLimit) {
-      throw new AppFailure(`这一小时已经发了 ${limits.effectiveHourly} 条，先歇一会儿（防腾讯风控）`);
-    }
     while (this.sends.allowance(target.id, this.config.ai.effectiveSendLimits, this.config.ai.cooldownSeconds) === SendAllowance.cooldown) {
       await taskSleep(100, signal);
       this.check(epoch, target.key, target);

@@ -34,20 +34,21 @@ test('eventBurstCoalescesAndWakesAnIdleReader', () => {
   assert.ok(due(2.2, true));
 });
 
-test('globalAndPerChatSendLimitsAreIndependent', () => {
+// The daily counts are kept for the console but never refuse a message (11-03); the per-chat cooldown still applies.
+test('dailyCountsAreKeptButNeverRefuse', () => {
   const limits = new SendLimits(); limits.daily = 3; limits.perChatDaily = 2;
   const usage = new SendUsage(), chat = uuid(), other = uuid(), now = new Date();
   const first = usage.reserve(chat, limits, 5, now);
   usage.finish(first, false, now);
   assert.ok(usage.attempts === 1 && usage.uncertain === 1);
-  assert.equal(usage.allowance(other, limits, 5, later(now, 1)), 'cooldown');
+  assert.equal(usage.allowance(other, limits, 5, later(now, 2)), 'allowed');
   assert.equal(usage.allowance(chat, limits, 5, later(now, 4)), 'cooldown');
   const second = usage.reserve(chat, limits, 5, later(now, 6));
   usage.finish(second, true, later(now, 6));
-  assert.equal(usage.allowance(chat, limits, 5, later(now, 12)), 'chatLimit');
+  assert.equal(usage.allowance(chat, limits, 5, later(now, 12)), 'allowed');
   usage.reserve(other, limits, 5, later(now, 12));
-  assert.equal(usage.allowance(uuid(), limits, 5, later(now, 20)), 'globalLimit');
-  assert.ok(usage.attempts === 3 && usage.confirmed === 1 && usage.uncertain === 1);
+  usage.reserve(uuid(), limits, 5, later(now, 20));
+  assert.ok(usage.attempts === 4 && usage.confirmed === 1 && usage.uncertain === 1);
 });
 
 test('crashRecoveryCountsUnknownOnceWithoutRefunding', () => {

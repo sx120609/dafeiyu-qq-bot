@@ -39,8 +39,8 @@
 <div><label for="daily">每日模型调用上限</label><input id="daily" type="number" min="1" max="10000" value="200"></div>
 <div><label for="sendDaily">每日发送上限</label><input id="sendDaily" type="number" min="1" max="10000" value="100"></div>
 <div><label for="chatDaily">单会话每日发送上限</label><input id="chatDaily" type="number" min="1" max="10000" value="30"></div>
-</div><div class="two"><div><label for="cooldown">单会话间隔</label><input id="cooldown" type="number" min="1" max="300" value="5"></div>
-<div><label for="globalInterval">全局发送间隔</label><input id="globalInterval" type="number" min="1" max="300" value="3"></div>
+</div><div class="two"><div><label for="cooldown">单会话间隔</label><input id="cooldown" type="number" min="0" max="300" value="1"></div>
+<div><label for="globalInterval">全局发送间隔</label><input id="globalInterval" type="number" min="1" max="300" value="1"></div>
 </div><label><input id="workHoursEnabled" type="checkbox">仅在指定时段回复</label><div class="two"><label for="workStart">开始时间<input id="workStart" type="number" min="0" max="23" value="9"></label><label for="workEnd">结束时间<input id="workEnd" type="number" min="0" max="23" value="22"></label></div></section>
 <section data-pages="tools" hidden class="card span" id="artworkPanel"><h2>插画与定时<span class="help-wrap"><button type="button" class="help-button" aria-label="插画与定时说明" aria-describedby="help-artworkPanel" aria-expanded="false">?</button><span class="help-tip" id="help-artworkPanel" role="tooltip">/search 关键词、作品 ID 或链接；/hot 按日榜顺序；/next 继续当前条件。命令不调用模型，Agent 会调用模型。搜索优先收藏达标作品，无达标候选按真实热度保底并标明。定时每次一张，仅运行且目标启用时发送，错过不补发。</span></span></h2>
 

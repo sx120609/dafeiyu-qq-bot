@@ -31,7 +31,7 @@ export class QQOnlineTools {
     }
     const query = trim(fields.query);
     const length = count(query);
-    if (!(length >= 1 && length <= 160) || /(sk-[a-z0-9]+|https?:\/\/|api.?key|系统提示词|system.prompt|\p{Nd}{7,}|[\r\n])/iu.test(query)) {
+    if (!(length >= 1 && length <= 160) || /(sk-[a-z0-9]+|api.?key|系统提示词|system.prompt)/iu.test(query)) {
       return new ModelToolResult({content: '查询包含不适合发送给搜索服务的信息，未联网。'});
     }
     try {

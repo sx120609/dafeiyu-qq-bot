@@ -82,7 +82,7 @@ export class QQStickerLibrary {
   /// Offered when someone sends or quotes a picture: lets the model keep it when asked to ("把这个表情存一下").
   static saveToolDefinition = {type: 'function', function: {
     name: 'save_sticker',
-    description: '把对方这一轮引用的图（没有引用就用对方这一轮发的图）存进你的表情库，以后聊天合适时会发。只在对方明确让你存、收藏、记住这个表情时用。存之前看清画面：色情擦边、政治、血腥暴力、真人隐私、广告二维码一律不存，直接告诉对方不存。',
+    description: '把对方这一轮引用的图（没有引用就用对方这一轮发的图）存进你的表情库，以后聊天合适时会发。只在对方明确让你存、收藏、记住这个表情时用。存之前看清画面：色情、政治敏感的不存，直接告诉对方。',
     parameters: {type: 'object', additionalProperties: false, required: ['title', 'emotion', 'context'], properties: {
       title: {type: 'string', description: '简短名字，写清画面和配字，例如“委屈小象耷拉眼睛”'},
       emotion: {type: 'string', enum: [...QQEmotion.all]},

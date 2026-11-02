@@ -178,8 +178,8 @@ async function refreshOverview(){
   }
   const issue=b.error||o.supervisor?.error||'';
   $('ov-error').hidden=!issue;$('ov-error').textContent=issue;
-  $('st-calls').textContent=b.calls??'–';$('st-calls-sub').textContent=b.dailyLimit?`每日上限 ${b.dailyLimit}`:'';
-  $('st-sent').textContent=b.confirmed??'–';$('st-sent-sub').textContent=b.sendLimit?`每日上限 ${b.sendLimit}`:'';
+  $('st-calls').textContent=b.calls??'–';$('st-calls-sub').textContent='';
+  $('st-sent').textContent=b.confirmed??'–';$('st-sent-sub').textContent='';
   const calls=(o.recentMetrics||[]).filter(m=>m.ok&&['chat','director'].includes(m.purpose)).slice(0,10);
   $('st-latency').textContent=calls.length?(calls.reduce((s,m)=>s+m.ms,0)/calls.length/1000).toFixed(1)+' 秒':'–';
   $('st-latency-sub').textContent=calls.length?`最近 ${calls.length} 次指挥调用`:'还没有调用';
@@ -789,11 +789,10 @@ onSubmit($('outreach-form'),async()=>{
 function renderLimits(){
   const ai=engine.ai,limits=ai.sendLimits||{};
   $('limits-today').textContent=`今天已调用模型 ${engine.calls??0} 次，已发 ${engine.confirmed??0} 条。`;
-  $('limit-calls').value=ai.dailyLimit;$('limit-sends').value=limits.daily??100;$('limit-chat').value=limits.perChatDaily??30;$('limit-interval').value=limits.globalIntervalSeconds??3;$('limit-hourly').value=limits.hourly??90;$('limit-cooldown').value=ai.cooldownSeconds;
+  $('limit-interval').value=limits.globalIntervalSeconds??1;$('limit-cooldown').value=ai.cooldownSeconds;
 }
 onSubmit($('limits-form'),async()=>{
-  await engineAction('save',{ai:{dailyLimit:numberOf('limit-calls'),cooldownSeconds:numberOf('limit-cooldown'),
-    sendLimits:{daily:numberOf('limit-sends'),perChatDaily:numberOf('limit-chat'),globalIntervalSeconds:numberOf('limit-interval'),hourly:numberOf('limit-hourly')}}});
+  await engineAction('save',{ai:{cooldownSeconds:numberOf('limit-cooldown'),sendLimits:{globalIntervalSeconds:numberOf('limit-interval')}}});
   renderLimits();toast('已保存');
 });
 

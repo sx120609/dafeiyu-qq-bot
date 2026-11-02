@@ -11,7 +11,7 @@ test('protocol supports replies, JSON, tool rounds, and usage',()=>{
   // Unknown tools are dropped rather than failing the reply; with nothing left it is an empty reply.
   assert.throws(()=>completion(b,{content:'',tool_calls:[{name:'exec',arguments:'{}'}]}),/Empty reply/);
   const kept=completion(b,{content:'',tool_calls:[{name:'exec',arguments:'{}'},{name:'search_web',arguments:'{"query":"a"}'},{name:'search_web',arguments:'{"query":"b"}'},{name:'search_web',arguments:'{"query":"c"}'}]});
-  assert.deepEqual(kept.choices[0].message.tool_calls.map(t=>JSON.parse(t.function.arguments).query),['a','b']);
+  assert.deepEqual(kept.choices[0].message.tool_calls.map(t=>JSON.parse(t.function.arguments).query),['a','b','c']);
   // A JSON reply wrapped in a fence or a sentence is unwrapped instead of discarded.
   const json={...request,response_format:{type:'json_object'}};
   assert.equal(completion(json,{content:'```json\n{"text":"hi"}\n```',tool_calls:[]}).choices[0].message.content,'{"text":"hi"}');

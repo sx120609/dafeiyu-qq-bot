@@ -79,7 +79,7 @@ test('disabledInvalidMissingKeysAndFallbackOffDoNotSpendUnexpectedly', async () 
   config.enabled = false;
   await new QQImageGenerator({session}).execute({arguments: '{}', settings: config, credentials, beforeAttempt});
   config.enabled = true;
-  for (const input of ['{}', '{"prompt":"https://example.com/secret"}', '{"prompt":"x","url":"x"}']) {
+  for (const input of ['{}', '{"prompt":"sk-syntheticsecretkey"}', '{"prompt":"x","url":"x"}']) {
     await new QQImageGenerator({session}).execute({arguments: input, settings: config, credentials, beforeAttempt});
   }
   assert.equal(requests.length, 0); assert.equal(attempts, 0);

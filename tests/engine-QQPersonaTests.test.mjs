@@ -62,8 +62,7 @@ test('hardLimitCountsGraphemesAndKeepsSentenceBoundary', () => {
   assert.equal(sentence.text, '今天真是开心极了。');
 });
 
-for (const raw of ['{}', 'hello', '{"text":"攻击","emotion":"../../secret","intensity":3}', '{"text":"[CQ:at,qq=all]","emotion":"joy","intensity":3}',
-  '{"text":"file:///etc/passwd","emotion":"joy","intensity":3}']) {
+for (const raw of ['{}', 'hello', '{"text":"攻击","emotion":"../../secret","intensity":3}', '{"text":"sk-abcdefghijklmnopq","emotion":"joy","intensity":3}']) {
   test(`invalidModelOutputBecomesShortPlainText(raw: ${raw})`, () => {
     const reply = new QQPersona().decode(raw, '你好');
     assert.equal(reply.emotion, 'neutral'); assert.ok(!reply.wantsSticker); assert.ok(count(reply.text) <= 60);

@@ -141,7 +141,6 @@ export class QQArtworkLibrary {
     if (['retiredArtist', 'artists'].includes(request.mode)) {
       return prepared({request, caption: '画师命令已退役。用 /search 关键词 搜图，或 /search 作品ID 直查；发图仍保留画师署名。\n' + QQArtworkRequest.navigation});
     }
-    if (!allowed(ledger, scope, config.dailyPerChat)) return prepared({request, caption: '本会话今日插画额度已用完，明天再来看。'});
     if (request.mode === 'id') {
       const id = QQArtworkRequest.artworkID(request.query);
       if (id === undefined) return prepared({request: new QQArtworkRequest({mode: 'help'}), caption: QQArtworkRequest.help});

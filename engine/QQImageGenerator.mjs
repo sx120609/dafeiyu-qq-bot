@@ -37,7 +37,7 @@ export class QQImageGenerator {
     }
     const prompt = trim(object.prompt);
     const length = count(prompt);
-    if (!(length >= 1 && length <= 1000) || /(sk-[a-z0-9]+|https?:\/\/|api.?key|系统提示词|system.prompt|\p{Nd}{7,}|\[(OWNER|BOT|PEER)\])/iu.test(prompt)) {
+    if (!(length >= 1 && length <= 1000) || /(sk-[a-z0-9]+|api.?key|系统提示词|system.prompt|\[(OWNER|BOT|PEER)\])/iu.test(prompt)) {
       return new ModelToolResult({content: '画面描述包含不适合外发的信息或过长，未生成图片。'});
     }
     const providers = settings.fallbackEnabled

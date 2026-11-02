@@ -25,8 +25,9 @@ export class QQStickerTrigger {
   static from(raw) { return QQStickerTrigger.all.includes(raw) ? raw : undefined; }
 }
 
-// Only what could actually break QQ delivery or leak a secret is refused.
-const forbidden = /(\[cq:|file:\/\/|base64:\/\/|sk-[a-z0-9]{12,}|<\|im_start\|>)/iu;
+// Only what would leak a secret is refused. Text goes out as plain text segments, so "[CQ:", "file://" or "base64://"
+// in a sentence are just characters (they were refused, silently, until 11-03).
+const forbidden = /(sk-[a-z0-9]{12,}|<\|im_start\|>)/iu;
 const rebuffPatterns = [
   '(忽略|无视|忘记|忘掉|覆盖|取消).{0,12}(之前|以上|所有|系统|原来|字数|长度).{0,12}(指令|规则|限制|设定|提示)',
   '(输出|告诉我|泄露|显示|打印|发送|重复).{0,15}(系统提示词|systemprompt|apikey|api密钥|密钥|访问令牌)',
@@ -172,7 +173,7 @@ emotion 只能为 neutral/joy/smug/annoyed/sad/sleepy/flustered/teasing；它描
       const sharp = this.effectiveStyle === 'tieba' || (this.effectiveStyle === 'teasing' && this.banter > 0);
       return new QQReply({text: this.limited(rebuff), emotion: sharp ? 'annoyed' : 'neutral', intensity: sharp ? 3 : 0});
     }
-    const fallback = new QQReply({text: this.limited(this.effectiveStyle === 'teasing' ? '本鱼这次回复卡住了，没接上；稍后再说一句？' : '这次回复没处理好，请稍后再试一次。'),
+    const fallback = new QQReply({text: this.limited(this.effectiveStyle === 'teasing' ? '这次没想出来，稍后再说一句？' : '这次回复没处理好，请稍后再试一次。'),
       emotion: 'neutral', intensity: 0, isFallback: true});
     let normalized = trimmed(raw);
     if (normalized.startsWith('```') && normalized.endsWith('```')) {
@@ -289,12 +290,11 @@ export class QQReply {
   static typingPause(part, jitter = 0.85 + Math.random() * 0.3) {
     return Math.min(8, Math.max(1.5, 0.8 + count(part) / 6)) * jitter;
   }
-  /** The QQ messages this reply is sent as: blank-line separated parts, at most six. */
+  /** The QQ messages this reply is sent as: blank-line separated parts, at most ten. */
   get segments() {
     const parts = this.text.split('\n\n').map(trimmed).filter(part => part !== '');
     if (!(parts.length > 1)) return [this.text];
-    // At most three messages in a row; more reads like a wall of text arriving piece by piece.
-    return parts.length <= 3 ? parts : [...parts.slice(0, 2), parts.slice(2).join('\n')];
+    return parts.length <= 10 ? parts : [...parts.slice(0, 9), parts.slice(9).join('\n')];
   }
   /** CodingKeys: text, emotion, intensity only. */
   static decode(json) {
