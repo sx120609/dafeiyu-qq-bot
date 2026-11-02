@@ -82,7 +82,7 @@ export class QQImageGenerator {
           url.query !== undefined || url.fragment !== undefined) {
         throw new GenerationFailure('Codex 图像通道仅支持本机模型网关', true);
       }
-      const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 900, signal,
+      const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 240, signal,
         headers: {Authorization: 'Bearer ' + key, 'Content-Type': 'application/json'}, body: JSON.stringify({prompt})}, 16_000_000);
       const object = parseDictionary(data);
       if (status === 422) throw new GenerationFailure('内容审核未通过，不切换模型', false);
