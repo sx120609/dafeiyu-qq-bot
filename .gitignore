@@ -20,3 +20,5 @@ stickers/work/
 # Test scratch a repair run may leave in its worktree.
 test-temp/
 .repair-summary.txt
+# A candidate agent prompt for scripts/replay-chat.mjs.
+scripts/QQAgentPlan.candidate.mjs
