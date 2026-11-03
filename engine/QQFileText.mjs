@@ -6,7 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import {spawn} from 'node:child_process';
+import * as XLSX from 'xlsx';
+import * as codepages from 'xlsx/dist/cpexcel.full.mjs';
 import {decodeEntities} from './core/QQCards.mjs';
+
+XLSX.set_cptable(codepages);
 
 const textExtensions = new Set(['txt', 'text', 'md', 'markdown', 'csv', 'tsv', 'json', 'jsonl', 'ndjson', 'log', 'ini', 'cfg', 'conf', 'toml',
   'yaml', 'yml', 'xml', 'css', 'scss', 'less', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'java', 'kt', 'kts', 'c', 'h', 'cc', 'cpp',
@@ -148,7 +152,23 @@ function officeText(zip, ext) {
   return undefined;
 }
 
-/** Text in an old binary Office file (.doc/.xls/.ppt): runs of UTF-16 characters, a rough reading. */
+function spreadsheetText(data) {
+  try {
+    const workbook = XLSX.read(data, {type: 'buffer'});
+    const text = workbook.SheetNames.map(name => {
+      const sheet = workbook.Sheets[name];
+      const range = sheet['!ref'] ? `范围：${sheet['!ref']}\n` : '';
+      const merges = sheet['!merges']?.map(merge => XLSX.utils.encode_range(merge)) ?? [];
+      return `【工作表 ${name}】\n` + range + (merges.length ? `合并单元格：${merges.join('、')}\n` : '') +
+        XLSX.utils.sheet_to_csv(sheet, {FS: '\t', RS: '\n', blankrows: true});
+    }).join('\n\n');
+    return {kind: 'text', text};
+  } catch (error) {
+    return {kind: 'unknown', note: 'Excel 工作簿打不开（可能加密或损坏）：' + error.message};
+  }
+}
+
+/** Text in an old binary Office file (.doc/.ppt): runs of UTF-16 characters, a rough reading. */
 function oleText(data) {
   const bytes = Buffer.from(data);
   const runs = [];
@@ -208,7 +228,15 @@ export class QQFileText {
       const listing = zip.entries.slice(0, 300).map(entry => `${entry.name}${entry.name.endsWith('/') ? '' : '（' + entry.size + ' 字节）'}`).join('\n');
       return {kind: 'text', note: `这是个压缩包，里面有 ${zip.entries.length} 项（只列文件名）`, text: listing};
     }
-    if (kind === 'ole' || ['doc', 'xls', 'ppt', 'wps', 'et', 'dps'].includes(ext)) {
+    // 2026-11-03: "Find the root cause and fix it in the code": BIFF records, not byte runs, associate courses with exam times.
+    if (ext === 'xls' || ext === 'et') return spreadsheetText(data);
+    if (kind === 'ole') {
+      try {
+        const container = XLSX.CFB.read(data, {type: 'buffer'});
+        if (XLSX.CFB.find(container, '/Workbook') || XLSX.CFB.find(container, '/Book')) return spreadsheetText(data);
+      } catch {}
+    }
+    if (kind === 'ole' || ['doc', 'ppt', 'wps', 'dps'].includes(ext)) {
       const text = oleText(data);
       return text === '' ? {kind: 'unknown', note: '老格式的 Office 文件，没读出文字'} : {kind: 'text', text, note: '老格式 Office 文件，按字节粗提的文字，排版没了，可能夹杂乱码'};
     }

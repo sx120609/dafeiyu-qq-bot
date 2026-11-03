@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
+import * as XLSX from 'xlsx';
 import {OneBotFixture, ModelScript, tempDirectory, removeDirectory, wait, call, results, opening} from './engine-fixtures.mjs';
 import {QQEngine} from '../engine/QQEngine.mjs';
 import {DeepSeekClient} from '../engine/Services.mjs';
@@ -40,6 +41,21 @@ function zip(files) {
 }
 const docx = paragraphs => zip({'[Content_Types].xml': '<Types/>', 'word/document.xml':
   '<w:document><w:body>' + paragraphs.map(text => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`).join('') + '</w:body></w:document>'});
+function examWorkbook() {
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([
+    ['期末考试安排'],
+    ['课程', '教室', '考试时间', '人数'],
+    ['高等数学', null, 46362 + 9 / 24, 0],
+    [],
+    ['大学英语', 'A101', 46363 + 14.5 / 24, 32]
+  ]);
+  sheet.C3.z = sheet.C5.z = 'yyyy-mm-dd hh:mm';
+  sheet['!merges'] = [XLSX.utils.decode_range('A1:D1')];
+  XLSX.utils.book_append_sheet(workbook, sheet, '考试安排');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['备注'], ['提前十五分钟到场']]), '注意事项');
+  return XLSX.write(workbook, {type: 'buffer', bookType: 'biff8', bookSST: true});
+}
 /** A one-page PDF with a line of text, offsets computed so any reader takes it. */
 function pdf(line) {
   const content = `BT /F1 24 Tf 40 60 Td (${line}) Tj ET`;
@@ -176,6 +192,64 @@ test('fileTextComesOutOfOfficeFilesPdfAndText', async () => {
 });
 
 // MARK: Files
+
+test('readsBinaryExcelRowsWithTheirExamTimes', async () => {
+  const data = examWorkbook();
+  assert.equal(data.subarray(0, 8).toString('hex'), 'd0cf11e0a1b11ae1');
+  const directory = tempDirectory();
+  try {
+    const result = await QQFileText.extract(data, '考试安排.xls', directory);
+    assert.equal(result.kind, 'text');
+    assert.ok(result.text.includes('高等数学\t\t2026-12-06 09:00\t0'), result.text);
+    assert.ok(result.text.includes('\n\t\t\t\n大学英语\tA101\t2026-12-07 14:30\t32'), result.text);
+    assert.ok(result.text.includes('【工作表 考试安排】'), result.text);
+    assert.ok(result.text.includes('合并单元格：A1:D1'), result.text);
+    assert.ok(result.text.includes('【工作表 注意事项】\n'), result.text);
+    assert.ok(result.text.includes('提前十五分钟到场'), result.text);
+    assert.equal(result.note, undefined);
+    assert.deepEqual(await QQFileText.extract(data, 'download', directory), result);
+  } finally { removeDirectory(directory); }
+});
+
+test('readFileReturnsBinaryExcelCellsFromAMessage', async () => {
+  const r = await rig([['read_file', {message: '203'}]]);
+  try {
+    r.fixture.messages['203'] = stored(203, [{type: 'file', data: {file_id: 'f-203', name: '考试安排.xls'}}]);
+    r.fixture.fileURLs['f-203'] = 'https://files.example/exams';
+    r.web['https://files.example/exams'] = examWorkbook();
+    r.fixture.inject([group(1, 54321, '@大肥鱼 看看考试安排')]);
+    assert.ok(await r.finished(), JSON.stringify(r.seen.results));
+    const [text] = r.seen.results;
+    assert.ok(text.includes('文件「考试安排.xls」'), text);
+    assert.ok(text.includes('高等数学\t\t2026-12-06 09:00\t0'), text);
+    assert.ok(text.includes('大学英语\tA101\t2026-12-07 14:30\t32'), text);
+    assert.ok(!text.includes('按字节粗提'), text);
+  } finally { await r.stop(); }
+});
+
+test('readsBinaryExcelSharedStringsAcrossRecords', async () => {
+  const rows = Array.from({length: 300}, (_, index) => [`课程${index}：${'复习'.repeat(50)}`, null, `考试场次${index}`]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), '课程表');
+  const data = XLSX.write(workbook, {type: 'buffer', bookType: 'biff8', bookSST: true});
+  assert.ok(data.length > 62500);
+  const directory = tempDirectory();
+  try {
+    const result = await QQFileText.extract(data, '课程表.xls', directory);
+    assert.equal(result.kind, 'text');
+    assert.deepEqual(result.text.split('\n').slice(2), rows.map(row => row.join('\t')));
+  } finally { removeDirectory(directory); }
+});
+
+test('brokenBinaryExcelReportsAParseErrorInsteadOfByteRuns', async () => {
+  const directory = tempDirectory();
+  try {
+    const result = await QQFileText.extract(examWorkbook().subarray(0, 64), 'broken.xls', directory);
+    assert.equal(result.kind, 'unknown');
+    assert.ok(result.note.includes('Excel 工作簿打不开'), result.note);
+    assert.equal(result.text, undefined);
+  } finally { removeDirectory(directory); }
+});
 
 test('readsSentFilesAndGroupFilesInChunks', async () => {
   const long = 'x'.repeat(25000) + '结尾';
