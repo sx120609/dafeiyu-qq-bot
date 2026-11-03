@@ -651,7 +651,8 @@ export const agentMethods = {
     const number = Math.min(80, Math.max(5, intValue(input.count) ?? 40));
     const params = target.group ? {group_id: target.number, count: number} : {user_id: target.number, count: number};
     const before = identifier(input.before);
-    if (before !== undefined && isInt64(before)) params.message_seq = before;
+    // 2026-11-03: "Find the root cause and fix it in the code"; SnowLuma anchors history by message_id, not message_seq.
+    if (before !== undefined && isInt64(before)) { params.message_id = before; params.reverse_order = true; }
     let rows;
     try { const response = await this.connection.action(target.group ? 'get_group_msg_history' : 'get_friend_msg_history', params); rows = isDictionary(response.data) ? response.data : undefined; } catch {}
     const messages = rows && Array.isArray(rows.messages) && rows.messages.every(isDictionary) ? rows.messages : undefined;
