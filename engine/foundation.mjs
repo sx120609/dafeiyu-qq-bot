@@ -90,9 +90,16 @@ export function swiftURL(value) {
   };
 }
 
-const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// A repeated quartet group exhausts V8's regexp stack on ordinary generated images.
+// 2026-11-03: "Find the root cause and fix it in the code"; check quartet length separately.
+const invalidBase64 = /[^A-Za-z0-9+/]/;
 /** Foundation's Data(base64Encoded:): undefined for anything that is not strict base64. */
-export const decodeBase64 = value => typeof value === 'string' && base64.test(value) ? Buffer.from(value, 'base64') : undefined;
+export function decodeBase64(value) {
+  if (typeof value !== 'string' || value.length % 4 !== 0) return undefined;
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  if (invalidBase64.test(value.slice(0, value.length - padding))) return undefined;
+  return Buffer.from(value, 'base64');
+}
 
 /** URLComponents.queryItems encoding: like encodeURIComponent, but "$+,;:@/?" stay literal as Foundation leaves
  *  them (so a literal "+" reads as a space on the server, exactly as from the Swift engine). */
