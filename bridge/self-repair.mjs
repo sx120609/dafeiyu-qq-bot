@@ -22,6 +22,19 @@ const run=(file,args,{cwd,env,input,timeout=0,signal}={})=>new Promise((resolve,
 });
 const git=(cwd,...args)=>run('git',args,{cwd});
 
+/** What a changed file needs to run: 'gateway' and 'engine' reload in place (hot reload), 'engine-process' restarts
+ *  the engine, 'shell' (the files holding the QQ processes, ports and sessions) restarts everything; null: nothing
+ *  (console pages are read fresh, tests and docs do not run). */
+export function partOf(file){
+  const name=String(file).replaceAll('\\','/');
+  if(/^bridge\/(main|qq-host|snowluma-proxy|auth)\.mjs$/.test(name))return 'shell';
+  if(/^engine\/(main|HotReload)\.mjs$/.test(name))return 'engine-process';
+  if(/^engine\/.+\.mjs$/.test(name))return 'engine';
+  if(/^bridge\/.+\.(mjs|txt|json)$/.test(name))return 'gateway';
+  return null;
+}
+const hotParts=new Set(['gateway','engine']);
+
 /** What identifies "the same error": the kind, the message with numbers and quoted values blanked, and the first
  *  stack frame inside this project. */
 export function signature({kind='exception',message='',stack=''}){
@@ -127,10 +140,16 @@ export class SelfRepair{
       if(merged.code!==0){await git(this.root,'merge','--abort');await this.set(repair,{status:'ready',note:'合并有冲突，修复留在分支 '+branch});return;}
       await this.set(repair,{status:'applied'});
       if(this.push){const pushed=await git(this.root,'push','-q','origin','HEAD:main');await this.set(repair,{status:pushed.code===0?'pushed':'applied',pushNote:pushed.code===0?'':pushed.err.slice(-300)});}
-      // Console pages and tests are read fresh, so the fix runs now; engine and gateway code after their restart.
-      const parts=[...new Set(changed.flatMap(f=>f.startsWith('engine')?['engine']:f.startsWith('bridge')?['gateway']:[]))];
+      // Console pages and tests are read fresh, so the fix runs now. Gateway and engine code reloads in place right
+      // away (the engine waits for its turns to end); only the fixed files wait for quiet chats and a restart.
+      const parts=[...new Set(changed.map(partOf).filter(Boolean))];
       if(!parts.length){await this.live(repair);return;}
       await this.set(repair,{awaitingLive:parts});
+      if(parts.every(part=>hotParts.has(part))){
+        try{await this.restart(parts);await this.live(repair);}
+        catch(error){await this.set(repair,{note:'热加载没成功，等下次重启生效：'+String(error.message||error).slice(0,200)});}
+        return;
+      }
       for(const p of parts)this.waitingRestart.add(p);this.restartWhenQuiet();
     }finally{
       await run('cmd.exe',['/c','rmdir',path.join(worktree,'node_modules')]);
@@ -145,8 +164,8 @@ export class SelfRepair{
       if(!(await this.quiet(QUIET_MS))||Date.now()-this.lastRestart<RESTART_GAP_MS){this.restartWhenQuiet();return;}
       const parts=[...this.waitingRestart];this.waitingRestart.clear();this.lastRestart=Date.now();
       await this.restart(parts);
-      // A gateway restart ends this process; the new one's load() takes it from there.
-      if(parts.includes('gateway'))return;
+      // A full restart ends this process; the new one's load() takes it from there.
+      if(parts.includes('shell'))return;
       for(const r of this.value.repairs)if(r.awaitingLive?.every(p=>parts.includes(p)))await this.live(r);
     },60_000);
   }

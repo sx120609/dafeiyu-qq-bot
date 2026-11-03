@@ -220,6 +220,12 @@ export class QQControlServer {
             engine.saveModeration(request.adminIDs ?? engine.config.effectiveAdminIDs, request.blockedIDs ?? engine.config.effectiveBlockedIDs);
             configurationSaved = true;
             break;
+          case 'reload': {
+            // New engine code without restarting (main.mjs); the result goes back as reloadResult.
+            if (typeof globalThis.dafeiyuReload !== 'function') throw new AppFailure('这个引擎不支持热加载');
+            this.reloadResult = await globalThis.dafeiyuReload();
+            break;
+          }
           case 'repaired':
             if (!engine.agentRepaired(request.target ?? '', trim(request.note ?? ''))) throw new AppFailure('这个会话不在回复范围里');
             break;
@@ -349,6 +355,7 @@ export class QQControlServer {
         reactions: (() => { const view = encoded(config.effectiveReactions); view.emojis = encoded(config.effectiveReactions.effectiveEmojis); return view; })(),
         reactionsSent: engine.reactionsSent,
         agentStates: engine.agentStates,
+        reload: this.reloadResult ?? null,
         agentToolCatalog: engine.agentToolCatalog,
         agentNotes: engine.agentNotes.map(note => ({id: note.id, chat: note.key === '' ? '所有会话' : (() => {
           const target = config.targets.find(item => item.key === note.key); return target ? (target.group ? '群·' : '好友·') + target.name : note.key; })(),

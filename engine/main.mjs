@@ -3,12 +3,17 @@
 // Not ported: the --social-panel / --xiaohongshu-panel mode.
 import fs from 'node:fs';
 import readline from 'node:readline';
-import {AppFailure} from './swift.mjs';
-import {isDictionary} from './foundation.mjs';
-import {OneBotConnection} from './OneBotConnection.mjs';
-import {QQEngine, describe} from './QQEngine.mjs';
-import {QQControlServer} from './QQControlServer.mjs';
-import {QQConfig, QQPolicy} from './core/QQPolicy.mjs';
+import {HotReload} from './HotReload.mjs';
+
+// The engine's code reloads in place (HotReload.mjs): registered before anything else is imported, so every module
+// is known to it. This file and HotReload.mjs are loaded once.
+const hot = new HotReload({dirs: [import.meta.dirname], fixed: [import.meta.filename, `${import.meta.dirname}/HotReload.mjs`]});
+const {AppFailure} = await import('./swift.mjs');
+const {isDictionary} = await import('./foundation.mjs');
+const {OneBotConnection} = await import('./OneBotConnection.mjs');
+const {QQEngine, describe} = await import('./QQEngine.mjs');
+const {QQControlServer} = await import('./QQControlServer.mjs');
+const {QQConfig, QQPolicy} = await import('./core/QQPolicy.mjs');
 
 process.umask?.(0o077);
 
@@ -59,9 +64,30 @@ async function main() {
   }
   const server = await QQControlServer.create(engine);
   server.start();
+  await hot.snapshot(0);
+  globalThis.dafeiyuReload = () => reload(engine, server);
   console.log('Windows / Linux 本机面板：凭证仅保存在内存，退出后需重新填写。');
   // The listener keeps the process alive.
   globalThis.dafeiyuControlServer = server;
+}
+
+/** Loads the engine's current code and moves the running engine onto it, without dropping the QQ connection or any
+ *  chat's state. Only between turns: while a chat is thinking it answers {busy: true} and the caller tries again. */
+let reloading = false;
+async function reload(engine, server) {
+  if (reloading) return {busy: true};
+  if (engine.agentThinking.size > 0 || engine.workers.size > 0 || engine.busy || engine.runtimeBusy) return {busy: true};
+  reloading = true;
+  try {
+    const from = hot.generation, started = Date.now();
+    await hot.next(hot.files());
+    // Objects made by any earlier generation (old code still finishing a job) move to the new one too.
+    const map = new Map();
+    for (let generation = 0; generation <= from; generation++) for (const [old, fresh] of await hot.classes(generation, hot.generation)) map.set(old, fresh);
+    const moved = HotReload.adopt([engine, server], map);
+    console.log(`热加载：引擎代码第 ${hot.generation} 版，${moved} 个对象换上新代码，用了 ${Date.now() - started} 毫秒`);
+    return {generation: hot.generation, moved};
+  } finally { reloading = false; }
 }
 
 main().catch(error => { console.log(`启动失败：${describe(error)}`); process.exit(1); });

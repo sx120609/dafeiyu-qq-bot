@@ -203,4 +203,5 @@ export class ClaudeSessions {
   }
 }
 
-export const claudeSessions = new ClaudeSessions();
+// One pool for the whole process: a hot reload of the gateway keeps its sessions (they move onto the new code).
+export const claudeSessions = globalThis.dafeiyuClaudeSessions ??= new ClaudeSessions();

@@ -207,6 +207,7 @@ export class PublicContent{
     if(name==='get_recent_activity')return {items:this.items.filter(x=>x.scope===scope||x.scope==='public-exploration').slice(0,4).map(({scope,...item})=>item)};
     throw new Error('未知公开内容工具');
   }
+  stop(){clearInterval(this.timer);this.timer=null;}
   start(){
     if(this.timer)return;
     const explore=async()=>{

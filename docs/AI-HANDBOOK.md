@@ -80,13 +80,19 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 
 ## 4. 日常操作
 
-- **重启全部**（改了 `bridge/`、`engine/` 后必须这样）：
+- **改了 `bridge/`、`engine/` 的代码：不用重启，热加载。** 网关监视这两个目录，文件改完 3 秒后自动换上新代码（`engine/HotReload.mjs`，网关里是 `Reloader`）：
+  - 网关在同一个进程里载入新一代模块，新请求走新代码，正在处理的请求在旧代码上做完；设置、用量、工具、自我修复记录、常驻 Claude 会话是同一批对象，换上新代码继续用。
+  - 引擎在两轮之间换（有会话在想时等它想完，最多等十分钟），QQ 连接、会话、记忆、代理记录都不动。
+  - 新代码载入失败（语法错、少导出）就继续跑原来的，并当程序错误交给自我修复。控制台「工具 → 自我修复」显示两边各是第几版、什么时候换的，也有“热加载”按钮手动触发。
+  - 换不了的只有这几个常驻文件：`bridge/main.mjs`、`qq-host.mjs`、`snowluma-proxy.mjs`、`auth.mjs`（改了要重启全部），`engine/main.mjs`、`engine/HotReload.mjs`（只重启引擎进程）。`bridge/claude-models.mjs`、`tool-sandbox.mjs` 每次单独起进程，本来就是新代码。
+  - 每次热加载会多占一点内存（旧模块不能卸载），改了几十次之后找个群里安静的时候重启一次。
+- **重启全部**（只有上面那几个常驻文件改了才需要）：
   1. `Stop-Process -Name Dafeiyu`
   2. `scripts\Stop.ps1`
   3. 改过 `launcher/Launcher.cs` 才需要 `launcher\build.ps1`
   4. `Start-Process Dafeiyu.exe`
 
-  重启 SnowLuma 不会让 QQ 下线。机器人会离线十几秒，所以改动攒在一起，一次重启；群里正活跃时别重启，频繁重连是被风控的诱因之一。
+  重启 SnowLuma 不会让 QQ 下线。机器人会离线十几秒，群里正活跃时别重启，频繁重连是被风控的诱因之一。
 - **只改控制台**（`console/*`）：不用重启，刷新页面。
 - **只改人设**：`node scripts/apply-persona.mjs`，不用重启。
 - **看状态**：`.runtime/status.json`；`scripts\Status.ps1` 列出三个进程和内存；引擎的完整状态（会话、代理记录、错误）用控制接口 `GET /api/status`（地址和令牌在 `.runtime/control-url.txt`，令牌放请求头 `X-QQ-Control`，`Origin` 填同一个地址）。
@@ -164,7 +170,7 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
    - 慢的工具在 `agentPatience` 里设几秒后转后台。
 4. 在 `QQAgentPlan.prompt` 的【怎么做事】里加一句它是干什么的。
 5. 在 `tests/engine-QQAgentTests.test.mjs` 用假 OneBot 和脚本化模型写测试；假 OneBot 不认识的动作要在 `engine-fixtures.mjs` 里补。
-6. 跑 `npm test`，重启，在真群里看一次。
+6. 跑 `npm test`；保存后会自动热加载，在真群里看一次。
 
 ## 9. 主人的偏好（必须遵守）
 
@@ -188,7 +194,7 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
   - 发 QQ 消息、发帖、删数据这类对外或不可逆的事先问主人；
   - 主人的 QQ 账号、密码、密钥不经手。
 - **存储**：项目、缓存、临时文件都在 D 盘；本项目的东西放 `.runtime/`。
-- **少重启**：改动攒在一起，一次重启；群里活跃时不重启。
+- **少重启**：代码改动靠热加载；只有常驻文件改了才重启全部，且挑群里安静的时候。
 
 ## 10. 排错
 

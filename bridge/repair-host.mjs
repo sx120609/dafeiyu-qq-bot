@@ -41,7 +41,9 @@ export function makeFixers({config,runtime}){
   };
 }
 
-export async function startSelfRepair({root,runtime,config,host}){
+/** The self-repair pipeline wired to this gateway. After a hot reload the same SelfRepair (its queue and records) is
+ *  passed back as `existing` and only its wiring is replaced with this code's. */
+export async function startSelfRepair({root,runtime,config,host,reload,existing}){
   const fixers=makeFixers({config,runtime});
   // Quiet: no chat has a batch waiting or a turn running, and none had one in the last few minutes.
   const quiet=async ms=>{
@@ -52,14 +54,21 @@ export async function startSelfRepair({root,runtime,config,host}){
     }catch{return false;}
   };
   const restart=async parts=>{
-    if(parts.includes('gateway')){
+    // Gateway and engine code reloads in place; only the fixed files (qq-host, the proxies, auth) need a restart.
+    if(!parts.includes('shell')&&reload){
+      if(parts.includes('gateway'))await reload.gateway();
+      if(parts.includes('engine-process')){console.log('Self-repair: restarting the engine process for a repaired file.');await host.restart();}
+      else if(parts.includes('engine'))await reload.engine();
+      return;
+    }
+    if(parts.includes('shell')||parts.includes('gateway')){
       // The gateway restarts itself: a hidden PowerShell starts a new one a few seconds after this one exits.
       const script=path.join(root,'scripts','Start.ps1');
       spawn('powershell.exe',['-NoProfile','-WindowStyle','Hidden','-Command',`Start-Sleep -Seconds 4; & '${script}' -NoBrowser`],{detached:true,windowsHide:true,stdio:'ignore'}).unref();
       console.log('Self-repair: restarting the gateway for a repaired file.');
       await host.stop().catch(()=>{});
       setTimeout(()=>process.exit(0),1000);
-    }else if(parts.includes('engine')){console.log('Self-repair: restarting the engine for a repaired file.');await host.restart();}
+    }else if(parts.includes('engine')||parts.includes('engine-process')){console.log('Self-repair: restarting the engine for a repaired file.');await host.restart();}
   };
   const ids=async()=>{
     try{
@@ -81,5 +90,6 @@ export async function startSelfRepair({root,runtime,config,host}){
       '。要是当时有人在等结果（没画出来的图、没查到的东西、没发出去的文件），现在重新做一遍给他；没人在等就不用出声。';
     await host.panelCall('repaired',{target:repair.context.chatKey,note});
   };
+  if(existing)return Object.assign(existing,{fixers,quiet,restart,ids,announce});
   return new SelfRepair({runtime,root,fixers,quiet,restart,ids,announce}).load();
 }

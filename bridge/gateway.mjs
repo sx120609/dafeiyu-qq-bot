@@ -22,6 +22,10 @@ import {writeToolCode} from './tool-writer.mjs';
 import {startSelfRepair} from './repair-host.mjs';
 import {QQHost} from './qq-host.mjs';
 import {startSnowLumaProxy} from './snowluma-proxy.mjs';
+import {partOf} from './self-repair.mjs';
+import {claudeSessions} from './claude-session.mjs';
+import {HotReload} from '../engine/HotReload.mjs';
+import {watch} from 'node:fs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
@@ -92,7 +96,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -223,6 +227,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/v1/agent-tools'){send(200,{tools:agentTools.definitions()});return;}
       // QQ on Windows (SnowLuma): its state, the bot account, and whether its admin password is saved (never the password).
       if(req.url==='/console/api/repairs'){if(!repair){send(404,{error:'自我修复没开'});return;}send(200,repair.view());return;}
+      if(req.url==='/console/api/reload'){if(!reload){send(404,{error:'没开热加载'});return;}send(200,reload.status);return;}
       if(req.url==='/console/api/qq'){if(!host){send(404,{error:'QQ 由 NapCat 管理'});return;}try{send(200,await host.qqStatus());}catch(e){fail(e);}return;}
       if(req.url==='/console/api/tools'){
         let builtin=[];try{builtin=(await runtimeControl.panel()).agentToolCatalog||[];}catch{}
@@ -272,6 +277,12 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     }
     // Program errors from the engine and the agent's report_bug: {source, kind, message, stack, context}.
     if(req.url==='/v1/repair/report'){if(!repair){send(200,{accepted:false,reason:'自我修复没开'});return;}try{send(200,await repair.report(data));}catch(e){fail(e);}return;}
+    // Hot reload by hand: the gateway, the engine or both (the files reload by themselves when they change).
+    if(req.url==='/console/api/reload'){
+      if(!reload){send(404,{error:'没开热加载'});return;}
+      const parts=data.part==='gateway'?['gateway']:data.part==='engine'?['engine']:['gateway','engine'];
+      try{for(const part of parts)await reload[part]();send(200,reload.status);}catch(e){send(500,{error:e.message,...reload.status});}return;
+    }
     if(req.url==='/console/api/repairs'){if(!repair){send(404,{error:'自我修复没开'});return;}try{send(200,typeof data.retry==='string'?await repair.retry(data.retry):repair.view());}catch(e){fail(e);}return;}
     // A voice message as text, for the agent's listen_voice: {audio: base64, format}.
     if(req.url==='/v1/audio/transcriptions'){
@@ -416,6 +427,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
   });
   server.requestTimeout=900000;
   server.startPublicContent=async()=>{await publicContent.load();publicContent.start();};
+  // A hot reload replaces this generation: its own background work stops; requests it is still serving finish.
+  server.retire=()=>publicContent.stop();
   server.on('upgrade',(req,socket,head)=>{
     const site=requestOrigin(req,auth);
     if(!site){socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;}
@@ -425,24 +438,124 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
   return server;
 }
 
-export async function startGateway(config,configFile){
-  if(!config.consoleToken){config.consoleToken=crypto.randomBytes(32).toString('base64url');await fs.writeFile(configFile,JSON.stringify(config,null,2),{mode:0o600});}
-  const runtime=path.dirname(configFile);const settings=await new Settings(path.join(runtime,'providers.json')).load();
-  const auth=await new ConsoleAuth({runtime,secret:config.consoleToken}).load();
-  const usage=await new UsageLedger({runtime}).load();
-  const voice=await new VoiceSettings({runtime}).load();
-  const computer=await new ComputerControl({runtime}).load();
+// The files that stay as first loaded: the QQ processes, the open ports and the console sessions live in them, so a
+// change there needs a full restart. Everything else in bridge/ reloads in place (11-03: "插件 工具等绝大部分服务都要
+// 做成热加载…不一定非要重启整个系统").
+export const fixedFiles=['main.mjs','qq-host.mjs','snowluma-proxy.mjs','auth.mjs'].map(file=>path.join(root,'bridge',file));
+// Run as their own processes, never imported.
+export const scriptFiles=['claude-models.mjs','tool-sandbox.mjs'].map(file=>path.join(root,'bridge',file));
+
+/** One generation of the gateway: its routes over the long-lived state. With `previous`, that generation's state is
+ *  kept (startGateway has already moved it onto this generation's classes) and only re-wired to this code. */
+export async function composeGateway(config,configFile,{host,auth,reload},previous){
+  const runtime=path.dirname(configFile);
+  const state=previous?.state??{
+    settings:await new Settings(path.join(runtime,'providers.json')).load(),
+    usage:await new UsageLedger({runtime}).load(),
+    voice:await new VoiceSettings({runtime}).load(),
+    computer:await new ComputerControl({runtime}).load(),
+    agentTools:await new AgentTools({runtime}).load()};
   // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
-  const qq=process.platform==='win32'?(action,params)=>host.qqCall(action,params):null;
-  const agentTools=await new AgentTools({runtime,qq,writer:(request,options)=>writeToolCode(request,config,options)}).load();
+  state.agentTools.rewire({qq:host?(action,params)=>host.qqCall(action,params):null,writer:(request,options)=>writeToolCode(request,config,options)});
+  // On Windows the bot also repairs its own program errors (repair-host.mjs).
+  state.repair=host?await startSelfRepair({root,runtime,config,host,reload,existing:state.repair}):null;
+  if(host&&state.repair)host.onCrash=report=>state.repair.report(report);
+  const server=createGateway(config,state.settings,{runtime,auth,usage:state.usage,voice:state.voice,computer:state.computer,agentTools:state.agentTools,host,repair:state.repair,reload});
+  return {server,state};
+}
+
+export async function startGateway(config,configFile,hot){
+  if(!config.consoleToken){config.consoleToken=crypto.randomBytes(32).toString('base64url');await fs.writeFile(configFile,JSON.stringify(config,null,2),{mode:0o600});}
+  const runtime=path.dirname(configFile);
+  const auth=await new ConsoleAuth({runtime,secret:config.consoleToken}).load();
   // On Windows the gateway process also runs SnowLuma and the engine; in WSL systemd and supervisor.py do.
   const host=process.platform==='win32'?new QQHost({root,runtime,gatewayToken:config.token,port:config.port||18191,embedPort:config.snowlumaProxyPort||18192}):null;
-  // On Windows the bot also repairs its own program errors (repair-host.mjs).
-  const repair=host?await startSelfRepair({root,runtime,config,host}):null;
-  if(host&&repair)host.onCrash=report=>repair.report(report);
-  const server=createGateway(config,settings,{runtime,auth,usage,voice,computer,agentTools,host,repair});
+  const reload=new Reloader({config,configFile,hot,host});
+  const shared={host,auth,reload};
+  reload.current=await composeGateway(config,configFile,shared);
+  // The port stays open across reloads; each request goes to the generation current when it arrives.
+  const front=http.createServer((req,res)=>reload.current.server.emit('request',req,res));
+  front.on('upgrade',(req,socket,head)=>reload.current.server.emit('upgrade',req,socket,head));
+  front.requestTimeout=900000;
+  reload.shared=shared;
   await fs.writeFile(path.join(runtime,'console-url.txt'),`http://127.0.0.1:${config.port||18191}/console/#${config.consoleToken}`,{mode:0o600});
-  server.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');server.refreshCatalogs();server.startPublicContent();
-    if(host){host.start();startSnowLumaProxy({auth,luma:()=>host.luma,port:config.snowlumaProxyPort||18192,consoleOrigin:`http://127.0.0.1:${config.port||18191}`});}});
-  return server;
+  front.listen(config.port||18191,'127.0.0.1',()=>{console.log('Dafeiyu provider gateway ready on loopback');reload.current.server.refreshCatalogs();reload.current.server.startPublicContent();
+    if(host){host.start();startSnowLumaProxy({auth,luma:()=>host.luma,port:config.snowlumaProxyPort||18192,consoleOrigin:`http://127.0.0.1:${config.port||18191}`});}
+    if(hot&&config.hotReload!==false)reload.watch();});
+  return front;
+}
+
+/** Hot reload of the gateway (a new generation of bridge/ in this process) and of the engine (its own reload, between
+ *  turns, without reconnecting QQ). Changed files reload by themselves; self-repair and the console ask for it too. */
+export class Reloader{
+  constructor({config,configFile,hot,host}){Object.assign(this,{config,configFile,hot,host});this.status={gateway:{generation:0},engine:{}};this.queue=Promise.resolve();}
+  /** One at a time, in the order asked. */
+  run(task){const next=this.queue.then(task,task);this.queue=next.catch(()=>{});return next;}
+  gateway(){return this.run(async()=>{
+    if(!this.hot)throw new Error('这个网关是不带热加载启动的');
+    const started=Date.now(),from=this.hot.generation;
+    try{
+      // A file that does not load fails here, and the running generation stays.
+      const [fresh]=await this.hot.next([path.join(root,'bridge','gateway.mjs')]);
+      const map=new Map();
+      for(let generation=0;generation<=from;generation++)for(const [old,next] of await this.hot.classes(generation,this.hot.generation))map.set(old,next);
+      const moved=HotReload.adopt([this.current.state,globalThis.dafeiyuClaudeSessions],map);
+      const previous=this.current;
+      this.current=await fresh.composeGateway(this.config,this.configFile,this.shared,previous);
+      previous.server.retire?.();
+      await this.current.server.startPublicContent();
+      this.status.gateway={generation:this.hot.generation,at:new Date().toISOString(),ms:Date.now()-started,moved};
+      console.log(`热加载：网关代码第 ${this.hot.generation} 版，${moved} 个对象换上新代码，用了 ${Date.now()-started} 毫秒`);
+      return this.status.gateway;
+    }catch(error){
+      this.status.gateway={...this.status.gateway,error:String(error.message||error).slice(0,300),failedAt:new Date().toISOString()};
+      console.log('热加载网关失败，继续用原来的代码：'+(error.stack||error));
+      this.report(error,'gateway');throw error;
+    }
+  });}
+  /** The engine reloads between turns: while a chat is thinking it says so and this asks again, for up to ten minutes. */
+  engine(){return this.run(async()=>{
+    if(!this.host)throw new Error('引擎不归这个网关管');
+    const started=Date.now();
+    try{
+      for(;;){
+        const result=(await this.host.panelCall('reload')).reload;
+        if(result&&!result.busy){this.status.engine={...result,at:new Date().toISOString(),ms:Date.now()-started};return this.status.engine;}
+        if(Date.now()-started>10*60_000)throw new Error('等了十分钟引擎一直在忙，没换上新代码');
+        await new Promise(resolve=>setTimeout(resolve,3000));
+      }
+    }catch(error){
+      this.status.engine={...this.status.engine,error:String(error.message||error).slice(0,300),failedAt:new Date().toISOString()};
+      console.log('热加载引擎失败，继续用原来的代码：'+(error.message||error));
+      this.report(error,'engine');throw error;
+    }
+  });}
+  /** What a set of changed files needs: hot reloads, or a restart for the fixed files. */
+  async apply(files){
+    const parts=new Set(files.map(partOf).filter(Boolean)),done=[];
+    if(parts.has('gateway'))done.push(await this.gateway().then(()=>'网关',()=>null));
+    if(parts.has('engine-process')&&this.host){await this.host.restart();done.push('引擎（重启进程）');}
+    else if(parts.has('engine'))done.push(await this.engine().then(()=>'引擎',()=>null));
+    if(parts.has('shell'))console.log('这些文件改了要整个重启才生效：'+files.filter(file=>partOf(file)==='shell').join('、'));
+    return done.filter(Boolean);
+  }
+  /** Reloads whatever changed in bridge/ and engine/, a few seconds after the last change (a checkout writes many). */
+  watch(){
+    let changed=new Set(),timer=null;
+    try{
+      watch(root,{recursive:true},(event,name)=>{
+        const file=String(name||'').replaceAll('\\','/');
+        if(!/^(bridge|engine)\/.+\.mjs$/.test(file))return;
+        changed.add(file);clearTimeout(timer);
+        timer=setTimeout(()=>{const files=[...changed];changed=new Set();this.apply(files).catch(()=>{});},3000);
+      });
+      console.log('热加载：bridge/ 和 engine/ 的代码改了会自动换上');
+    }catch(error){console.log('热加载：监视文件失败，只能手动或由自我修复触发：'+error.message);}
+  }
+  /** A reload that fails on our own code (a syntax error, a missing export) is a program error for self-repair. */
+  report(error,source){
+    const repair=this.current?.state?.repair;
+    if(repair&&/SyntaxError|ReferenceError|TypeError|does not provide an export/.test(String(error.stack||error.message||error)))
+      repair.report({source,kind:'exception',message:'热加载失败：'+String(error.message||error).slice(0,500),stack:String(error.stack||'')}).catch(()=>{});
+  }
 }

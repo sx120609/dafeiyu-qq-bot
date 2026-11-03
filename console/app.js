@@ -794,7 +794,18 @@ async function loadRepairs(){
   let data;
   try{data=await api('repairs');}catch(error){if(error.status===404){$('repairs-card').hidden=true;return;}throw error;}
   renderRepairs(data);
+  try{renderReload(await api('reload'));}catch{$('reload-now').hidden=$('reload-status').hidden=true;}
 }
+/* Hot reload: which version of the gateway's and the engine's code is running (code changes load by themselves). */
+function renderReload(status){
+  const part=(name,s)=>!s?.at&&!s?.error?'':s.error&&(!s.at||Date.parse(s.failedAt)>Date.parse(s.at))?`${name}没换上：${s.error}`:`${name}第 ${s.generation} 版 · ${shortDate(Date.parse(s.at)/1000)}`;
+  const text=[part('网关',status.gateway),part('引擎',status.engine)].filter(Boolean).join(' · ');
+  $('reload-now').hidden=false;$('reload-status').hidden=!text;$('reload-status').textContent=text?'热加载：'+text:'';
+}
+$('reload-now').onclick=()=>busy($('reload-now'),async()=>{
+  try{renderReload(await api('reload',{part:'all'},{timeout:660000}));toast('网关和引擎都换上了现在的代码');}
+  catch(error){toast(error.message,true);try{renderReload(await api('reload'));}catch{}}
+});
 function renderRepairs(data){
   const list=data.repairs||[],working=list.filter(r=>['queued','fixing','testing'].includes(r.status)).length;
   $('repairs-card').hidden=false;

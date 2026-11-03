@@ -2,7 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createWriteStream,mkdirSync,statSync,renameSync} from 'node:fs';
 import {format} from 'node:util';
-import {startGateway} from './gateway.mjs';
+import {HotReload} from '../engine/HotReload.mjs';
+// Hot reload (engine/HotReload.mjs): registered before the gateway is imported, so every module of bridge/ is known
+// to it. The files gateway.mjs lists in fixedFiles hold the processes, ports and sessions and load once.
+const hot=new HotReload({dirs:[import.meta.dirname],fixed:['main.mjs','qq-host.mjs','snowluma-proxy.mjs','auth.mjs'].map(file=>path.join(import.meta.dirname,file)),
+  scripts:['claude-models.mjs','tool-sandbox.mjs'].map(file=>path.join(import.meta.dirname,file))});
+const {startGateway}=await import('./gateway.mjs');
 // Started hidden by the tray launcher on Windows (DAFEIYU_HIDDEN: a hidden console still looks like a terminal),
 // so its output goes to .runtime/logs/gateway.log.
 if(process.platform==='win32'&&(process.env.DAFEIYU_HIDDEN||!process.stdout.isTTY)){
@@ -22,4 +27,5 @@ if(config.ffmpeg&&!process.env.DAFEIYU_FFMPEG)process.env.DAFEIYU_FFMPEG=config.
 await fs.mkdir(config.tempRoot,{recursive:true,mode:0o700});
 // The tray launcher and scripts/Stop.ps1 find this process by its pid.
 if(process.platform==='win32')await fs.writeFile(path.join(path.dirname(file),'host.pid'),String(process.pid));
-await startGateway(config,file);
+await startGateway(config,file,hot);
+await hot.snapshot(0);

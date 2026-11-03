@@ -82,6 +82,8 @@ export class AgentTools{
     this.file=path.join(runtime,'agent-tools.json');this.data=path.join(runtime,'agent-tool-data');this.value={tools:[]};
     this.spawnSandbox=spawnSandbox;this.fetchImpl=fetchImpl;this.check=check;this.qq=qq;this.writer=writer;
   }
+  /** The functions it calls, from the code now running (after a hot reload, gateway.mjs composeGateway). */
+  rewire({qq=this.qq,writer=this.writer}={}){this.spawnSandbox=sandboxProcess;this.check=checkTarget;this.fetchImpl=fetch;this.qq=qq;this.writer=writer;return this;}
   async load(){try{this.value=JSON.parse(await fs.readFile(this.file,'utf8'));}catch{}if(!Array.isArray(this.value.tools))this.value.tools=[];return this;}
   async persist(){await fs.writeFile(this.file+'.tmp',JSON.stringify(this.value,null,1),{mode:0o600});await fs.rename(this.file+'.tmp',this.file);}
   find(name){return this.value.tools.find(t=>t.name===name);}
