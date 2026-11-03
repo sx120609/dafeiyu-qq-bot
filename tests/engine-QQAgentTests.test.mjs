@@ -27,6 +27,55 @@ const friend = (id, text) => ({post_type: 'message', self_id: 12345, user_id: 54
   sub_type: 'friend', message_id: id, message: [{type: 'text', data: {text}}]});
 const directed = model => model.calls.filter(item => item.purpose === 'director');
 
+test('aMissingReactionMessageKeepsItsReasonAndDoesNotDisableTheEmoji', async () => {
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: '不用'};
+    const message = opening(messages).includes('这一批新消息（从旧到新）：72') ? '72' : '71';
+    switch (results(messages).length) {
+      case 0: return call('react', {message, emoji: '笑哭'});
+      case 1: return call('react', {message, emoji: 'doge'});
+      default: return {content: message === '71' ? '第一轮结束' : '第二轮结束'};
+    }
+  });
+  const attempts = [];
+  const request = r.fixture.request.bind(r.fixture);
+  r.fixture.request = value => {
+    if (value.action === 'set_msg_emoji_like') {
+      attempts.push(value.params);
+      // 2026-11-03: "Find the root cause"; QQ can lose a recalled message after the model has read it.
+      if (value.params.message_id === '71') {
+        r.fixture.send({status: 'failed', retcode: 1200, data: null, echo: value.echo,
+          wording: 'OIDB error 65018 on 0x9082_1: 群消息不存在'});
+        return;
+      }
+    }
+    request(value);
+  };
+  try {
+    const engine = r.engine;
+    engine.add(engine.contacts.find(contact => contact.number === '99999'));
+    engine.config.targets[0].enabled = true;
+    engine.start();
+    const message = group(71, 54321, '这张图真好笑');
+    message.message.push({type: 'face', data: {id: '182'}}, {type: 'image', data: {file: 'synthetic.png'}});
+    r.fixture.inject([message]);
+    assert.ok(await wait(() => engine.agentTurns.at(-1)?.note === '第一轮结束'));
+    const failed = engine.agentTurns[0];
+    assert.equal(engine.reactionsSent, 0);
+    assert.deepEqual(failed.sent, []);
+    r.fixture.inject([group(72, 54321, '这条消息还在')]);
+    assert.ok(await wait(() => engine.agentTurns.at(-1)?.note === '第二轮结束'));
+    for (const errand of failed.errands) {
+      assert.match(errand.result, /65018.*群消息不存在/);
+      assert.match(errand.result, /71/);
+    }
+    assert.deepEqual(attempts, ['71', '72'].flatMap(message_id => ['182', '179'].map(emoji_id => ({message_id, emoji_id, set: true}))));
+    assert.equal(engine.reactionsSent, 2);
+    assert.equal(r.fixture.reactions.length, 2);
+    assert.ok(engine.agentTurns.at(-1).errands.every(errand => errand.result.includes('贴了')));
+  } finally { await r.stop(); }
+});
+
 /// Agent mode is a loop: the director acts through tools, each done at once and reported back, and decides the
 /// next step from what happened. A batch goes to it once; when it stays quiet nothing is sent and it says why.
 test('theAgentActsStepByStepAndSeesWhatHappened', async () => {

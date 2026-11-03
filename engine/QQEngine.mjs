@@ -205,8 +205,6 @@ export class QQEngine {
     /// Per conversation: messages before this time are no longer short-term context (/new, /clear).
     this.contextResetAt = {};
     this.outreachLedger = new QQOutreachLedger();
-    /// Reaction ids QQ refused; the agent is not offered them again.
-    this.rejectedReactionIDs = new Set();
     // Running summaries of each group's older lines, and the groups being summarized right now.
     this.timelineSummaries = {};
     this.summarizing = new Set();

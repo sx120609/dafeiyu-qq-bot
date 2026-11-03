@@ -99,9 +99,9 @@ export const agentMethods = {
       } else members.PEER = target.number;
       for (const event of happened) { if (target.group && event.sender !== undefined) members[QQMemoryBook.subject(account, key, event.sender)] = event.sender; }
       if (target.group) for (const user of reactors) members[QQMemoryBook.subject(account, key, user)] ??= user;
-      // Every QQ face and emoji, the owner's favourites first; ones QQ refused before are left out.
+      // 2026-11-03: "Find the root cause"; a missing message says nothing about an emoji's availability.
       const favourites = this.config.effectiveReactions.effectiveEmojis;
-      const emojis = target.group && bubbles0.has('reaction') ? QQReactionCatalog.all(favourites).filter(item => !this.rejectedReactionIDs.has(item.id)) : [];
+      const emojis = target.group && bubbles0.has('reaction') ? QQReactionCatalog.all(favourites) : [];
       const stickersOn = persona.stickersEnabled && this.stickerLibrary.items.length > 0;
       const imageOn = this.config.effectiveImageGeneration.enabled && bubbles0.has('image');
       const artworkOn = this.config.effectiveArtwork.enabled && this.config.effectiveArtwork.agentEnabled && tools0.has('find_artwork');
@@ -201,10 +201,9 @@ export const agentMethods = {
       const log = this.agentLog.get(key);
       if (log?.length) notes.push('你最近在这里做过的事：\n' + log.slice(-6).join('\n'));
       if (target.group) {
-        const liked = favourites.filter(item => item.weight > 0 && !this.rejectedReactionIDs.has(item.id)).sort((a, b) => b.weight - a.weight);
+        const liked = favourites.filter(item => item.weight > 0).sort((a, b) => b.weight - a.weight);
         notes.push('贴表情（react）：QQ 自带的所有表情和常见 emoji 都能贴，emoji 填名字或 emoji 本身，拿不准名字就 search_reactions 搜。' +
-          (liked.length === 0 ? '' : '主人常用的（偏好越高越常用，合适时优先，不合适就挑别的）：' + liked.map(item => `${item.name}（${item.hint ?? ''}·${item.weight}）`).join('、') + '。') +
-          (this.rejectedReactionIDs.size === 0 ? '' : 'QQ 不让贴的：' + [...this.rejectedReactionIDs].sort().map(id => this.constructor.reactionName(id)).join('、') + '。'));
+          (liked.length === 0 ? '' : '主人常用的（偏好越高越常用，合适时优先，不合适就挑别的）：' + liked.map(item => `${item.name}（${item.hint ?? ''}·${item.weight}）`).join('、') + '。'));
       } else {
         notes.push('私聊里没有表情回应（不要用 reaction）；poke 的 member 填 PEER。');
       }
@@ -894,16 +893,17 @@ export const agentMethods = {
           case 'reaction': {
             const {message, emoji} = bubble;
             if (!target.group) continue;
-            let ok = true;
-            try { await this.connection.action('set_msg_emoji_like', {message_id: message, emoji_id: emoji, set: true}); } catch { ok = false; }
-            if (ok) {
-              this.reactionsSent += 1;
-              // The bot's own messages are not in `inputs`; their text is in the timeline (11-03: "给「」贴了").
-              const said = inputs[message]?.text ?? events.find(event => event.id === message)?.text;
-              success((said === undefined ? `给消息 ${message}` : `给「${prefix(said, 12)}」`) + `贴了${names[emoji] ?? emoji}`);
-            } else {
-              this.rejectedReactionIDs.add(emoji); failure(`贴${names[emoji] ?? emoji}被 QQ 拒了`);
+            try {
+              await this.connection.action('set_msg_emoji_like', {message_id: message, emoji_id: emoji, set: true});
+            } catch (error) {
+              if (isCancellation(error) || QQRepair.isBug(error)) throw error;
+              failure(`给消息 ${message}贴${names[emoji] ?? emoji}失败：${describe(error)}`);
+              continue;
             }
+            this.reactionsSent += 1;
+            // The bot's own messages are not in `inputs`; their text is in the timeline (11-03: "给「」贴了").
+            const said = inputs[message]?.text ?? events.find(event => event.id === message)?.text;
+            success((said === undefined ? `给消息 ${message}` : `给「${prefix(said, 12)}」`) + `贴了${names[emoji] ?? emoji}`);
             break;
           }
           case 'poke': {
