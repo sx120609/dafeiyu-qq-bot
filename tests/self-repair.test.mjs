@@ -18,12 +18,12 @@ async function project(){
   return root;
 }
 const waitFor=async(check,seconds=180)=>{for(let i=0;i<seconds*10&&!check();i++)await new Promise(r=>setTimeout(r,100));};
-async function pipeline(fix,{dirty}={}){
+async function pipeline(fix,{dirty,announce}={}){
   const root=await project(),runtime=await fs.mkdtemp(path.join(os.tmpdir(),'repair-runtime-')),work=await fs.mkdtemp(path.join(os.tmpdir(),'repair-work-'));
   if(dirty)await fs.writeFile(path.join(root,'engine','math.mjs'),'export const add=(a,b)=>a-b; // being edited\n');
   const restarts=[];
-  const repair=new SelfRepair({runtime,root,workRoot:work,push:false,fixers:{codex:fix,claude:fix},quiet:async()=>true,restart:async parts=>restarts.push(parts),ids:async()=>['123456789']});
-  return {root,runtime,work,repair,restarts,cleanup:async()=>{await waitFor(()=>!repair.busy);await Promise.all([root,runtime,work].map(d=>fs.rm(d,{recursive:true,force:true,maxRetries:5})));}};
+  const repair=new SelfRepair({runtime,root,workRoot:work,push:false,fixers:{codex:fix,claude:fix},quiet:async()=>true,restart:async parts=>restarts.push(parts),ids:async()=>['123456789'],announce});
+  return {root,runtime,work,repair,restarts,cleanup:async()=>{await waitFor(()=>!repair.busy);clearTimeout(repair.restartTimer);await Promise.all([root,runtime,work].map(d=>fs.rm(d,{recursive:true,force:true,maxRetries:5})));}};
 }
 const bug={source:'engine',kind:'exception',message:"TypeError: Cannot read properties of undefined (reading 'x')",stack:'TypeError: x\n    at add (D:\\bot\\engine\\math.mjs:1:20)'};
 
@@ -43,6 +43,27 @@ test('a program error is fixed in a worktree, tested, committed and merged into 
     await waitFor(()=>!p.repair.busy);
     assert.equal(git(p.root,'worktree','list').trim().split('\n').length,1,'the worktree is removed');
   }finally{await p.cleanup();}
+});
+
+test('once a fix runs, the chat the error came from is told, and a gateway that starts finds merged fixes live',async()=>{
+  const told=[];
+  // A console-only fix runs as soon as it is merged (the pages are read fresh); this project's test still has to pass.
+  const p=await pipeline(async(job,w)=>{await fs.mkdir(path.join(w,'console'));await fs.writeFile(path.join(w,'console','x.js'),'// fixed\n');},
+    {announce:async r=>told.push(r.context.chatKey)});
+  try{
+    await fs.writeFile(path.join(p.root,'engine','math.mjs'),'export const add=(a,b)=>a+b;\n');git(p.root,'commit','-q','-am','add');
+    await p.repair.report({...bug,source:'console',context:{chatKey:'group:1'}});
+    await waitFor(()=>p.repair.value.repairs[0].retold);
+    assert.ok(p.repair.value.repairs[0].liveAt);assert.deepEqual(told,['group:1']);
+  }finally{await p.cleanup();}
+  // A fix still waiting for its restart when the gateway stops is live in the next gateway.
+  const runtime=await fs.mkdtemp(path.join(os.tmpdir(),'repair-runtime-')),later=[];
+  try{
+    await fs.writeFile(path.join(runtime,'repairs.json'),JSON.stringify({repairs:[{id:'a',status:'pushed',awaitingLive:['gateway'],context:{chatKey:'private:2'},updatedAt:new Date().toISOString()}]}));
+    const fresh=await new SelfRepair({runtime,root:runtime,fixers:{},announce:async r=>later.push(r.context.chatKey)}).load();
+    await waitFor(()=>fresh.value.repairs[0].retold,5);
+    assert.ok(fresh.value.repairs[0].liveAt&&!fresh.value.repairs[0].awaitingLive);assert.deepEqual(later,['private:2']);
+  }finally{await fs.rm(runtime,{recursive:true,force:true});}
 });
 
 test('a repair that does not pass the tests, changes nothing, touches .runtime or adds a real QQ number is not applied',async()=>{

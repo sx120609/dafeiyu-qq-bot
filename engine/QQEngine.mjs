@@ -249,13 +249,12 @@ export class QQEngine {
     this.lastPokeAt = new Map();
     /// The last 300 group messages and what the bot made of each (answered, and why; or not, and why).
     this.decisions = [];
-    /// Reactions on the bot's messages waiting for the agent, and when it last looked because of one.
+    /// Reactions on the bot's messages waiting for the agent.
     this.agentReacted = new Map();
     /// Who those reactions came from, so the agent can answer them by label (11-03: only senders were known).
     this.agentReactors = new Map();
     /// Pokes and outreach waiting for the agent.
     this.agentEvents = new Map();
-    this.agentReactionLookAt = new Map();
     /// A super-mode task Codex stopped to ask about, per chat, until the owner confirms it.
     this.computerPending = new Map();
     // MARK: Agent mode (代理模式)
@@ -1260,6 +1259,15 @@ export class QQEngine {
 
   /// A poke aimed at the bot wakes the chat's agent, which pokes back, says something, or lets it be. The same
   /// person poking again within half a minute is not looked at twice.
+  /// The gateway's self-repair fixed an error that happened in this chat and the fix now runs: the agent hears about
+  /// it and can redo what failed (11-03: "他这修了也不实际用上").
+  agentRepaired(key, note) {
+    const target = this.config.targets.find(item => item.enabled && item.key === key);
+    if (!target || note === '') return false;
+    this.pushMap(this.agentEvents, target.key, new QQAgentEvent({text: note}));
+    this.armAgent(target, 1);
+    return true;
+  }
   receivePoke(object, now) {
     if (!(object.notice_type === 'notify' && object.sub_type === 'poke' && identifier(object.target_id) === this.config.expectedSelfID)) return;
     const sender = identifier(object.user_id);
@@ -1335,10 +1343,8 @@ export class QQEngine {
     if (!(this.agentReactors.get(target.key) ?? []).includes(user)) this.pushMap(this.agentReactors, target.key, user);
     const list = this.pushMap(this.agentReacted, target.key, (name !== undefined ? `${name}(${label})` : label) + ` 给你的消息 ${message}「${prefix(said, 40)}」贴了 ` + emojis.join('、'));
     this.agentReacted.set(target.key, list.slice(-6));
-    const now = new Date();
-    if (!(!this.agentPending.has(target.key) && !this.agentTimers.has(target.key) &&
-      (now - (this.agentReactionLookAt.get(target.key) ?? distantPast)) / 1000 >= 120)) return;
-    this.agentReactionLookAt.set(target.key, now);
+    // Every reaction wakes the agent (11-03: the once-per-two-minutes limit went); one already on its way picks it up.
+    if (this.agentPending.has(target.key) || this.agentTimers.has(target.key)) return;
     this.armAgent(target, 5);
   }
   /// A reaction id as something readable: QQ's own faces by name, larger ids are emoji code points.

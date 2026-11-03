@@ -220,6 +220,9 @@ export class QQControlServer {
             engine.saveModeration(request.adminIDs ?? engine.config.effectiveAdminIDs, request.blockedIDs ?? engine.config.effectiveBlockedIDs);
             configurationSaved = true;
             break;
+          case 'repaired':
+            if (!engine.agentRepaired(request.target ?? '', trim(request.note ?? ''))) throw new AppFailure('这个会话不在回复范围里');
+            break;
           case 'pause': engine.pause(); break;
           case 'disconnect': engine.disconnect(); break;
           case 'clear': engine.clearTemporaryCredentials(); break;
@@ -416,6 +419,6 @@ QQControlServer.Action = class Action {
       loopProtectionEnabled: bool('loopProtectionEnabled'), durationMinutes: int('durationMinutes'), singleReply: bool('singleReply'),
       adminIDs: strings('adminIDs'), blockedIDs: strings('blockedIDs'), outreach: typed('outreach', QQOutreachConfig), reactions: typed('reactions', QQReactionConfig),
       agentLevels: optional('agentLevels', value => isDictionary(value) && Object.values(value).every(item => typeof item === 'string')),
-      quietHours: typed('quietHours', QQQuietHours)};
+      quietHours: typed('quietHours', QQQuietHours), note: string('note')};
   }
 };

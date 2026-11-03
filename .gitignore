@@ -17,3 +17,6 @@ stickers/work/
 .env.*
 *.key
 *.pem
+# Test scratch a repair run may leave in its worktree.
+test-temp/
+.repair-summary.txt

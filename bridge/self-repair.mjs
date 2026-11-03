@@ -39,14 +39,26 @@ export function isProgramError({kind,message='',stack=''}){
 
 export class SelfRepair{
   /** fixers: {codex(job, worktree), claude(job, worktree)} → resolves when the fixer is done; quiet(): whether the chats
-   *  are quiet enough to restart; restart(parts): restarts 'engine' and/or 'gateway'; ids(): real QQ numbers to keep out. */
-  constructor({runtime,root,fixers,quiet=()=>true,restart=async()=>{},ids=async()=>[],workRoot='D:\\Dev\\Workspaces\\dafeiyu-repairs',push=true}){
-    Object.assign(this,{runtime,root,fixers,quiet,restart,ids,workRoot,push});
+   *  are quiet enough to restart; restart(parts): restarts 'engine' and/or 'gateway'; ids(): real QQ numbers to keep out;
+   *  announce(repair): tells the chat the error came from that the fix now runs. */
+  constructor({runtime,root,fixers,quiet=()=>true,restart=async()=>{},ids=async()=>[],announce=async()=>{},workRoot='D:\\Dev\\Workspaces\\dafeiyu-repairs',push=true}){
+    Object.assign(this,{runtime,root,fixers,quiet,restart,ids,announce,workRoot,push});
     this.file=path.join(runtime,'repairs.json');this.value={repairs:[]};this.busy=false;this.waitingRestart=new Set();this.lastRestart=0;
   }
   async load(){try{this.value=JSON.parse(await fs.readFile(this.file,'utf8'));}catch{}if(!Array.isArray(this.value.repairs))this.value.repairs=[];
     for(const r of this.value.repairs)if(['queued','fixing','testing'].includes(r.status)){r.status='queued';}
+    // A gateway that just started runs main as it is now, and starts a fresh engine: every merged fix is live.
+    for(const r of this.value.repairs)if(r.awaitingLive)await this.live(r);
     setTimeout(()=>this.next(),5000);return this;}
+  /** A merged fix now runs: recorded, and the chat it came from is told so the agent can redo what failed there
+   *  (11-03: "他这修了也不实际用上"). The telling waits for the engine in the background. */
+  async live(repair){
+    delete repair.awaitingLive;await this.set(repair,{liveAt:new Date().toISOString()});
+    if(!repair.context?.chatKey)return;
+    Promise.resolve().then(()=>this.announce(repair))
+      .then(()=>this.set(repair,{retold:true}),error=>this.set(repair,{retoldNote:'没能告诉原会话：'+String(error?.message||error).slice(0,200)}))
+      .catch(()=>{});
+  }
   async persist(){this.value.repairs=this.value.repairs.slice(-KEEP);await fs.writeFile(this.file+'.tmp',JSON.stringify(this.value,null,1));await fs.rename(this.file+'.tmp',this.file);}
   view(){return {repairs:[...this.value.repairs].reverse().map(({log,...r})=>({...r,log:String(log||'').slice(-3000)})),busy:this.busy};}
 
@@ -115,8 +127,11 @@ export class SelfRepair{
       if(merged.code!==0){await git(this.root,'merge','--abort');await this.set(repair,{status:'ready',note:'合并有冲突，修复留在分支 '+branch});return;}
       await this.set(repair,{status:'applied'});
       if(this.push){const pushed=await git(this.root,'push','-q','origin','HEAD:main');await this.set(repair,{status:pushed.code===0?'pushed':'applied',pushNote:pushed.code===0?'':pushed.err.slice(-300)});}
-      const parts=new Set(changed.flatMap(f=>f.startsWith('engine')?['engine']:f.startsWith('bridge')?['gateway']:[]));
-      if(parts.size){for(const p of parts)this.waitingRestart.add(p);this.restartWhenQuiet();}
+      // Console pages and tests are read fresh, so the fix runs now; engine and gateway code after their restart.
+      const parts=[...new Set(changed.flatMap(f=>f.startsWith('engine')?['engine']:f.startsWith('bridge')?['gateway']:[]))];
+      if(!parts.length){await this.live(repair);return;}
+      await this.set(repair,{awaitingLive:parts});
+      for(const p of parts)this.waitingRestart.add(p);this.restartWhenQuiet();
     }finally{
       await run('cmd.exe',['/c','rmdir',path.join(worktree,'node_modules')]);
       await git(this.root,'worktree','remove','--force',worktree);
@@ -130,6 +145,9 @@ export class SelfRepair{
       if(!(await this.quiet(QUIET_MS))||Date.now()-this.lastRestart<RESTART_GAP_MS){this.restartWhenQuiet();return;}
       const parts=[...this.waitingRestart];this.waitingRestart.clear();this.lastRestart=Date.now();
       await this.restart(parts);
+      // A gateway restart ends this process; the new one's load() takes it from there.
+      if(parts.includes('gateway'))return;
+      for(const r of this.value.repairs)if(r.awaitingLive?.every(p=>parts.includes(p)))await this.live(r);
     },60_000);
   }
 }
@@ -142,7 +160,9 @@ export function fixPrompt(repair,{console:forConsole=false}={}){
     repair.context&&Object.keys(repair.context).length?'Context: '+JSON.stringify(repair.context).slice(0,1500):'',
     repair.log?'Recent log lines:\n'+repair.log:'',
     'Find the root cause and fix it in the code (not by adding refusals, limits or prompt rules). Add a regression test under tests/ that fails without the fix. Run `node scripts/test.mjs` and make it pass. Keep the code style of the files you touch, English comments that say why.',
+    'You run without a sandbox: start node, the tests, git and any other command you need, and reproduce the error before fixing it.'+
+      (repair.logs?` The live bot's logs are in ${repair.logs}; read them when the lines above are not enough.`:''),
     forConsole?'The fix touches the web console (console/*): redo it in the console\'s existing design — reuse its CSS tokens, components, spacing and wording; no inline styles or scripts (strict CSP), no browser dialogs, Chinese UI text.':'Do not change console/* (the web console); if the right fix needs the console, describe what it needs in your final message instead.',
-    'Never read or change .runtime/, credentials or tokens. Do not commit, push, restart anything or touch other worktrees. End with a short summary of the cause and the fix.'
+    'Do not change the live bot\'s .runtime/ data or print credentials. Do not commit, push, restart anything or touch other worktrees. End with a short summary of the cause and the fix.'
   ].filter(Boolean).join('\n\n');
 }

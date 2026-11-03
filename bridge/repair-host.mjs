@@ -19,21 +19,22 @@ const tail=async(file,lines=60)=>(await fs.readFile(file,'utf8').catch(()=>'')).
 /** Codex for program code, Claude Code (Opus) for anything in the web console. */
 export function makeFixers({config,runtime}){
   return {
-    // Program code: Codex with the Astra model, allowed to edit and run tests inside the worktree only.
+    // Program code: Codex with the Astra model, without a sandbox or approvals (11-03: "他这修了…还没权限测试" —
+    // the workspace-write sandbox stopped it starting the tests' child processes and git). The gateway still tests,
+    // checks and commits what it changed.
     async codex(repair,worktree){
       const out=path.join(worktree,'.repair-summary.txt');
       const result=await run(config.codex,['exec','--skip-git-repo-check','--ephemeral','--model',writerModel,'-c','model_reasoning_effort="high"',
-        '-s','workspace-write','-c','approval_policy="never"','-C',worktree,'-o',out,'-'],
-        {cwd:worktree,input:fixPrompt({...repair,log:await tail(path.join(runtime,'logs',repair.source==='gateway'?'gateway.log':'engine.log'))}),timeout:40*60_000});
+        '--dangerously-bypass-approvals-and-sandbox','-C',worktree,'-o',out,'-'],
+        {cwd:worktree,input:fixPrompt({...repair,logs:path.join(runtime,'logs'),log:await tail(path.join(runtime,'logs',repair.source==='gateway'?'gateway.log':'engine.log'))}),timeout:40*60_000});
       const summary=await fs.readFile(out,'utf8').catch(()=>'');await fs.rm(out,{force:true});
       if(result.code!==0&&!summary)throw new Error('Codex 没修完：'+result.err.trim().split('\n').pop());
       return {summary};
     },
     // Anything in the web console: Claude Code with Opus, told to keep the console's existing design.
     async claude(repair,worktree){
-      const result=await run(config.claude,['-p','--model','opus','--permission-mode','bypassPermissions','--output-format','text',
-        '--allowedTools','Read,Edit,Write,Glob,Grep,Bash'],
-        {cwd:worktree,input:fixPrompt(repair,{console:true}),timeout:40*60_000});
+      const result=await run(config.claude,['-p','--model','opus','--permission-mode','bypassPermissions','--output-format','text'],
+        {cwd:worktree,input:fixPrompt({...repair,logs:path.join(runtime,'logs')},{console:true}),timeout:40*60_000});
       if(result.code!==0)throw new Error('Claude Code 没修完：'+result.err.trim().split('\n').pop());
       return {summary:result.out.trim().slice(-2000)};
     }
@@ -68,5 +69,17 @@ export async function startSelfRepair({root,runtime,config,host}){
       return [...found].filter(x=>x.length>=5);
     }catch{return [];}
   };
-  return new SelfRepair({runtime,root,fixers,quiet,restart,ids}).load();
+  // Once a fix runs, the chat it came from hears about it (when the engine is connected and replying again), so
+  // whatever failed there can be done again (11-03: "他这修了也不实际用上").
+  const announce=async repair=>{
+    for(let i=0;i<60;i++){
+      try{const status=await host.panelCall();if(status.connected&&status.running)break;}catch{}
+      await new Promise(resolve=>setTimeout(resolve,5000));
+    }
+    const first=text=>String(text||'').split(/\n|。/)[0].trim();
+    const note=`程序修好了：之前在这里出的错「${first(repair.message).slice(0,80)}」已经修复并生效`+(first(repair.summary)?`（${first(repair.summary).slice(0,160)}）`:'')+
+      '。要是当时有人在等结果（没画出来的图、没查到的东西、没发出去的文件），现在重新做一遍给他；没人在等就不用出声。';
+    await host.panelCall('repaired',{target:repair.context.chatKey,note});
+  };
+  return new SelfRepair({runtime,root,fixers,quiet,restart,ids,announce}).load();
 }

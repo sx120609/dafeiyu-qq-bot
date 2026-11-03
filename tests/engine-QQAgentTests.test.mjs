@@ -111,6 +111,8 @@ test('aReactionToItsMessageGetsAnAnswer', async () => {
   const r = await rig((purpose, messages) => {
     if (purpose !== 'director') return {content: '不用'};
     const input = opening(messages);
+    if (input.includes('程序修好了')) return results(messages).length === 0 ? call('send_message', {text: '修好了，重画'}) : {content: '重画了'};
+    if (input.includes('贴了 👍')) return results(messages).length === 0 ? call('send_message', {text: '又来一个'}) : {content: '又回应了'};
     // It answers on its own message too (11-02: that used to be refused as "参数不对").
     if (input.includes('贴了 😍')) {
       switch (results(messages).length) {
@@ -137,6 +139,16 @@ test('aReactionToItsMessageGetsAnAnswer', async () => {
     assert.ok(engine.agentTurns.at(-1).batch[0]?.startsWith('[表情]'));
     assert.deepEqual(r.fixture.segments().at(-1), ['text:被夸了，得意']);
     assert.ok(JSON.stringify(r.fixture.reactions).includes('"99"'));
+    // A second reaction right after wakes it again (11-03: no more once per two minutes).
+    r.fixture.inject([{post_type: 'notice', notice_type: 'group_msg_emoji_like', self_id: 12345, group_id: 99999, user_id: 54321,
+      message_id: 99, is_add: true, likes: [{emoji_id: '128077', count: 1}], time: Date.now() / 1000}]);
+    await wait(() => engine.agentTurns.at(-1)?.note === '又回应了', 12);
+    assert.deepEqual(r.fixture.segments().at(-1), ['text:又来一个']);
+    // A fix for an error in this chat that now runs wakes it too, so it can redo what failed (11-03).
+    assert.equal(engine.agentRepaired('nowhere', '修好了'), false);
+    assert.equal(engine.agentRepaired(engine.config.targets[0].key, '程序修好了：画图'), true);
+    await wait(() => engine.agentTurns.at(-1)?.note === '重画了', 12);
+    assert.ok(engine.agentTurns.at(-1).batch.some(line => line.includes('[事件] 程序修好了')));
   } finally { await r.stop(); }
 });
 

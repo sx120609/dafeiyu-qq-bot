@@ -803,7 +803,8 @@ function renderRepairs(data){
   $('repairs-list').replaceChildren(...(list.length?list.slice(0,20).map(repairRow):[empty('还没有。程序出错时会自动出现在这里。')]));
 }
 function repairRow(r){
-  const [label,tone]=repairStates[r.status]||[r.status,''];
+  const merged=['applied','pushed'].includes(r.status);
+  const [label,tone]=merged&&r.liveAt?['已生效','ok']:repairStates[r.status]||[r.status,''];
   const c=r.context||{},where=c.tool||c.route||c.chatKey||r.source||'';
   const at=Date.parse(r.updatedAt||r.createdAt);
   const meta=[where,r.fixer?(fixerNames[r.fixer]||r.fixer)+' 修':'',r.seen>1?`出现 ${r.seen} 次`:'',at?shortDate(at/1000):''].filter(Boolean).join(' · ');
@@ -813,7 +814,8 @@ function repairRow(r){
     retry.onclick=async()=>{if(await confirmDialog({title:'再修一次？',message:`把「${r.message||'这次出错'}」重新排进修复队列。`,confirmText:'重试'}))busy(retry,async()=>{renderRepairs(await api('repairs',{retry:r.id}));toast('已重新排队');});};
     head.append(retry);
   }
-  const tail=[r.commit?'提交 '+String(r.commit).slice(0,8):'',r.status==='applied'?'已合并，重启后生效':'',r.note||'',r.pushNote||''].filter(Boolean).join(' · ');
+  const live=r.liveAt?'生效于 '+shortDate(Date.parse(r.liveAt)/1000)+(r.retold?'，已让原会话重做':''):merged?'群里安静后重启生效':'';
+  const tail=[r.commit?'提交 '+String(r.commit).slice(0,8):'',r.status==='pushed'?'已推送':'',live,r.note||'',r.pushNote||'',r.retoldNote||''].filter(Boolean).join(' · ');
   const more=[r.stack?'出错位置：\n'+r.stack:'',r.tests?'测试：\n'+r.tests:'',r.log?'过程：\n'+r.log:''].filter(Boolean).join('\n\n');
   return el('article',{className:'repair'},head,el('p',{className:'repair-meta'},meta),
     r.summary?el('p',{className:'repair-summary'},r.summary):null,
