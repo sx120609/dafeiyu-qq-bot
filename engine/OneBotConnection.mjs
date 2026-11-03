@@ -1,7 +1,7 @@
 // Port of OneBotConnection.swift.
 // One local, authenticated connection. A broken connection cancels all outstanding actions;
 // sends are never retried because a missing acknowledgement is an unknown outcome.
-import {AppFailure, uuid, prefix} from './swift.mjs';
+import {AppFailure, uuid} from './swift.mjs';
 import {LinuxOneBotTransport, CancellationError} from './LinuxOneBotTransport.mjs';
 
 /// NapCat answered and refused the action (muted, removed from the group, risk control…), so nothing was
@@ -61,7 +61,8 @@ export class OneBotConnection {
       } else {
         const wording = typeof object.wording === 'string' && object.wording ? object.wording : undefined;
         const detail = wording ?? (typeof object.message === 'string' ? object.message : '');
-        continuation.reject(new OneBotRejection({retcode: Number.isInteger(object.retcode) ? object.retcode : -1, detail: prefix(detail, 120)}));
+        // The actual QQ reason can follow a long adapter preamble; retain it for callers and logs.
+        continuation.reject(new OneBotRejection({retcode: Number.isInteger(object.retcode) ? object.retcode : -1, detail}));
       }
     } else this.event?.(object);
   }
