@@ -139,6 +139,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     const site=requestOrigin(req,auth);
     if(!site){send(403,{error:'远程访问控制台前，请先在本机打开控制台设置密码'});return;}
     const origin=site.origin;
+    // The bare address and /console open the console (11-03: through frp both answered with an error instead).
+    if(req.method==='GET'&&/^\/(console)?(\?.*)?$/.test(req.url)){res.writeHead(302,{Location:'/console/','Cache-Control':'no-store'});res.end();return;}
     // Through a tunnel only the console and the pages it embeds are reachable, and only with the password.
     if(!site.local&&!req.url.startsWith('/console')&&!integrations.handles(req.url)){send(403,{error:'这个地址只能在本机访问'});return;}
     if(integrations.handles(req.url)){await integrations.handle(req,res,origin);return;}

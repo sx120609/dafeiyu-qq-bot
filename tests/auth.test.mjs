@@ -47,6 +47,8 @@ test('console password: token-only setup, login, lockout, change signs out old s
       request.on('error',reject);request.end(body);
     });
     assert.equal((await via('/console/')).statusCode,200);
+    // The bare address and /console lead to the console (11-03: through frp they answered with an error).
+    for(const route of ['/','/console']){const r=await via(route);assert.equal(r.statusCode,302);assert.equal(r.headers.location,'/console/');}
     assert.equal((await via('/v1/models',{headers:{Authorization:'Bearer model-secret'}})).statusCode,403);
     assert.equal((await via('/console/api/autostart',{headers:{Authorization:'Bearer console-secret'}})).statusCode,401);
     const remoteLogin=await via('/console/api/auth/login',{method:'POST',headers:{Origin:remote,'Content-Type':'application/json'},body:JSON.stringify({password:'second-pass'})});
