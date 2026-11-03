@@ -1017,7 +1017,8 @@ export const agentMethods = {
     } catch (error) {
       if (!isCancellation(error)) {
         this.reportBug?.(error, {kind: 'tool', tool: plan.bubbles[0]?.case, target});
-        failure('后面的没发出去：' + prefix(describe(error), 40));
+        // A shortened error hid QQ's reason (2026-11-03: "send group message re"); the agent needs the full diagnosis.
+        failure('后面的没发出去：' + describe(error));
       }
     }
     this.noteAgent(target, done.length === 0 ? '想回但什么也没发出去' : done.join('，'), plan.note);
