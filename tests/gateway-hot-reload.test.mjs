@@ -71,3 +71,20 @@ test('SnowLuma\'s #sl status command is turned off for the bot account, once', a
     assert.equal(await quietLumaStatus(host, {tries: 1}), 'off');
   } finally { server.closeAllConnections(); await new Promise(r => server.close(r)); }
 });
+
+test('only files whose content changed count: reading a file fires the watcher on Windows too', async () => {
+  const reload = new Reloader({config: {}, configFile: path.join(os.tmpdir(), 'x.json'), hot: null, host: null});
+  const file = 'tests/hot-reload-probe.tmp.mjs', full = path.join(import.meta.dirname, '..', file);
+  await fs.writeFile(full, 'export const a = 1;\n');
+  try {
+    reload.since = Date.now() - 60_000;
+    assert.deepEqual(reload.changed([file]), [file], 'written since the watch began');
+    await fs.readFile(full);
+    assert.deepEqual(reload.changed([file]), [], 'only read');
+    await new Promise(r => setTimeout(r, 20));
+    await fs.writeFile(full, 'export const a = 22;\n');
+    assert.deepEqual(reload.changed([file]), [file], 'written again');
+    reload.seen.clear(); reload.since = Date.now() + 60_000;
+    assert.deepEqual(reload.changed([file]), [], 'a file first seen and not written since the watch began');
+  } finally { await fs.rm(full, {force: true}); }
+});

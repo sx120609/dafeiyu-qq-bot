@@ -25,7 +25,7 @@ import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 import {partOf} from './self-repair.mjs';
 import {claudeSessions} from './claude-session.mjs';
 import {HotReload} from '../engine/HotReload.mjs';
-import {watch} from 'node:fs';
+import {watch,statSync} from 'node:fs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
@@ -479,6 +479,8 @@ export async function composeGateway(config,configFile,{host,auth,reload},previo
     computer:await new ComputerControl({runtime}).load(),
     agentTools:await new AgentTools({runtime}).load()};
   // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
+  // The Reloader was made by the first generation; it runs this generation's code too (its watcher calls apply()).
+  if(reload)Object.setPrototypeOf(reload,Reloader.prototype);
   state.agentTools.rewire({qq:host?(action,params)=>host.qqCall(action,params):null,writer:(request,options)=>writeToolCode(request,config,options)});
   // On Windows the bot also repairs its own program errors (repair-host.mjs).
   state.repair=host?await startSelfRepair({root,runtime,config,host,reload,existing:state.repair}):null;
@@ -511,7 +513,7 @@ export async function startGateway(config,configFile,hot){
 /** Hot reload of the gateway (a new generation of bridge/ in this process) and of the engine (its own reload, between
  *  turns, without reconnecting QQ). Changed files reload by themselves; self-repair and the console ask for it too. */
 export class Reloader{
-  constructor({config,configFile,hot,host}){Object.assign(this,{config,configFile,hot,host});this.status={gateway:{generation:0},engine:{}};this.queue=Promise.resolve();}
+  constructor({config,configFile,hot,host}){Object.assign(this,{config,configFile,hot,host});this.status={gateway:{generation:0},engine:{}};this.queue=Promise.resolve();this.since=Date.now();}
   /** One at a time, in the order asked. */
   run(task){const next=this.queue.then(task,task);this.queue=next.catch(()=>{});return next;}
   gateway(){return this.run(async()=>{
@@ -554,7 +556,19 @@ export class Reloader{
     }
   });}
   /** What a set of changed files needs: hot reloads, or a restart for the fixed files. */
+  /** The files whose content really changed. On Windows reading a file fires the watcher too (its access time
+   *  changes): 11-03 15:21 a script that only read the code reloaded the gateway twice and restarted the engine. */
+  changed(files){
+    this.seen??=new Map();this.since??=Date.now();
+    return files.filter(file=>{
+      let stat;try{stat=statSync(path.join(root,file));}catch{return true;}
+      const now=`${stat.mtimeMs}:${stat.size}`,before=this.seen.get(file);this.seen.set(file,now);
+      return before===undefined?stat.mtimeMs>this.since:before!==now;
+    });
+  }
   async apply(files){
+    files=this.changed(files);
+    if(!files.length)return [];
     const parts=new Set(files.map(partOf).filter(Boolean)),done=[];
     if(parts.has('gateway'))done.push(await this.gateway().then(()=>'网关',()=>null));
     if(parts.has('engine-process')&&this.host){await this.host.restart();done.push('引擎（重启进程）');}
