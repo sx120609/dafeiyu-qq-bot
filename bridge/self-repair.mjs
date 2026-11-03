@@ -143,6 +143,14 @@ export class SelfRepair{
       // Console pages and tests are read fresh, so the fix runs now. Gateway and engine code reloads in place right
       // away (the engine waits for its turns to end); only the fixed files wait for quiet chats and a restart.
       const parts=[...new Set(changed.map(partOf).filter(Boolean))];
+      // A new dependency: installed in the main checkout (the worktree had its own), and the processes that use it
+      // start again, since a running one keeps thinking the package is missing (11-03, xlsx for .xls files).
+      if(changed.some(file=>/^package(-lock)?\.json$/.test(file))){
+        const installed=await run('cmd.exe',['/c','npm','install','--no-audit','--no-fund'],{cwd:this.root,timeout:10*60_000});
+        if(installed.code!==0)await this.set(repair,{note:'依赖没装上，要手动在主目录跑 npm install：'+(installed.err||installed.out).trim().split('\n').pop().slice(0,200)});
+        if(parts.includes('engine'))parts.splice(parts.indexOf('engine'),1,'engine-process');
+        if(parts.includes('gateway'))parts.splice(parts.indexOf('gateway'),1,'shell');
+      }
       if(!parts.length){await this.live(repair);return;}
       await this.set(repair,{awaitingLive:parts});
       if(parts.every(part=>hotParts.has(part))){

@@ -280,6 +280,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     // Hot reload by hand: the gateway, the engine or both (the files reload by themselves when they change).
     if(req.url==='/console/api/reload'){
       if(!reload){send(404,{error:'没开热加载'});return;}
+      // engine-process: a new engine process (QQ stays signed in through SnowLuma) — for a new dependency, which a
+      // running process cannot pick up (Node caches that a package was missing).
+      if(data.part==='engine-process'){if(!host){send(404,{error:'引擎不归这个网关管'});return;}try{await host.restart();send(200,reload.status);}catch(e){fail(e);}return;}
       const parts=data.part==='gateway'?['gateway']:data.part==='engine'?['engine']:['gateway','engine'];
       try{for(const part of parts)await reload[part]();send(200,reload.status);}catch(e){send(500,{error:e.message,...reload.status});}return;
     }
