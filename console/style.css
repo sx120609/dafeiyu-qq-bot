@@ -48,6 +48,9 @@ code{padding:1px 5px;border-radius:4px;background:var(--fill);color:var(--ink)}
 .sprite{display:none}
 svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Touch: no double-tap zoom anywhere, also inside scrolling tables (pinch is stopped by the viewport meta and app.js) */
+*,*::before,*::after{touch-action:manipulation}
+html{-webkit-text-size-adjust:100%}
 ::selection{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 
 /* Disclosure: one chevron for every <details> */
@@ -173,6 +176,8 @@ input[type=file]::file-selector-button:hover{background:var(--fill)}
 .nav a[aria-current=page]{background:var(--panel);font-weight:600;box-shadow:0 0 0 1px var(--line),0 1px 2px rgb(0 0 0 / .04)}
 .nav a[aria-current=page] svg{color:var(--accent-text);stroke-width:1.9}
 .nav-foot{border:none;background:none;font:inherit;color:var(--ink-2);cursor:pointer;width:100%;margin-top:8px}
+/* The menu button and the dimmed backdrop exist only for the phone drawer */
+.nav-toggle,.nav-scrim{display:none}
 .shell>.main{display:flex;flex-direction:column;min-width:0;height:100%;overflow-y:auto;scrollbar-gutter:stable}
 .topbar{position:sticky;top:0;z-index:5;border-bottom:1px solid transparent;transition:border-color .15s;
   background:color-mix(in srgb,var(--canvas) 86%,transparent);backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3)}
@@ -460,30 +465,159 @@ input[type=file]::file-selector-button:hover{background:var(--fill)}
 @media (max-width:900px){
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-@media (max-width:760px){
-  .shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
-  .sidebar{flex-direction:row;align-items:center;gap:2px;padding:8px 12px;border-right:none;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
-  .brand{padding:0 8px 0 0}.brand>div{display:none}.brand img{width:28px;height:28px}
-  .nav{flex-direction:row;flex:none;gap:2px}
-  .nav-group{display:none}
-  .nav a,.nav-foot{white-space:nowrap;height:30px;padding:0 10px;margin:0}
-  .nav a svg,.nav-foot svg{display:none}
-  .nav-foot{width:auto}
-  .topbar-inner,.shell[data-width=full] .topbar-inner{padding:12px 16px 10px;align-items:flex-start}
-  .page{padding:4px 16px 32px}
+/* Phones, upright or sideways: one column; the sidebar becomes a drawer behind the menu button; the page scrolls
+   as a whole so the browser bars can collapse; controls are at least 40 px to tap and form text is 16 px so iOS
+   does not zoom in on focus. Wide windows are not affected by anything in here. */
+@media (max-width:760px),(hover:none) and (pointer:coarse) and (max-height:520px){
+  html,body{height:auto}
+  html{overscroll-behavior-x:none}
+  html.nav-locked{overflow:hidden}
+  body{min-height:100vh;min-height:100dvh;overflow-x:clip}
+  .boot{height:100vh;height:100dvh}
+  .login{min-height:100vh;min-height:100dvh;padding:calc(24px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+  .login-card{padding:24px 18px 20px}
+  .login-card .btn{height:44px}
+
+  /* Shell */
+  .shell{display:block;height:auto}
+  .shell>.main{height:auto;min-height:100vh;min-height:100dvh;overflow:visible;scrollbar-gutter:auto}
+  .sidebar{position:fixed;z-index:20;top:0;bottom:0;left:0;width:min(280px,84vw);
+    padding:calc(16px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));
+    box-shadow:var(--pop);overflow-y:auto;overscroll-behavior:contain;
+    transform:translateX(-105%);visibility:hidden;transition:transform .22s ease,visibility 0s linear .22s}
+  .shell.nav-open .sidebar{transform:none;visibility:visible;transition:transform .22s ease}
+  .nav-scrim{display:block;position:fixed;z-index:19;inset:0;width:100%;padding:0;border:none;background:rgb(0 0 0 / .32);opacity:0;pointer-events:none;transition:opacity .2s;cursor:default}
+  .shell.nav-open .nav-scrim{opacity:1;pointer-events:auto}
+  .brand{padding:0 6px 12px}
+  .brand img{width:34px;height:34px}
+  .nav-group{margin:14px 10px 4px}
+  .nav a,.nav-foot{height:42px;padding:0 10px;gap:11px;border-radius:8px;font-size:14px}
+  .nav a svg,.nav-foot svg{width:18px;height:18px}
+
+  /* Title row: menu · title · page buttons, the line under the title below them */
+  .topbar-inner,.shell[data-width=full] .topbar-inner{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"menu title actions" ". sub sub";align-items:center;gap:0 6px;
+    padding:calc(6px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 8px max(6px,env(safe-area-inset-left))}
+  .topbar-title{display:contents}
+  .topbar-title h1{grid-area:title;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar p{grid-area:sub;margin-top:0;overflow-wrap:anywhere}
+  .nav-toggle{grid-area:menu;display:grid;place-items:center;position:relative;width:40px;height:40px;padding:0;border:none;border-radius:8px;background:none;color:var(--ink);cursor:pointer}
+  .nav-toggle:active{background:var(--hover)}
+  .nav-toggle svg{width:20px;height:20px}
+  .nav-toggle[data-tone=bad]::after,.nav-toggle[data-tone=warn]::after{content:"";position:absolute;top:8px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--bad);box-shadow:0 0 0 2px var(--canvas)}
+  .nav-toggle[data-tone=warn]::after{background:var(--warn)}
+  .page-actions{grid-area:actions;gap:2px}
+
+  /* Page and cards */
+  .page{padding:4px max(12px,env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));gap:12px;overflow-wrap:anywhere}
+  .page.embed-luma{padding:4px max(12px,env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
   .masonry{columns:1}
-  .page.embed-luma{padding:4px 12px 12px}
+  .masonry>*{margin-bottom:12px}
+  .grid-2,.grid-2.wide-left,.col{gap:12px}
   .card{padding:14px}
-  .hero{flex-direction:column;align-items:stretch}
+  .card-head{flex-wrap:wrap;row-gap:4px}
+  .section-head{gap:12px}
+  .hero{flex-direction:column;align-items:stretch;gap:14px;padding:14px}
+  .hero .btn{height:40px}
+  .stat{padding:10px 12px 11px}
+  .stat strong,.stat strong.mono{font-size:18px;line-height:26px}
   .fields,.fields.four{grid-template-columns:minmax(0,1fr)}
-  .records li,#ov-decisions li{grid-template-columns:40px minmax(0,1fr)}
+  .tool-list{grid-template-columns:minmax(0,1fr)}
+  .ability{scroll-margin-top:96px}
+  .catalog-list{max-height:60vh}
+  .inline-form .field{width:100%}
+  .inline-form>span{padding-bottom:0}
+  .chip-add input{max-width:none}
+  .filters{flex:1 1 100%}
+  .filters select{flex:1 1 0;min-width:0;max-width:none}
+  .toolbar{gap:8px}
+
+  /* Controls: 16 px text in fields, 40 px to tap */
+  input:not([type=checkbox]):not([type=file]),select,textarea,textarea.mono{font-size:16px}
+  input:not([type=checkbox]):not([type=file]),select{height:40px}
+  .filters select,.emoji-item select{height:36px;font-size:16px}
+  input[type=checkbox]:not(.switch){width:20px;height:20px}
+  input[type=file]::file-selector-button{height:36px}
+  .btn{height:40px;padding:0 14px}
+  .btn.small{position:relative;height:34px;padding:0 11px}
+  .btn.small::before{content:"";position:absolute;inset:-4px -2px}
+  .segmented{border-radius:8px}
+  .segmented button{height:36px;padding:0 13px;border-radius:6px}
+  .segmented.compact button{height:30px;padding:0 10px}
+  .switch{width:42px;height:25px}
+  .switch::after{width:21px;height:21px}
+  .switch:checked::after{transform:translateX(17px)}
+  .switch::before{content:"";position:absolute;inset:-8px -6px}
+  .switch-row,.check-item,.field.check,.inline-check{min-height:40px}
+  .explain>summary,.chart-table>summary,.turn-errands>summary{min-height:36px}
+  .memory-item>summary{min-height:36px}
+  .chip-link{height:36px;padding:0 12px}
+  .chip{height:34px;padding:0 2px 0 10px}
+  .chip button{position:relative;width:30px;height:30px}
+  .chip button::before{content:"";position:absolute;inset:-5px}
+  .chip-add .btn,.inline-add .btn{height:40px}
+  .chats-table input.chat-enabled{width:24px;height:24px}
+  .model-item{padding:10px 12px}
+
+  /* Lists */
+  .records li,#ov-decisions li{grid-template-columns:40px minmax(0,1fr);gap:2px 10px}
   .records .who{display:none}
+  #ov-decisions .who{display:block;grid-column:2}
+  #ov-decisions .what{grid-column:2}
+  .turn-head{flex-wrap:wrap;row-gap:2px}
   .route-row{grid-template-columns:minmax(0,1fr);gap:6px}
   .row-actions{white-space:normal}
-  .inline-form .field{width:100%}
-  .chip-add input{max-width:none}
-  .toast{left:16px;right:16px;bottom:16px;max-width:none}
-  .stat strong{font-size:18px;line-height:26px}
+
+  /* Tables of figures scroll sideways inside their card, edge to edge, with a shade on the side that has more */
+  .table th,.table td{padding-right:12px}
+  .table td.clip{max-width:150px}
+  .table-wrap{margin:0 -14px;padding:0 14px;scrollbar-width:none;overscroll-behavior-x:contain;
+    background:linear-gradient(to right,var(--panel) 40%,transparent),linear-gradient(to left,var(--panel) 40%,transparent),
+      radial-gradient(farthest-side at 0 50%,color-mix(in srgb,var(--ink) 16%,transparent),transparent),
+      radial-gradient(farthest-side at 100% 50%,color-mix(in srgb,var(--ink) 16%,transparent),transparent);
+    background-position:left center,right center,left center,right center;background-repeat:no-repeat;
+    background-size:28px 100%,28px 100%,12px 100%,12px 100%;background-attachment:local,local,scroll,scroll}
+  .table-wrap::-webkit-scrollbar{display:none}
+
+  /* Tables of things become one block per row */
+  .chats-table,.chats-table tbody,.tools-table,.tools-table tbody,.commands-table,.commands-table tbody{display:block}
+  .chats-table thead,.tools-table thead,.commands-table thead{display:none}
+  .chats-table tr,.tools-table tr,.commands-table tr{display:grid;padding:11px 0;border-top:1px solid var(--line)}
+  .chats-table tr:first-child,.tools-table tr:first-child,.commands-table tr:first-child{border-top:none;padding-top:2px}
+  .chats-table td,.tools-table td,.commands-table td{display:block;width:auto;min-width:0;padding:0;border:none;white-space:normal}
+  .chats-table tr{grid-template-columns:28px minmax(0,1fr) minmax(0,1fr);gap:8px 10px;align-items:center}
+  .chats-table td:first-child{width:auto}
+  .chats-table td:nth-child(2){grid-column:2/-1}
+  .chats-table td:nth-child(3){grid-column:2}
+  .chats-table td:nth-child(4){grid-column:3}
+  .chats-table td.row-actions{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:6px;text-align:left}
+  .chats-table td.empty{grid-column:1/-1}
+  .chats-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:3px;color:var(--ink-3);font-size:12px}
+  .chats-table select{width:100%;min-width:0;max-width:none;height:40px}
+  .tools-table tr{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px}
+  .tools-table td:first-child{grid-column:1;padding-top:0}
+  .tools-table td:last-child{grid-column:2;grid-row:1;padding-top:0}
+  .tools-table td.wrap{grid-column:1/-1;min-width:0;padding:0}
+  .tools-table td.empty{grid-column:1/-1;grid-row:auto}
+  .commands-table tr{grid-template-columns:minmax(0,1fr);gap:3px}
+  .commands-table td:last-child{color:var(--ink-3);font-size:12px}
+  .commands-table td:last-child::before{content:"谁能用："}
+
+  /* QQ 登录 */
+  .luma{min-height:0}
+  .luma-bar{gap:8px 12px;padding:10px 12px}
+  #frame-luma{min-height:70vh;min-height:70dvh}
+  .page.embed iframe{min-height:calc(100vh - 80px);min-height:calc(100dvh - 80px)}
+
+  /* Overlays keep clear of the notch and the home indicator */
+  .dialog{width:calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right));max-width:420px;max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+  .dialog-body{padding:18px 16px 14px}
+  .dialog-body .actions .btn{flex:1}
+  .toast{left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));max-width:none;overflow-wrap:anywhere}
+  .save-bar{bottom:calc(12px + env(safe-area-inset-bottom));padding:6px 6px 6px 14px}
+}
+/* Any touch screen, tablets too: iOS zooms into fields whose text is under 16 px */
+@media (hover:none) and (pointer:coarse){
+  input:not([type=checkbox]):not([type=file]),select,textarea,textarea.mono{font-size:16px}
 }
 @container (max-width:620px){
   .fields.four{grid-template-columns:repeat(2,minmax(0,1fr))}

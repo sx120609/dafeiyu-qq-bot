@@ -73,6 +73,8 @@ const el=(tag,props={},...children)=>{
 };
 const icon=name=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');const use=document.createElementNS('http://www.w3.org/2000/svg','use');use.setAttribute('href','#i-'+name);svg.append(use);return svg;};
 const empty=text=>el('p',{className:'empty'},text);
+// A table cell that carries its column name: on phones the header row is hidden and the name shows above the value.
+const labelled=(label,...children)=>{const cell=el('td',{},...children);cell.dataset.label=label;return cell;};
 
 /* In-page dialogs in place of the browser's confirm / alert / prompt. They queue, one at a time;
    Esc or the backdrop cancels, Enter confirms, focus stays inside and goes back where it was. */
@@ -161,7 +163,7 @@ function route(){
   for(const link of $$('.nav a'))link.dataset.page===page?link.setAttribute('aria-current','page'):link.removeAttribute('aria-current');
   $('page-title').textContent=pages[page][0];$('page-sub').textContent=pages[page][1];
   renderPageActions();
-  $('app').querySelector('.main').scrollTop=0;$('app').querySelector('.topbar').classList.remove('scrolled');
+  $('app').querySelector('.main').scrollTop=0;window.scrollTo(0,0);$('app').querySelector('.topbar').classList.remove('scrolled');
   const enter={overview:refreshOverview,activity:enterActivity,usage:enterUsage,chats:enterChats,persona:enterPersona,abilities:enterAbilities,
     tools:enterTools,rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:enterQQ,settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
@@ -197,8 +199,28 @@ function schedulePolling(){
     schedulePolling();
   },['overview','activity'].includes(current)?5000:20000);
 }
-// A hairline under the title row once the page scrolls beneath it.
-$('app').querySelector('.main').addEventListener('scroll',event=>$('app').querySelector('.topbar').classList.toggle('scrolled',event.currentTarget.scrollTop>4),{passive:true});
+// A hairline under the title row once the page scrolls beneath it: the main column scrolls in wide windows, the whole page on phones.
+const markScrolled=()=>$('app').querySelector('.topbar').classList.toggle('scrolled',Math.max($('app').querySelector('.main').scrollTop,document.scrollingElement.scrollTop)>4);
+$('app').querySelector('.main').addEventListener('scroll',markScrolled,{passive:true});
+window.addEventListener('scroll',markScrolled,{passive:true});
+
+/* Phones: the sidebar is a drawer opened from the menu button in the title row; picking a page closes it. */
+const phone=matchMedia('(max-width:760px),(hover:none) and (pointer:coarse) and (max-height:520px)');
+function setNav(open){
+  $('app').classList.toggle('nav-open',open);document.documentElement.classList.toggle('nav-locked',open);
+  $('nav-toggle').setAttribute('aria-expanded',String(open));$('nav-toggle').setAttribute('aria-label',open?'关闭导航':'打开导航');
+  if(open)($('sidebar').querySelector('.nav a[aria-current=page]')||$('sidebar').querySelector('.nav a'))?.focus({preventScroll:true});
+}
+$('nav-toggle').onclick=()=>setNav(!$('app').classList.contains('nav-open'));
+$('nav-scrim').onclick=()=>setNav(false);
+$('sidebar').addEventListener('click',event=>{if(event.target.closest('a,button'))setNav(false);});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('app').classList.contains('nav-open')){setNav(false);$('nav-toggle').focus();}});
+phone.addEventListener('change',()=>{if(!phone.matches)setNav(false);});
+
+/* Phones: no zooming. The viewport meta stops pinch on Android; iOS Safari ignores it, so cancel its pinch gestures here.
+   Double-tap zoom is off through touch-action in the stylesheet. */
+for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,event=>event.preventDefault(),{passive:false});
+document.addEventListener('touchmove',event=>{if(event.touches.length>1)event.preventDefault();},{passive:false});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!$('app').hidden&&current==='overview')refreshOverview().catch(()=>{});});
 
 /* Overview */
@@ -216,7 +238,9 @@ function botState(o){
   return {tone:'idle',label:'已暂停回复',sub:`QQ ${b.account} 已连接 · ${scope}`};
 }
 async function refreshBrand(){overview=await api('overview');renderBrand();}
-function renderBrand(){const state=botState(overview);$('brand-status').replaceChildren(el('i',{className:'dot '+state.tone}),el('span',{},state.label));}
+function renderBrand(){const state=botState(overview);$('brand-status').replaceChildren(el('i',{className:'dot '+state.tone}),el('span',{},state.label));
+  // On phones the sidebar is hidden: a dot on the menu button says when something needs a look.
+  $('nav-toggle').dataset.tone=state.tone;$('nav-toggle').title=state.label;}
 async function refreshOverview(){
   overview=await api('overview');renderBrand();
   const o=overview,b=o.bot||{},state=botState(o);
@@ -502,7 +526,7 @@ function renderChats(){
     reset.onclick=async()=>{if(await confirmDialog({title:`清空「${t.name}」的上下文和长期记忆？`,message:'其他会话不受影响，机器人不会暂停。',confirmText:'清空',danger:true}))busy(reset,async()=>{await engineAction('resetMemory',{target:t.key});toast('已清空');});};
     const remove=el('button',{type:'button',className:'btn small ghost danger'},'移除');
     remove.onclick=async()=>{if(await confirmDialog({title:`把「${t.name}」移出名单？`,message:'之后不再在这里说话，可以随时加回来。',confirmText:'移出',danger:true}))busy(remove,async()=>{await engineAction('remove',{target:t.key});await enterChats();toast('已移除');});};
-    return el('tr',{},el('td',{},enabled),el('td',{},el('strong',{},chatLabelOf(t)),el('small',{className:'muted block'},t.number)),el('td',{},level),el('td',{},style),el('td',{className:'row-actions'},reset,remove));
+    return el('tr',{},el('td',{},enabled),el('td',{},el('strong',{},chatLabelOf(t)),el('small',{className:'muted block'},t.number)),labelled('权限',level),labelled('性格',style),el('td',{className:'row-actions'},reset,remove));
   }):[el('tr',{},el('td',{colSpan:5,className:'empty'},'名单是空的，从下面添加。'))]));
   chatsSnapshot=chatValues();chatsDirty=false;
   renderContacts();

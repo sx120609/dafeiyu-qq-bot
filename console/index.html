@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
 <meta name="color-scheme" content="light dark">
 <title>大肥鱼控制台</title>
 <link rel="icon" href="/console/avatar.png">
@@ -26,6 +27,7 @@
   <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4M10 8l-4 4 4 4M6 12h9"/></symbol>
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.4L20 16M20 20v-4h-4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
 </svg>
 
@@ -44,7 +46,7 @@
 </section>
 
 <div id="app" class="shell" hidden>
-  <aside class="sidebar">
+  <aside id="sidebar" class="sidebar">
     <div class="brand">
       <img src="/console/avatar.png" alt="" width="32" height="32">
       <div><strong>大肥鱼</strong><span id="brand-status" class="brand-status"><i class="dot"></i><span>读取中</span></span></div>
@@ -69,10 +71,13 @@
     </nav>
     <button id="logout" class="nav-foot" type="button"><svg><use href="#i-out"/></svg>退出登录</button>
   </aside>
+  <!-- Phones: the sidebar is a drawer; this dims the page behind it and closes it when tapped -->
+  <button id="nav-scrim" class="nav-scrim" type="button" tabindex="-1" aria-label="关闭导航"></button>
 
   <main class="main">
     <header class="topbar">
       <div class="topbar-inner">
+        <button id="nav-toggle" class="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="打开导航"><svg><use href="#i-menu"/></svg></button>
         <div class="topbar-title"><h1 id="page-title">总览</h1><p id="page-sub"></p></div>
         <div id="page-actions" class="page-actions"></div>
       </div>
@@ -569,7 +574,7 @@
       </div>
       <div class="card">
         <div class="card-head"><h3>聊天命令</h3><span class="muted small">代理看懂后去做，也可以直接用话说；谁能做由程序核对</span></div>
-        <div class="table-wrap"><table class="table">
+        <div class="table-wrap"><table class="table commands-table">
           <thead><tr><th>命令</th><th>作用</th><th>谁能用</th></tr></thead>
           <tbody>
             <tr><td><code>/help</code></td><td>列出可用命令</td><td>所有人</td></tr>
