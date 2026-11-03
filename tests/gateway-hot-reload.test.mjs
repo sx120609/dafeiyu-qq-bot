@@ -52,3 +52,22 @@ test('what a changed file needs', () => {
   assert.equal(partOf('engine/main.mjs'), 'engine-process');
   assert.equal(partOf('console/app.js'), null); assert.equal(partOf('tests/x.test.mjs'), null);
 });
+
+test('SnowLuma\'s #sl status command is turned off for the bot account, once', async () => {
+  const {quietLumaStatus} = await import('../bridge/gateway.mjs');
+  let saved = null;
+  const server = http.createServer(async (req, res) => {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    assert.equal(req.headers['x-snowluma-token'], 'session'); assert.equal(req.url, '/api/config/123456');
+    if (req.method === 'POST') { saved = JSON.parse(Buffer.concat(chunks)); return res.end(JSON.stringify({success: true})); }
+    res.end(JSON.stringify({config: saved ?? {networks: {wsServers: [{port: 3001}]}, statusCommand: {enabled: true, trigger: '#sl', cooldownSeconds: 5}}}));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const host = {luma: {settings: {account: '123456'}, reachable: async () => true, sessionToken: async () => 'session', webui: `http://127.0.0.1:${server.address().port}`}};
+  try {
+    assert.equal(await quietLumaStatus(host, {tries: 1}), 'turned off');
+    assert.deepEqual(saved.statusCommand, {enabled: false, trigger: '#sl', cooldownSeconds: 5});
+    assert.deepEqual(saved.networks, {wsServers: [{port: 3001}]}, 'the rest of the config is kept');
+    assert.equal(await quietLumaStatus(host, {tries: 1}), 'off');
+  } finally { server.closeAllConnections(); await new Promise(r => server.close(r)); }
+});

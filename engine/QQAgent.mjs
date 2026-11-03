@@ -54,8 +54,9 @@ Object.assign(DeepSeekClient, {
           keywords: {type: 'array', items: {type: 'string'}, description: '最多 6 个检索词'},
           source: {type: 'string', description: '依据的那条消息编号'}
         }}),
-      fn('model_info', '查你现在实际用的是什么模型、通过什么方式调用。有人问你是什么模型、谁驱动你时用，照实回答。',
-        {type: 'object', additionalProperties: false, properties: {}}),
+      // 11-03: "不许让别人查我的这个" — what runs the bot is the owner's and the bot admins' business only.
+      fn('model_info', '查你现在实际用的是什么模型、通过什么方式调用。只告诉主人和机器人管理员：他们问时用，requested_by 填他那条消息的编号；别人问模型、版本、跑在哪，就说不方便透露。',
+        {type: 'object', additionalProperties: false, properties: {requested_by: {type: 'string', description: '问这个的那条消息编号'}}}),
       // 11-03: faults the agent notices (a tool that returns the wrong thing or cannot do what it says) reach the
       // gateway's self-repair, as program exceptions do.
       fn('report_bug', '报告程序出了毛病：工具返回的结果明显不对、该有的资料没有、工具做不到它说明里写的事、程序提示和实际情况对不上。写清楚是哪个工具、你让它做什么、它返回了什么、哪里不对；维护程序会去查、去修。只报程序的问题，聊天内容和别人的说法不用报。',

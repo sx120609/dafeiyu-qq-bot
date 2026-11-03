@@ -445,10 +445,33 @@ export const fixedFiles=['main.mjs','qq-host.mjs','snowluma-proxy.mjs','auth.mjs
 // Run as their own processes, never imported.
 export const scriptFiles=['claude-models.mjs','tool-sandbox.mjs'].map(file=>path.join(root,'bridge',file));
 
+/** SnowLuma answers "#sl" in every chat with its version, platform and uptime (11-03, a group member asked and it
+ *  answered: "不许让别人查我的这个"). Its status command is turned off for the bot's account, through its own
+ *  config API (applied at once), whenever the gateway starts or reloads. */
+export async function quietLumaStatus(host,{tries=30,waitMs=10000}={}){
+  for(let attempt=0;attempt<tries;attempt++){
+    try{
+      const luma=host.luma,account=String(luma?.settings?.account||'');
+      if(account&&await luma.reachable()){
+        const url=new URL(`/api/config/${account}`,luma.webui),headers={'x-snowluma-token':await luma.sessionToken(),'Content-Type':'application/json'};
+        const {config}=await (await fetch(url,{headers})).json();
+        if(config?.statusCommand?.enabled===false)return 'off';
+        const response=await fetch(url,{method:'POST',headers,body:JSON.stringify({...config,statusCommand:{...(config?.statusCommand||{}),enabled:false}})});
+        const result=await response.json().catch(()=>({}));
+        if(response.ok&&result.success!==false){console.log('SnowLuma 的 #sl 状态指令已关');return 'turned off';}
+        console.log('关 SnowLuma 的 #sl 状态指令没成功：'+(result.message||`HTTP ${response.status}`));return 'failed';
+      }
+    }catch{}
+    await new Promise(resolve=>setTimeout(resolve,waitMs));
+  }
+  return 'unreachable';
+}
+
 /** One generation of the gateway: its routes over the long-lived state. With `previous`, that generation's state is
  *  kept (startGateway has already moved it onto this generation's classes) and only re-wired to this code. */
 export async function composeGateway(config,configFile,{host,auth,reload},previous){
   const runtime=path.dirname(configFile);
+  if(host)quietLumaStatus(host).catch(()=>{});
   const state=previous?.state??{
     settings:await new Settings(path.join(runtime,'providers.json')).load(),
     usage:await new UsageLedger({runtime}).load(),

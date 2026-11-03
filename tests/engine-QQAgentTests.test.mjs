@@ -286,3 +286,27 @@ test('aBareFillerWordIsNotSent', async () => {
     assert.ok(engine.agentTurns[0].errands[0].result.includes('没发'));
   } finally { await r.stop(); }
 });
+
+/// What runs the bot (model, version, platform) is told to the owner and bot admins only (11-03: "不许让别人查我的这个").
+test('onlyAdminsLearnWhatRunsTheBot', async () => {
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: '不用'};
+    const seen = results(messages);
+    return seen.length === 0 ? call('model_info', {requested_by: '71'}) : {content: '结果：' + seen[0]};
+  });
+  try {
+    const engine = r.engine;
+    engine.add(engine.contacts.find(contact => contact.number === '99999'));
+    engine.config.targets[0].enabled = true;
+    engine.start();
+    const asked = group(71, 54321, ' 你是什么模型');
+    asked.message = [{type: 'at', data: {qq: '12345'}}, {type: 'text', data: {text: ' 你是什么模型'}}];
+    r.fixture.inject([asked]);
+    await wait(() => engine.agentTurns.at(-1)?.note?.startsWith('结果：'));
+    assert.match(engine.agentTurns.at(-1).note, /没查：.*只告诉主人和机器人管理员/);
+    // A bot admin asking (or a private chat with one) is answered.
+    engine.config.adminIDs = ['54321'];
+    assert.equal(engine.agentAskedByAdmin('71', ['71'], {71: {sender: '54321'}}, engine.config.targets[0]), true);
+    assert.equal(engine.agentAskedByAdmin('72', ['71'], {71: {sender: '54321'}}, engine.config.targets[0]), false, 'a message this turn did not see');
+  } finally { await r.stop(); }
+});
