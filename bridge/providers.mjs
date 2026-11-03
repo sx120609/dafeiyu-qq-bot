@@ -193,33 +193,69 @@ export async function runCloud(body,profile,signal,options={}){
   result.model=r.model||profile.model;return result;
 }
 
-// One picture from an OpenAI-compatible /images/generations endpoint. Some APIs answer with base64, others
-// with a link to the file; a link is fetched over HTTPS only, and either way the bytes must be a real image.
-export async function generateCloudImage(prompt,profile,signal){
-  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>1000)throw new Error('画面描述需为 1–1000 字');
-  const started=Date.now();
-  const response=await fetch(cloudBase(profile)+'/images/generations',{method:'POST',
-    headers:{'Content-Type':'application/json',Authorization:`Bearer ${profile.apiKey}`},
-    // OpenAI's image models take moderation 'low' (the default 'auto' refused an ordinary anime character, 11-03:
-    // "你的内容审核别搞那么严格啊"); APIs that do not know the field ignore it.
-    body:JSON.stringify({model:profile.imageModel,prompt,n:1,size:'1024x1024',moderation:'low'}),
-    signal:signal?AbortSignal.any([signal,AbortSignal.timeout(180000)]):AbortSignal.timeout(180000),redirect:'error'});
-  const raw=await response.text();
-  if(response.status===400&&/content[_ ]?policy|moderation|safety|sensitive|违规|审核/i.test(raw))throw Object.assign(new Error('内容审核未通过'),{status:422});
+// Pictures from an OpenAI-compatible image API: /images/generations, or /images/edits when the request carries
+// reference images to change or draw from (11-03: "不能根据用户发的图片进行修改"). Some APIs answer with base64,
+// others with a link to the file; a link is fetched over HTTPS only, and either way the bytes must be a real image.
+export const imageSizes={square:'1024x1024',portrait:'1024x1536',landscape:'1536x1024',auto:'auto'};
+const imageKind=b=>b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?'png':b[0]===255&&b[1]===216?'jpeg':b.subarray(8,12).toString()==='WEBP'?'webp':'';
+/** What a drawing request may ask for, checked: reference images (base64, up to 8), size, quality, background, count. */
+export function imageOptions(data={}){
+  const images=(Array.isArray(data.images)?data.images:[]).slice(0,8).map(x=>typeof x==='string'?Buffer.from(x.replace(/^data:[^,]*,/,''),'base64'):null);
+  if(images.some(b=>!b||!b.length||b.length>12_000_000||!imageKind(b)))throw Object.assign(new Error('参考图不是有效的 PNG、JPEG 或 WebP'),{status:400});
+  const size=imageSizes[data.size]??(Object.values(imageSizes).includes(data.size)?data.size:'1024x1024');
+  const quality=['low','medium','high'].includes(data.quality)?data.quality:undefined;
+  const background=data.background==='transparent'||data.transparent===true?'transparent':undefined;
+  const n=Math.min(4,Math.max(1,Number.isInteger(data.n)?data.n:1));
+  return {images,size,quality,background,n};
+}
+export async function generateCloudImage(prompt,profile,signal,options={}){
+  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>4000)throw new Error('画面描述需为 1–4000 字');
+  const {images,size,quality,background,n}=imageOptions(options);
+  // The relay treats `size` as a hint (asked for 1024x1536, it drew 1536x1024), so the orientation is said in words too.
+  const shape={'1024x1536':'竖版构图（高大于宽）','1536x1024':'横版构图（宽大于高）'}[size];
+  if(shape)prompt+=`\n\n画幅：${shape}`;
+  if(background)prompt+='\n\n背景：透明（只画主体，不画背景）';
+  const started=Date.now(),headers={Authorization:`Bearer ${profile.apiKey}`};
+  const deadline=()=>signal?AbortSignal.any([signal,AbortSignal.timeout(300000)]):AbortSignal.timeout(300000);
+  // OpenAI's image models take moderation 'low' (the default 'auto' refused an ordinary anime character, 11-03:
+  // "你的内容审核别搞那么严格啊"). input_fidelity 'high' keeps faces and details of the reference images.
+  const extras={moderation:'low',...(quality?{quality}:{}),...(background?{background}:{}),...(images.length?{input_fidelity:'high'}:{})};
+  const send=plain=>{
+    const fields={model:profile.imageModel,prompt,n,size,...(plain?{}:extras)};
+    if(!images.length)return fetch(cloudBase(profile)+'/images/generations',{method:'POST',headers:{...headers,'Content-Type':'application/json'},
+      body:JSON.stringify(fields),signal:deadline(),redirect:'error'});
+    const form=new FormData();
+    for(const [k,v] of Object.entries(fields))form.append(k,String(v));
+    images.forEach((b,i)=>form.append('image[]',new Blob([b],{type:'image/'+imageKind(b)}),`reference-${i+1}.${imageKind(b)==='jpeg'?'jpg':imageKind(b)}`));
+    return fetch(cloudBase(profile)+'/images/edits',{method:'POST',headers,body:form,signal:deadline(),redirect:'error'});
+  };
+  const refused=(status,raw)=>status===400&&/content[_ ]?policy|moderation|safety|sensitive|违规|审核/i.test(raw);
+  let response=await send(false),raw=await response.text();
+  // An API that does not know one of the optional fields says so with a 400: once more with only the basic ones.
+  if(response.status===400&&!refused(400,raw)){response=await send(true);raw=await response.text();}
+  if(refused(response.status,raw))throw Object.assign(new Error('内容审核未通过'),{status:422});
   if(response.status===429)throw rateLimitError('429',60);
-  if(!response.ok)throw new Error(`生图接口返回 HTTP ${response.status}，可能这个 API 或模型不支持生图`);
+  if(!response.ok){
+    let detail='';try{detail=String(JSON.parse(raw).error?.message||'').slice(0,160);}catch{}
+    throw new Error(`${images.length?'改图':'生图'}接口返回 HTTP ${response.status}`+(detail?`：${detail}`:images.length?'，可能这个 API 不支持按参考图改图':'，可能这个 API 或模型不支持生图'));
+  }
   let result;try{result=JSON.parse(raw);}catch{throw new Error('生图接口返回的不是 JSON');}
-  const row=result.data?.[0];let bytes;
-  if(typeof row?.b64_json==='string')bytes=Buffer.from(row.b64_json,'base64');
-  else if(typeof row?.url==='string'&&row.url.startsWith('https://')){
-    const file=await fetch(row.url,{signal:AbortSignal.timeout(60000)});
-    if(!file.ok)throw new Error('生成的图片下载失败');
-    bytes=Buffer.from(await file.arrayBuffer());
-  }else throw new Error('生图接口没有返回图片');
-  if(bytes.length>8_000_000)throw new Error('生成的图片过大');
-  const png=bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),jpeg=bytes[0]===255&&bytes[1]===216,webp=bytes.subarray(8,12).toString()==='WEBP';
-  if(!png&&!jpeg&&!webp)throw new Error('生成的图片格式无效');
-  return {created:Math.floor(Date.now()/1000),model:profile.imageModel,data:[{b64_json:bytes.toString('base64')}],usage:result.usage,elapsedMs:Date.now()-started};
+  const rows=Array.isArray(result.data)?result.data:[],pictures=[];
+  for(const row of rows){
+    let bytes;
+    if(typeof row?.b64_json==='string')bytes=Buffer.from(row.b64_json,'base64');
+    else if(typeof row?.url==='string'&&row.url.startsWith('https://')){
+      const file=await fetch(row.url,{signal:AbortSignal.timeout(60000)});
+      if(!file.ok)throw new Error('生成的图片下载失败');
+      bytes=Buffer.from(await file.arrayBuffer());
+    }else continue;
+    if(bytes.length>12_000_000)throw new Error('生成的图片过大');
+    if(!imageKind(bytes))throw new Error('生成的图片格式无效');
+    pictures.push(bytes);
+  }
+  if(!pictures.length)throw new Error('生图接口没有返回图片');
+  return {created:Math.floor(Date.now()/1000),model:profile.imageModel,data:pictures.map(b=>({b64_json:b.toString('base64')})),usage:result.usage,
+    edited:images.length>0,elapsedMs:Date.now()-started};
 }
 
 export async function codexModels(config){

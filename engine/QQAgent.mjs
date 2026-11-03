@@ -126,7 +126,17 @@ Object.assign(DeepSeekClient, {
     if (kinds.has('like')) tools.push(tool('like', '给某人的 QQ 资料卡点赞。', {member: text, times: {type: 'integer', description: '1–10'}}, ['member']));
     if (kinds.has('recall')) tools.push(tool('recall', '撤回你自己两分钟内发的一条消息。', {message: {type: 'string', description: '你那条消息的编号'}}, ['message']));
     if (kinds.has('voice')) tools.push(tool('send_voice', '发一条语音，把这句话念出来。口语，一般 10–80 字，不要表情符号、颜文字、网址和括号旁白。', {text}, ['text']));
-    if (kinds.has('image')) tools.push(tool('draw_image', '画一张图发出来：有人想要图，或者你觉得这时候画一张最合适。', {prompt: {type: 'string', description: '画面描述'}}, ['prompt']));
+    if (kinds.has('image')) {
+      // Reference images, size, detail, a transparent background and several pictures at once (11-03: "画图接口不够完善，
+      // 缺少很多特性，比如不能根据用户发的图片进行修改").
+      tools.push(tool('draw_image', '画图发出来：有人想要图，或者你觉得这时候画一张最合适。也能改图、照着图画：images 填参考图（别人发的图、某人头像、你上一张画的），prompt 写怎么改。',
+        {prompt: {type: 'string', description: '画面描述；有参考图时写改哪里、保留什么（“把衣服换成红色旗袍，人和姿势不变”）'},
+          images: {type: 'array', items: {type: 'string'}, description: '参考图，最多 4 张：带图的消息编号（那条里的图都算，引用的那条也行）、avatar:MEMBER 标签（PEER、BOT、GROUP 也行）表示头像、last 表示你在这里上一次画的图'},
+          size: {type: 'string', enum: ['square', 'portrait', 'landscape'], description: '方图（默认）、竖图（手机壁纸、立绘、全身）、横图（电脑壁纸、风景、多人）'},
+          quality: {type: 'string', enum: ['low', 'medium', 'high'], description: '要很精细就 high（慢一些）；不填由模型定'},
+          transparent: {type: 'boolean', description: '透明背景：做表情包、贴纸、抠出来的角色时'},
+          count: {type: 'integer', description: '画几张让人挑，1–4，默认 1'}}, ['prompt']));
+    }
     if (kinds.has('artwork')) tools.push(tool('send_artwork', '把这一轮 find_artwork 找到的插画发出来（程序附作者和出处）。'));
     if (kinds.has('later')) {
       tools.push(tool('set_reminder', '定时：过一段时间程序会叫你回到这个聊天，带着 about 再看一次。提醒、回访、过会儿再来问都用它。',

@@ -48,7 +48,7 @@ test('cloud image generation: base64 image, refusals and responses that are not 
     mode='refused';await assert.rejects(generateCloudImage('x',p),e=>e.status===422);
     mode='text';await assert.rejects(generateCloudImage('x',p),/格式无效/);
     mode='unsupported';await assert.rejects(generateCloudImage('x',p),/不支持生图/);
-    await assert.rejects(generateCloudImage('',p),/1–1000/);
+    await assert.rejects(generateCloudImage('',p),/1–4000/);
   }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
 test('console requires separate auth; validates keys, saves, tests and atomically activates',async()=>{

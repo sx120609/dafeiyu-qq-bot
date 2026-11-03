@@ -84,8 +84,9 @@ class Bubble {
   static sticker(about) { return {case: 'sticker', _0: about}; }
   static reaction(message, emoji) { return {case: 'reaction', message, emoji}; }
   static poke(member) { return {case: 'poke', member}; }
-  /** A new picture to draw. */
-  static image(prompt) { return {case: 'image', _0: prompt}; }
+  /** A picture to draw, with what QQAgentPlan.drawing kept of its options (reference images, size, quality,
+   *  transparent, count). */
+  static image(prompt, options = {}) { return {case: 'image', _0: prompt, ...options}; }
   /** The artwork found by find_artwork this turn. */
   static artwork() { return {case: 'artwork'}; }
   /** Take back one of its own messages from the last two minutes. */
@@ -204,7 +205,7 @@ export class QQAgentPlan {
         case 'image': {
           const prompt = trimmedString(item.prompt);
           if (drawn || !prompt) continue;
-          drawn = true; bubbles.push(Bubble.image(prefix(prompt, 1000)));
+          drawn = true; bubbles.push(Bubble.image(prefix(prompt, 1000), QQAgentPlan.drawing(item)));
           break;
         }
         case 'artwork':
@@ -272,6 +273,20 @@ export class QQAgentPlan {
    * offered (messages, members, emoji, own messages, reminders) before it is carried out.
    * Returns {bubble, quote} or undefined.
    */
+  /** The options of a drawing that make sense, the rest dropped: up to 4 reference images, a known size and quality,
+   *  a transparent background, and 2–4 pictures. */
+  static drawing(item) {
+    const options = {};
+    const images = (Array.isArray(item.images) ? item.images : typeof item.images === 'string' ? [item.images] : [])
+      .map(value => typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '').filter(value => value !== '').slice(0, 4);
+    if (images.length) options.images = images;
+    if (['square', 'portrait', 'landscape'].includes(item.size)) options.size = item.size;
+    if (['low', 'medium', 'high'].includes(item.quality)) options.quality = item.quality;
+    if (item.transparent === true) options.transparent = true;
+    const count = Number(item.count);
+    if (Number.isInteger(count) && count > 1) options.count = Math.min(4, count);
+    return options;
+  }
   static toolBubble(name, args) {
     const a = jsonObject(args) ?? {};
     const value = (key, fallback) => Object.hasOwn(a, key) ? a[key] : fallback; // `a[key] ?? fallback` keeps JSON null (NSNull)
@@ -287,7 +302,8 @@ export class QQAgentPlan {
       case 'like': return {bubble: {kind: 'like', member: value('member', ''), times: value('times', 10)}, quote: undefined};
       case 'recall': return {bubble: {kind: 'recall', message: value('message', '')}, quote: undefined};
       case 'send_voice': return {bubble: {kind: 'voice', text: value('text', '')}, quote: undefined};
-      case 'draw_image': return {bubble: {kind: 'image', prompt: value('prompt', '')}, quote: undefined};
+      case 'draw_image': return {bubble: {kind: 'image', prompt: value('prompt', ''), images: a.images, size: a.size, quality: a.quality,
+        transparent: a.transparent, count: a.count}, quote: undefined};
       case 'send_artwork': return {bubble: {kind: 'artwork'}, quote: undefined};
       case 'set_reminder': return {bubble: {kind: 'later', minutes: value('minutes', 0), about: value('about', ''), say: value('say', '')}, quote: undefined};
       case 'cancel_reminder': return {bubble: {kind: 'later', cancel: value('id', '')}, quote: undefined};
@@ -322,7 +338,7 @@ export class QQAgentPlan {
 - 说话：send_message。一般一条就够，确实需要才分几条（调几次），每条是完整的一句或一段，不按标点硬拆。要点名某人填 at（群里乱、要叫他来看、提醒他时才用，别在文字里再写 @）；回应较早的话或群里很乱时 quote 填那条的编号，紧挨着的对话不用引用。
 - 表情包：先 search_stickers 搜（写画面、角色或情绪），挑配字和画面都对得上的一张，再用 send_sticker 按编号发。最近发过的也能发，只是别老发同一张；搜不到合适的就别硬发，照实说。
 - 小动作：react 贴表情（QQ 自带的所有表情和常见 emoji 都能贴，写名字就行，别老贴那几个；拿不准就 search_reactions），poke 戳一戳，like 点赞。它们只是配合说话的：有人在跟你说话时，不能只贴个表情、戳一下就算回了；单独贴表情只适合别人之间聊天、你不想开口的时候。
-- 其他动作：recall 撤回你两分钟内发的消息（说错话、发错图、有人让你撤时，撤完一般补一句）；send_voice 发语音（偶尔用：撒娇、吐槽一句、有人让你说句话或叫你发语音时）；draw_image 画图（对方明确让你画时）；send_artwork 发 find_artwork 找到的插画；set_reminder / cancel_reminder 定时；send_to_chat 去名单里别的会话说一声（说清是谁让你说的）。
+- 其他动作：recall 撤回你两分钟内发的消息（说错话、发错图、有人让你撤时，撤完一般补一句）；send_voice 发语音（偶尔用：撒娇、吐槽一句、有人让你说句话或叫你发语音时）；draw_image 画图（对方明确让你画时；让你改图、P 图、照着某张图或某人头像画时，images 填那张图的消息编号或 avatar:谁，接着改你刚画的填 last；要壁纸、立绘就选竖图横图，做表情包就透明背景，说“多画几张”就填 count）；send_artwork 发 find_artwork 找到的插画；set_reminder / cancel_reminder 定时；send_to_chat 去名单里别的会话说一声（说清是谁让你说的）。
 - 查东西：search_chat_history 翻更早的聊天和记忆；read_qq_history 直接从 QQ 读这个聊天更早的记录；look_at_image 让助手看某条消息里的图；member_info 查群友的群名片、头衔、等级、入群和最后发言时间；group_info 看群资料、群公告、精华；ask_helper 让助手上网查资料、天气；browse_bilibili 让助手去 B 站刷视频、点开看画面和字幕；watch_bilibili_live 查看B站直播状态、一帧画面和最近弹幕样本；model_info 查你实际用的是什么模型（有人问就照实说）；find_artwork 找 Pixiv 上的现成插画。
 - QQ 里的东西：时间线里的[文件]、[语音]、[视频]、[合并转发]、各种卡片后面写了用哪个工具打开。read_file 读文件（聊天里的、群文件、网址；文本、表格、PDF、Word、PPT 直接读，图片和扫描件让助手看），list_group_files 看群文件；listen_voice 听语音；watch_video 看视频；read_forward 展开合并转发；look_at_avatar 看头像；find_member 在全群名单里按名字找人（最近没说话的人也能找到，找到后就能 @、戳、查）。发东西：send_file 发文件（自己写的内容、网上的文件、聊天里的文件），send_forward 把长内容或清单打包成合并转发，send_image 发现成的图（网址、聊天里的图、头像）；set_my_card 改你自己的群名片。别人发了东西问你，就先打开看了再说。
 - 记东西：remember 把别人告诉你、让你记住的事当场记进长期记忆（称呼、外号、约定、接梗、喜好），记在说这话的人或被说的人名下；write_note / delete_note 是你自己的笔记本，记正在跟进的事、答应了还没做完的、对人和群的印象、下次想聊的，每一轮都能看到，做完或过时了就删。

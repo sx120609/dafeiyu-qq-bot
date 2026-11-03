@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {crc32, deflateSync} from 'node:zlib';
 
 delete process.env.DAFEIYU_CODEX_URL;
 
@@ -227,3 +228,18 @@ export const call = (name, args) => ({content: '', tool_calls: [{id: 'call-' + c
 /** The tool results the model has seen so far in this turn, and the turn's first input. */
 export const results = messages => messages.filter(message => message.role === 'tool').map(message => message.content).filter(content => typeof content === 'string');
 export const opening = messages => typeof messages[1]?.content === 'string' ? messages[1].content : '';
+
+/** A real (decodable) PNG of the given size. */
+export function png(width = 64, height = 64) {
+  const chunk = (type, data) => {
+    const payload = Buffer.concat([Buffer.from(type), data]);
+    const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+    length.writeUInt32BE(data.length); checksum.writeUInt32BE(crc32(payload));
+    return Buffer.concat([length, payload, checksum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 6;
+  const pixels = Buffer.alloc(height * (1 + width * 4), 0x80);
+  for (let row = 0; row < height; row++) pixels[row * (1 + width * 4)] = 0;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))]);
+}

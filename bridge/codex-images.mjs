@@ -5,13 +5,22 @@ import {fileURLToPath} from 'node:url';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const win=p=>process.platform==='win32'?p:execFileSync('wslpath',['-w',p],{encoding:'utf8'}).trim();
 
-export async function generateCodexImage(prompt,config,signal){
-  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>1000)throw new Error('画面描述需为 1–1000 字');
+// Reference images (11-03, "根据用户发的图片进行修改") are attached to the prompt with --image; the size and a
+// transparent background are asked for in the request itself, the built-in tool has no fields for them.
+export async function generateCodexImage(prompt,config,signal,options={}){
+  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>4000)throw new Error('画面描述需为 1–4000 字');
+  const references=await fs.mkdtemp(path.join(config.tempRoot,'image-references-'));
+  try{return await draw(prompt,config,signal,options,references);}
+  finally{await fs.rm(references,{recursive:true,force:true}).catch(()=>{});}
+}
+async function draw(prompt,config,signal,{images=[],size,background},references){
+  const attached=[];
+  for(const [i,bytes] of images.entries()){const file=path.join(references,`reference-${i+1}.${bytes[0]===255?'jpg':'png'}`);await fs.writeFile(file,bytes);attached.push('--image='+win(file));}
   const root=config.generatedImagesRoot||'/mnt/d/Dev/Outputs/CodexGeneratedImages';
   const args=['exec','--ignore-user-config','--ignore-rules','--skip-git-repo-check','--ephemeral','--sandbox','read-only','--model','gpt-6-astra',
     '-c','model_reasoning_effort="low"','-c','features.shell_tool=false','-c','features.apps=false','-c','features.multi_agent=false','-c','features.view_image=false',
     '-c','features.image_generation=true','-c','project_doc_max_bytes=0',
-    '-c','model_instructions_file='+JSON.stringify(win(path.join(here,'image-instructions.txt'))),'--cd',win(config.tempRoot),'--json','-'];
+    '-c','model_instructions_file='+JSON.stringify(win(path.join(here,'image-instructions.txt'))),'--cd',win(config.tempRoot),...attached,'--json','-'];
   const started=Date.now();
   const threadId=await new Promise((resolve,reject)=>{
     const child=spawn(config.imageCodex||config.codex,args,{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,TEMP:win(config.tempRoot),TMP:win(config.tempRoot)}});
@@ -27,7 +36,9 @@ export async function generateCodexImage(prompt,config,signal){
       if(e.type==='item.started'&&['command_execution','mcp_tool_call','file_change'].includes(e.item?.type)){child.kill();finish(new Error('生图通道拒绝了非图像工具'));}
     }catch{}}});
     child.on('close',code=>finish(code===0&&completed&&!failed&&/^[a-f0-9-]{36}$/i.test(thread)?null:new Error('Codex 官方生图未完成')));
-    child.stdin.end(JSON.stringify({image_description:prompt,number_of_images:1}));
+    child.stdin.end(JSON.stringify({image_description:prompt,number_of_images:1,
+      ...(images.length?{reference_images:`${images.length} attached: change or draw from them as described, keeping what the description does not change`}:{}),
+      ...(size&&size!=='1024x1024'&&size!=='auto'?{size}:{}),...(background==='transparent'?{background:'transparent'}:{})}));
   });
   // The image artifact directory uses the official thread.started ID.
   // Never trust a model-written path or choose another thread's recent image.
@@ -42,5 +53,5 @@ export async function generateCodexImage(prompt,config,signal){
   const bytes=await fs.readFile(selected);
   const png=bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),jpeg=bytes[0]===255&&bytes[1]===216,webp=bytes.subarray(8,12).toString()==='WEBP';
   if(!png&&!jpeg&&!webp)throw new Error('图像文件格式无效');
-  return {created:Math.floor(Date.now()/1000),model:'codex-built-in-image-generation',data:[{b64_json:bytes.toString('base64')}],elapsedMs:Date.now()-started};
+  return {created:Math.floor(Date.now()/1000),model:'codex-built-in-image-generation',data:[{b64_json:bytes.toString('base64')}],edited:images.length>0,elapsedMs:Date.now()-started};
 }

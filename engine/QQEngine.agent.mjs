@@ -984,20 +984,29 @@ export const agentMethods = {
           }
           case 'image': {
             const prompt = bubble._0;
+            // Reference images to change or draw from (11-03: "不能根据用户发的图片进行修改").
+            let references;
+            try { references = await this.agentDrawingReferences(bubble.images ?? [], {target, state: {members}, signal}); }
+            catch (error) { if (isCancellation(error)) throw error; references = '参考图下载不下来：' + prefix(describe(error), 120); }
+            if (typeof references === 'string') { failure('没画：' + references); continue; }
+            const options = {size: bubble.size, quality: bubble.quality, transparent: bubble.transparent, count: bubble.count};
             // prepareImage only needs the chat's key from the message; a turn with nothing to answer still draws.
-            const prepared = await this.prepareImage({request: prompt, proposed: prompt, proactive: false, epoch, message: targetMessage ?? {key: target.key}, target, key, signal});
-            const image = prepared?.image;
+            const prepared = await this.prepareImage({request: prompt, proposed: prompt, proactive: false, epoch, message: targetMessage ?? {key: target.key}, target, key, signal,
+              references, options});
+            const images = prepared?.images ?? (prepared?.image === undefined ? [] : [prepared.image]);
             // Why it failed goes back to the agent, which used to guess a reason of its own (11-03).
-            if (image === undefined) {
+            if (!images.length) {
               const why = prepared?.content?.startsWith('本次未生成图片。请求需调整') ? prepared.content : prepared?.imageStatus ?? this.imageGenerationStatus ?? '图片接口没有返回图';
               failure('没画出来：' + prefix(why, 200)); continue;
             }
             this.check(epoch, target.key, target);
             const credit = prepared.sources.filter(source => !source.startsWith('http')).join('\n');
-            const segments = [{type: 'image', data: {file: 'base64://' + base64(image)}}];
+            const segments = images.map(image => ({type: 'image', data: {file: 'base64://' + base64(image)}}));
             if (credit !== '') segments.unshift({type: 'text', data: {text: credit + '\n'}});
-            await this.agentSend(target, segments, '[画了一张图] ' + prefix(prompt, 60), answering, epoch, signal);
-            previous = ''; success('画了一张图');
+            const what = (references.length ? '照着参考图' : '') + '画了' + (images.length > 1 ? ` ${images.length} 张图` : '一张图');
+            await this.agentSend(target, segments, `[${what}] ` + prefix(prompt, 60), answering, epoch, signal);
+            this.agentRememberDrawing(target.key, images);
+            previous = ''; success(what);
             break;
           }
         }

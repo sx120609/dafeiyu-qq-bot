@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {validateRequest,model} from './server.mjs';
-import {dispatch,codexModels,claudeModels,cloudModels,cloudBase,generateCloudImage} from './providers.mjs';
+import {dispatch,codexModels,claudeModels,cloudModels,cloudBase,generateCloudImage,imageOptions} from './providers.mjs';
 import {Integrations} from './integrations.mjs';
 import {RuntimeControl} from './runtime-control.mjs';
 import {GenerationQueue} from './generation-queue.mjs';
@@ -339,9 +339,11 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       const cloud=settings.value.profiles.cloud,viaCloud=cloud.protocol==='openai'&&!!cloud.apiKey&&!!cloud.imageModel;
       try{
         let result=null,cloudFailure=null;
-        if(viaCloud)try{result=await metered('cloud',{model:cloud.imageModel},'image','',()=>generateCloudImage(data.prompt,cloud,controller.signal));}
+        // Reference images, size, quality, background and count come checked from imageOptions (11-03).
+        const options=imageOptions(data);
+        if(viaCloud)try{result=await metered('cloud',{model:cloud.imageModel},'image','',()=>generateCloudImage(data.prompt,cloud,controller.signal,data));}
           catch(e){if(e.status===422||controller.signal.aborted)throw e;cloudFailure=e;}
-        if(!result)try{result=await metered('codex',{model:'image'},'image','',()=>generateCodexImage(data.prompt,config,controller.signal));}
+        if(!result)try{result=await metered('codex',{model:'image'},'image','',()=>generateCodexImage(data.prompt,config,controller.signal,options));}
           catch(e){if(cloudFailure&&e.status!==422)e.message=`云端 API：${cloudFailure.message}；本机 Codex：${e.message}`;throw e;}
         send(200,result);
       }catch(e){send(e.status||503,{error:{message:e.message}});}return;

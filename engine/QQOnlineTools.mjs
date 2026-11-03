@@ -5,8 +5,8 @@ import {LinuxImages} from './LinuxImages.mjs';
 import {asDictionaries, asDictionary, asInt, asString, isDictionary, jsonObject, keysEqual, parseDictionary, serialize, swiftURL, urlQuery} from './foundation.mjs';
 
 export class ModelToolResult {
-  constructor({content = '', image, sources = [], imageStatus} = {}) {
-    this.content = content; this.image = image; this.sources = sources; this.imageStatus = imageStatus;
+  constructor({content = '', image, images, sources = [], imageStatus} = {}) {
+    this.content = content; this.image = image; this.images = images; this.sources = sources; this.imageStatus = imageStatus;
   }
 }
 

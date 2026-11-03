@@ -27,7 +27,8 @@ export class QQImageGenerator {
 
   // The caller reserves shared quota and revalidates the run/recipient before EACH external attempt.
   /** execute(arguments:settings:credentials:beforeAttempt:) — one named-arguments object (plus an optional signal). */
-  async execute({arguments: args, settings, credentials, beforeAttempt, signal}) {
+  /// references: reference images (JPEG/PNG bytes) to change or draw from; options: size, quality, transparent, count.
+  async execute({arguments: args, settings, credentials, beforeAttempt, signal, references = [], options = {}}) {
     checkCancellation(signal);
     if (!settings.enabled) return new ModelToolResult({content: '生图未启用，不能声称已生成图片。'});
     settings.validate();
@@ -46,6 +47,8 @@ export class QQImageGenerator {
     const failures = [];
     for (const [index, provider] of providers.entries()) {
       checkCancellation(signal);
+      // Only the model gateway draws from reference images; the Zhipu and Cloudflare models take text alone.
+      if (references.length && provider !== 'codex') { failures.push(QQImageProvider.title(provider) + '：不能照着参考图画'); continue; }
       const key = provider === 'codex' ? credentials.codexToken : provider === 'zhipu' ? credentials.zhipuKey : credentials.cloudflareToken;
       if (!key || (provider === 'cloudflare' && !settings.cloudflareAccountID)) {
         failures.push(QQImageProvider.title(provider) + '：凭证未配置'); continue;
@@ -53,12 +56,13 @@ export class QQImageGenerator {
       // Outside the provider catch: cancellation, scope loss, persistence and quota failures must NOT fail over.
       await beforeAttempt();
       try {
-        const image = await this.generate({provider, prompt, key, account: settings.cloudflareAccountID, signal});
+        const generated = await this.generate({provider, prompt, key, account: settings.cloudflareAccountID, signal, references, options});
+        const images = Array.isArray(generated) ? generated : [generated];
         checkCancellation(signal);
         const status = (index > 0 ? '已切换备用：' : '生成成功：') + QQImageProvider.title(provider);
-        return new ModelToolResult({content: '已实际生成并准备附带一张 AI 图片。用短句回应，不声称已看过生成图的细节。' + status,
+        return new ModelToolResult({content: `已实际生成并准备附带${images.length > 1 ? ` ${images.length} 张` : '一张'} AI 图片。用短句回应，不声称已看过生成图的细节。` + status,
           // No caption line on the picture (11-03: "把这种文字标注拿掉" — it said which service drew it).
-          image, sources: [], imageStatus: status});
+          image: images[0], images, sources: [], imageStatus: status});
       } catch (error) {
         if (error instanceof CancellationError) throw new CancellationError(error.cause);
         if (error instanceof URLError && error.code === URLError.cancelled) throw new CancellationError(error);
@@ -75,7 +79,8 @@ export class QQImageGenerator {
     return new ModelToolResult({content: '本次未生成图片。' + status + '。明确告知没画出来，不假装成功，不用搜图或表情冒充生成图。', imageStatus: status});
   }
 
-  async generate({provider, prompt, key, account, signal}) {
+  /// The gateway answers with an array of pictures (one per `count`); Zhipu and Cloudflare with one.
+  async generate({provider, prompt, key, account, signal, references = [], options = {}}) {
     if (provider === 'codex') {
       const base = process.env.DAFEIYU_CODEX_URL;
       const url = base === undefined ? undefined : swiftURL(base + '/images/generations');
@@ -83,19 +88,23 @@ export class QQImageGenerator {
           url.query !== undefined || url.fragment !== undefined) {
         throw new GenerationFailure('Codex 图像通道仅支持本机模型网关', true);
       }
-      const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 240, signal,
-        headers: {Authorization: 'Bearer ' + key, 'Content-Type': 'application/json'}, body: JSON.stringify({prompt})}, 16_000_000);
+      const body = {prompt, ...(references.length ? {images: references.map(image => Buffer.from(image).toString('base64'))} : {}),
+        ...(options.size ? {size: options.size} : {}), ...(options.quality ? {quality: options.quality} : {}),
+        ...(options.transparent ? {background: 'transparent'} : {}), ...(options.count > 1 ? {n: options.count} : {})};
+      // Editing and several pictures take longer than one new picture; the gateway gives up at 300 s.
+      const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 330, signal,
+        headers: {Authorization: 'Bearer ' + key, 'Content-Type': 'application/json'}, body: JSON.stringify(body)}, 80_000_000);
       const object = parseDictionary(data);
       if (status === 422) throw new GenerationFailure('内容审核未通过，不切换模型', false);
-      const rows = asDictionaries(object?.data);
-      const image = rows?.length === 1 ? decodeBase64(asString(rows[0].b64_json)) : undefined;
-      if (status !== 200 || !image || image.length > 8_000_000) {
+      const rows = asDictionaries(object?.data) ?? [];
+      const images = rows.slice(0, 4).map(row => decodeBase64(asString(row.b64_json)));
+      if (status !== 200 || !images.length || images.some(image => !image || image.length > 12_000_000)) {
         const message = asString(asDictionary(object?.error)?.message);
         const reason = message !== undefined ? prefix(message, 200) : `HTTP ${status}`;
         throw new GenerationFailure(`模型网关没画出来（${reason}）`, true);
       }
-      try { await LinuxImages.process(image, 'generated'); } catch { throw new GenerationFailure('生成图片校验失败', true); }
-      return image;
+      try { for (const image of images) await LinuxImages.process(image, 'generated'); } catch { throw new GenerationFailure('生成图片校验失败', true); }
+      return images;
     }
     const url = provider === 'zhipu'
       ? 'https://open.bigmodel.cn/api/paas/v4/images/generations'

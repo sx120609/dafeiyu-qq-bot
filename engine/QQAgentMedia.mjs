@@ -14,6 +14,7 @@ import {QQMemoryBook} from './core/QQMemoryBook.mjs';
 import {QQIncomingImages} from './QQIncomingImages.mjs';
 import {QQVoice} from './QQVoice.mjs';
 import {QQFileText, sniff} from './QQFileText.mjs';
+import {LinuxImages} from './LinuxImages.mjs';
 import {identifier, intValue, describe, isCancellation, formatDate, isInt64} from './QQEngine.types.mjs';
 
 const fields = args => parseDictionary(args) ?? {};
@@ -614,6 +615,47 @@ export const mediaMethods = {
   },
 
   // MARK: Pictures and people
+
+  /** The reference images of a drawing, as JPEGs the image API takes: every picture in a message, an avatar, or its
+   *  own last drawing here. An error line when one cannot be had, so nothing is drawn from half the references. */
+  async agentDrawingReferences(references, context) {
+    const {target} = context, pictures = [];
+    for (const reference of references) {
+      const written = string(reference);
+      if (/^(last|上一张|刚才那张)$/iu.test(written)) {
+        const drawn = this.agentDrawn?.get(target.key)?.at(-1);
+        if (!drawn) return '这里还没有你画过的图（重启后也记不得了），用那张图的消息编号。';
+        pictures.push(drawn); continue;
+      }
+      if (/^avatar:/iu.test(written) || ['PEER', 'BOT', 'GROUP'].includes(written.toUpperCase()) || context.state.members[written] !== undefined) {
+        const who = this.agentWho(written.replace(/^avatar:/iu, ''), context);
+        if (!who) return `不知道「${written}」是谁的头像：填 avatar:MEMBER 标签、PEER、BOT 或 GROUP。`;
+        pictures.push((await this.agentDownload(avatarURL(who.number, who.group), QQAgentMedia.limits.image, context.signal)).data); continue;
+      }
+      const found = await this.agentFindMessage(written, target);
+      if (!found) return `没找到消息 ${written}（参考图填带图的消息编号、avatar:谁 或 last）。`;
+      const images = this.agentMediaIn(found.segments, ['image']);
+      if (!images.length) return `消息 ${written} 里没有图。`;
+      for (const image of images) {
+        const url = await this.agentImageURL(new QQIncomingImage({file: string(image.data.file), url: string(image.data.url) || undefined}));
+        if (!url) return `消息 ${written} 里的图拿不到下载地址了。`;
+        pictures.push((await this.agentDownload(url, QQAgentMedia.limits.image, context.signal)).data);
+      }
+    }
+    const usable = [];
+    for (const data of pictures.slice(0, 4)) {
+      // One frame, at most 2048 px and 3 MB: animated stickers and huge photos are fine as references.
+      try { usable.push((await LinuxImages.process(data, 'artwork', {minLongEdge: 0, minShortEdge: 0}))[0]); }
+      catch { return '有一张参考图解不开（不是图片，或者格式不认识）。'; }
+    }
+    return usable;
+  },
+  /** Its last few drawings in each chat, for `last` (memory only). */
+  agentRememberDrawing(key, images) {
+    this.agentDrawn ??= new Map();
+    this.agentDrawn.set(key, [...(this.agentDrawn.get(key) ?? []), ...images].slice(-4));
+  },
+
 
   async agentSendImage(input, context) {
     const {target} = context;

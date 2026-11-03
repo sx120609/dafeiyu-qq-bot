@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import {OneBotFixture, ModelScript, tempDirectory, removeDirectory, wait, pause, call, results, opening} from './engine-fixtures.mjs';
+import {OneBotFixture, ModelScript, tempDirectory, removeDirectory, wait, pause, call, results, opening, png} from './engine-fixtures.mjs';
 import {QQEngine} from '../engine/QQEngine.mjs';
 import {DeepSeekClient} from '../engine/Services.mjs';
 import {QQAgentTurn} from '../engine/QQEngine.types.mjs';
@@ -248,6 +248,44 @@ test('programFaultsReachSelfRepair', async () => {
     restore();
     await r.stop(); server.close();
   }
+});
+
+/// Drawing from pictures (11-03, "不能根据用户发的图片进行修改"): "last" changes its own previous picture, the options
+/// reach the generator, several pictures go out in one message, and a reference that is not there is said, not guessed.
+test('aDrawingIsChangedFromItsLastPicture', async () => {
+  const {ModelToolResult} = await import('../engine/QQOnlineTools.mjs');
+  const picture = png(), calls = [];
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: JSON.stringify({action: 'generate', prompt: opening(messages).includes('红色') ? '把鱼改成红色' : '一条蓝色的鱼', note: ''})};
+    const seen = results(messages);
+    switch (seen.length) {
+      case 0: return call('draw_image', {prompt: '一条蓝色的鱼', size: 'portrait'});
+      case 1: return call('draw_image', {prompt: '把鱼改成红色，别的不变', images: ['last'], count: 2, quality: 'high'});
+      case 2: return call('draw_image', {prompt: '照着画', images: ['424242']});
+      default: return {content: "画完了：" + seen.join(" | ")};
+    }
+  }, {shape: 'private'});
+  try {
+    r.engine.imageGenerator = {execute: async ({references, options}) => {
+      calls.push({references, options});
+      return new ModelToolResult({content: '已生成', image: picture, images: options.count > 1 ? [picture, picture] : [picture], imageStatus: '生成成功'});
+    }};
+    r.engine.config.effectiveImageGeneration.enabled = true;
+    // A cold image helper can take seconds; the drawings stay in the turn instead of moving to the background.
+    r.engine.agentPatience.draw_image = 60;
+    r.engine.start();
+    r.engine.receivePoke({notice_type: 'notify', sub_type: 'poke', target_id: 12345, user_id: 54321}, Date.now() / 1000);
+    await wait(() => r.engine.agentTurns[0]?.note?.includes('画完了'), 15);
+    assert.equal(calls.length, 2, r.engine.agentTurns[0]?.note);
+    assert.equal(calls[0].references.length, 0); assert.equal(calls[0].options.size, 'portrait');
+    assert.equal(calls[1].references.length, 1, 'its last picture is the reference'); assert.equal(calls[1].options.count, 2); assert.equal(calls[1].options.quality, 'high');
+    // The reference went through the image helper: a JPEG, not the PNG it drew.
+    assert.equal(calls[1].references[0][0], 0xFF);
+    const pictures = r.fixture.segments().map(row => row.filter(segment => segment.startsWith('image:')).length);
+    assert.deepEqual(pictures.filter(count => count > 0), [1, 2]);
+    assert.ok(r.engine.agentTurns[0].note.includes('照着参考图画了 2 张图'), r.engine.agentTurns[0].note);
+    assert.ok(r.engine.agentTurns[0].note.includes('没画：没找到消息 424242'), r.engine.agentTurns[0].note);
+  } finally { await r.stop(); }
 });
 
 /// A turn woken without a message (a poke here) still draws, and a failed drawing says why.

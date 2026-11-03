@@ -1620,8 +1620,8 @@ export class QQEngine {
       } else if (this.fence.permits(epoch)) this.record(target.id, JobState.failed, '插画请求未发送：' + describe(error));
     } finally { this.activeGroupSubmissions.delete(submissionID); }
   }
-  async prepareImage({request, proposed, proactive, epoch, message, target, key, signal}) {
-    const {plan, tokens} = await this.modelClient.prepareQQImage({key, config: this.config.ai, text: request, proposed, proactive,
+  async prepareImage({request, proposed, proactive, epoch, message, target, key, signal, references = [], options = {}}) {
+    const {plan, tokens} = await this.modelClient.prepareQQImage({key, config: this.config.ai, text: request, proposed, proactive, references: references.length,
       reserve: async () => this.reserveModel(epoch, message.key, target), signal});
     this.check(epoch, message.key, target); this.usage.tokens += tokens;
     // The chat model asked to draw after reading the whole conversation; "none" here only means the latest
@@ -1640,7 +1640,7 @@ export class QQEngine {
     } else {
       const args = JSON.stringify({prompt: prefix(drawing ?? '', 1000)});
       result = await this.imageGenerator.execute({arguments: args, settings: this.config.effectiveImageGeneration, credentials: this.imageCredentials,
-        beforeAttempt: async () => this.reserveModel(epoch, message.key, target), signal});
+        beforeAttempt: async () => this.reserveModel(epoch, message.key, target), signal, references, options});
     }
     this.check(epoch, message.key, target);
     this.imageGenerationStatus = result.imageStatus ?? '本次未生成图片';

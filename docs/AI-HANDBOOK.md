@@ -140,7 +140,7 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 ## 7. 网关怎么工作
 
 - **模型**：本机 Codex（复用 ChatGPT 登录）、本机 Claude Code、云端 API（OpenAI 兼容或 Anthropic）。指挥的一批（`metadata.dafeiyu_session`）在 Claude Code 上是一个 Agent SDK 会话（`claude-session.mjs`），后面几轮只发新消息；其他调用仍是一次一个 `claude -p`。每种用途可以指定不同的模型，没指定就用当前连接。不设输出 token 上限。同时 8 路交互、2 路后台。每条面向聊天的调用都会附上一句底线：不聊国家领导人和时政敏感话题，不写色情和性暗示。
-- **画图**：先云端 API，再本机 Codex 的生图；多张同时画，不排队。
+- **画图**：先云端 API，再本机 Codex 的生图；多张同时画，不排队。`/v1/images/generations` 收 `prompt`，可选 `images`（参考图 base64，最多 8 张；有就走云端的 `/images/edits`，本机 Codex 用 `--image` 附上）、`size`（square / portrait / landscape）、`quality`（low / medium / high）、`background: 'transparent'`、`n`（1–4）。API 不认某个可选字段回 400 时，只带基本字段再试一次。
 - **自写工具**：机器人用 `create_tool` 说要求，`tool-writer.mjs` 让本机 Codex（Astra 模型，可联网查文档）写代码，网关用测试参数真跑，跑不通把报错还给它改，最多三稿，跑通才启用。工具可访问任何地址（含内网），有自己的存储，能调 QQ 的 OneBot 接口（只挡踢人、禁言、退群、删好友、删群文件、改机器人资料、拿登录凭证）。
 - **控制台接口**：`/console/api/*`，要登录。
 - **引擎调网关**：`/v1/*`，只认本机地址和 `token`。例如：
