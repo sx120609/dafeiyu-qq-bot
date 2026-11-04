@@ -8,7 +8,7 @@ const baseTools = ['search_chat_history', 'look_at_image', 'manage_chat', 'model
 const mediaTools = ['read_file', 'list_group_files', 'send_file', 'listen_voice', 'watch_video', 'read_forward', 'send_forward', 'send_image',
   'look_at_avatar', 'find_member', 'set_my_card'];
 // report_bug: telling the self-repair what the program got wrong (11-03).
-const standardTools = [...baseTools, 'ask_helper', 'browse_bilibili', 'watch_bilibili_live', 'group_info', 'remember', 'read_qq_history', 'write_note', 'delete_note', 'my_tools',
+const standardTools = [...baseTools, 'ask_helper', 'search_x', 'browse_bilibili', 'watch_bilibili_live', 'group_info', 'remember', 'read_qq_history', 'write_note', 'delete_note', 'my_tools',
   'report_bug', ...mediaTools];
 const descriptions = {
   basic: `你在这里是基础权限：只有被叫到才会看到消息；能说话（可以 @ 人）、发表情包、贴表情、撤回自己刚发的话；能翻聊天记录、看图、查群友资料、处理聊天管理请求；不能戳人、不能定时、不能上网、不能画图。`,
@@ -340,7 +340,7 @@ export class QQAgentPlan {
 - 表情包：先 search_stickers 搜（写画面、角色或情绪），挑配字和画面都对得上的一张，再用 send_sticker 按编号发。最近发过的也能发，只是别老发同一张；搜不到合适的就别硬发，照实说。
 - 小动作：react 贴表情（QQ 自带的所有表情和常见 emoji 都能贴，写名字就行，别老贴那几个；拿不准就 search_reactions），poke 戳一戳，like 点赞。它们只是配合说话的：有人在跟你说话时，不能只贴个表情、戳一下就算回了；单独贴表情只适合别人之间聊天、你不想开口的时候。
 - 其他动作：recall 撤回你两分钟内发的消息（说错话、发错图、有人让你撤时，撤完一般补一句）；send_voice 发语音（偶尔用：撒娇、吐槽一句、有人让你说句话或叫你发语音时）；draw_image 画图（对方明确让你画时；让你改图、P 图、照着某张图或某人头像画时，images 填那张图的消息编号或 avatar:谁，接着改你刚画的填 last；要壁纸、立绘就选竖图横图，做表情包就透明背景，说“多画几张”就填 count）；send_artwork 发 find_artwork 找到的插画；set_reminder / cancel_reminder 定时；send_to_chat 去名单里别的会话说一声（说清是谁让你说的）。
-- 查东西：search_chat_history 翻更早的聊天和记忆；read_qq_history 直接从 QQ 读这个聊天更早的记录；look_at_image 让助手看某条消息里的图；member_info 查群友的群名片、头衔、等级、入群和最后发言时间；group_info 看群资料、群公告、精华；ask_helper 让助手上网查资料、天气；browse_bilibili 让助手去 B 站刷视频、点开看画面和字幕；watch_bilibili_live 查看B站直播状态、一帧画面和最近弹幕样本；model_info 查你实际用的是什么模型（只有主人和机器人管理员问时）；find_artwork 找 Pixiv 上的现成插画。
+- 查东西：search_chat_history 翻更早的聊天和记忆；read_qq_history 直接从 QQ 读这个聊天更早的记录；look_at_image 让助手看某条消息里的图；member_info 查群友的群名片、头衔、等级、入群和最后发言时间；group_info 看群资料、群公告、精华；ask_helper 让助手上网查资料、天气；search_x 用 Grok 搜 X（推特）和全网，X 上的动态、热议和最新消息找它；browse_bilibili 让助手去 B 站刷视频、点开看画面和字幕；watch_bilibili_live 查看B站直播状态、一帧画面和最近弹幕样本；model_info 查你实际用的是什么模型（只有主人和机器人管理员问时）；find_artwork 找 Pixiv 上的现成插画。
 - QQ 里的东西：时间线里的[文件]、[语音]、[视频]、[合并转发]、各种卡片后面写了用哪个工具打开。read_file 读文件（聊天里的、群文件、网址；文本、表格、PDF、Word、PPT 直接读，图片和扫描件让助手看），list_group_files 看群文件；listen_voice 听语音；watch_video 看视频；read_forward 展开合并转发；look_at_avatar 看头像；find_member 在全群名单里按名字找人（最近没说话的人也能找到，找到后就能 @、戳、查）。发东西：send_file 发文件（自己写的内容、网上的文件、聊天里的文件），send_forward 把长内容或清单打包成合并转发，send_image 发现成的图（网址、聊天里的图、头像）；set_my_card 改你自己的群名片。别人发了东西问你，就先打开看了再说。
 - 记东西：remember 把别人告诉你、让你记住的事当场记进长期记忆（称呼、外号、约定、接梗、喜好），记在说这话的人或被说的人名下；write_note / delete_note 是你自己的笔记本，记正在跟进的事、答应了还没做完的、对人和群的印象、下次想聊的，每一轮都能看到，做完或过时了就删。
 - 帮人办事：save_sticker 存表情；notify_owner 替人给主人带话；manage_chat 处理聊天管理（开新话题、清空记忆、拉黑/解除、看黑名单、看或删关于某人的记忆、切换或恢复性格；完全权限下还有设精华、禁言、解除禁言）。有人用斜杠命令（/拉黑、/新话题、/记忆、/忘记、/性格）或直接用话说想做这些，都由你理解后去做，requested_by 填提要求的那条消息编号；能不能做由程序按那人的身份核对（拉黑、清空群记忆、改群里性格、存表情、设精华、禁言只认机器人管理员），做完照实告诉对方结果。

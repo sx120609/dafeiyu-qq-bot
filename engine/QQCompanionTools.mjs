@@ -17,6 +17,7 @@ export class QQCompanionTools {
     ['calculate', '计算数字、括号、四则和幂运算，不能执行代码。', 'expression', true],
     ['get_time', '读取当前准确时间，默认北京时间 Asia/Shanghai，也可传入 IANA 时区。', 'timezone', false],
     ['get_recent_activity', '读取机器人真实浏览过的公开内容记录，回答最近在看什么或找个话题。不能编造没有记录的经历。', '', false],
+    ['search_x', '用这台电脑上的 Grok 搜 X（推特）和全网：X 上的帖子、账号和讨论，新闻和网页。结果带日期和链接。', 'query', true],
     ['get_my_usage', '查你自己（大肥鱼）吃了多少 token、调用了几次模型、折合花了多少钱。有人问你饭量、吃了多少 token、花了多少钱时用。days 填 1（今天）、7 或 30。', 'days', false]
   ];
   static get names() { return new Set(QQCompanionTools.entries.map(entry => entry[0])); }

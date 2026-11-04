@@ -78,6 +78,12 @@ Object.assign(DeepSeekClient, {
     ];
     if (online) {
       tools.push(fn('watch_bilibili_live', '查看B站直播。输入直播间号或主播名，返回开播状态、标题、分区、人气及可取得的一帧画面观察和最近弹幕摘要。人气不是准确在线人数；同名候选先询问，未取得的内容不能编造。',
+      // Grok Build on the owner's computer (11-04): xAI's search reaches X as well as the web.
+      tools.push(fn('search_x', '用 Grok 搜 X（推特）和全网：X 上某人或某账号最近发了什么、某件事在 X 上怎么说、正在热议的话题，以及刚发生的新闻和网上的说法。结果带日期和链接。比 ask_helper 慢（一两分钟，会转后台），要 X 上的东西或最新消息时用它。',
+        {type: 'object', additionalProperties: false, required: ['query'], properties: {
+          query: {type: 'string', description: '要搜什么，写清楚人、账号（@名字）、事件或关键词，最多 500 字'},
+          scope: {type: 'string', enum: ['all', 'x', 'web'], description: 'all：X 和全网都搜（默认）；x：只搜 X；web：全网新闻和网页'}
+        }}));
         {type: 'object', additionalProperties: false, required: ['query'], properties: {
           query: {type: 'string', description: '直播间号或主播名，最多80字'}
         }}));
@@ -223,7 +229,7 @@ Object.assign(DeepSeekClient, {
   agentResultLimits: {read_file: 24000, read_forward: 24000, list_group_files: 12000, find_member: 8000},
 
   /// Tools that only look something up: several in one reply run at the same time.
-  agentLookups: new Set(['look_at_image', 'ask_helper', 'browse_bilibili', 'watch_bilibili_live', 'search_chat_history', 'read_qq_history',
+  agentLookups: new Set(['look_at_image', 'ask_helper', 'search_x', 'browse_bilibili', 'watch_bilibili_live', 'search_chat_history', 'read_qq_history',
     'member_info', 'group_info', 'model_info', 'search_stickers', 'search_reactions', 'find_artwork',
     'read_file', 'list_group_files', 'listen_voice', 'watch_video', 'read_forward', 'look_at_avatar', 'find_member']),
 

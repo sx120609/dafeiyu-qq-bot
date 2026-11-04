@@ -1356,6 +1356,11 @@ export const agentMethods = {
         if (!this.config.effectiveOnlineEnabled) return '联网没开。';
         const query = prefix(typeof input.query === 'string' ? input.query : '', 60), focus = prefix(typeof input.focus === 'string' ? input.focus : '', 100);
         const rule = new ChatRule({name: '刷B站助手'});
+      case 'search_x': {
+        if (!this.config.effectiveOnlineEnabled) return '联网没开。';
+        const result = await QQCompanionTools.execute({name, arguments: args, key, scope, sourceText: '', signal});
+        return result.content;
+      }
         rule.prompt = '[BILIBILI] 你替 QQ 里的机器人去 B 站刷视频，不聊天、不扮演角色。先用 browse_videos 看列表（query 空就是热门），从里面挑一两个最有意思、适合拿来聊的（涉政、色情的不选），再用 inspect_video 点开看字幕和画面。最后用中文交回：每个视频的标题、BV 号、实际讲了什么、好玩在哪。只说你真的读到的；只看了列表、没点开的要说明只看了简介。';
         const video = new Set(['browse_videos', 'inspect_video']);
         const result = await this.modelClient.reply({key, config: this.config.ai, rule, history: [],
