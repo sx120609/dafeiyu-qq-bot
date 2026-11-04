@@ -378,7 +378,7 @@ export const agentMethods = {
               // 11-03: "不许让别人查我的这个".
               output = '没查：用的什么模型、怎么跑的只告诉主人和机器人管理员（requested_by 要填他们的消息）。别人问就说不方便透露，别报模型名、版本、平台。';
             } else if (name === 'model_info') {
-              const identity = await this.modelClient.modelIdentity({key: credential, config: this.config.ai, signal});
+              const identity = await this.modelClient.modelIdentity({key: credential, config: this.config.ai, purpose: 'director', signal});
               const parsed = parseDictionary(identity.text);
               output = typeof parsed?.text === 'string' ? parsed.text : identity.text;
             } else if (name === 'find_artwork' && artworkOn) {

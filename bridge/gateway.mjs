@@ -190,15 +190,17 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(admin&&req.method==='POST'&&req.headers.origin!==origin){send(403,{error:'Origin rejected'});return;}
     if(req.method==='GET'){
       if(req.url==='/v1/models'){const p=settings.value.profiles[settings.value.active];send(200,{object:'list',data:[{id:'dafeiyu-active',object:'model',owned_by:settings.value.active},{id:p.model,object:'model',owned_by:settings.value.active}]});return;}
-      if(req.url==='/v1/model-info'){
-        // Names the model that actually writes the replies, and the one that rewrites them when that stage is on.
+      if(pathname==='/v1/model-info'){
+        // 2026-11-04: "Find the root cause"; the agent uses director, which can differ from chat and has no rewrite stage.
+        const requested=new URL(req.url,origin).searchParams.get('purpose');
+        const purpose=purposes.includes(requested)?requested:'chat';
         const labels={codex:'本机 Codex',claude:'官方 Claude Code',cloud:'云端 API',dsh:'本机 dsh'};
         const resolve=({provider,profile:p})=>{
           const check=settings.value.checks[provider],canonical=settings.value.catalogs[provider]?.models?.find(x=>x.id===p.model)?.resolvedModel;
           return check?.ok&&check.configuredModel===p.model?check.model:canonical||p.model;
         };
-        const chat=settings.route('chat'),rewrite=settings.rewriteEnabled()?settings.route('rewrite'):null;
-        send(200,{provider:chat.provider,providerLabel:labels[chat.provider],configuredModel:chat.profile.model,model:resolve(chat),
+        const route=settings.route(purpose),rewrite=purpose==='chat'&&settings.rewriteEnabled()?settings.route('rewrite'):null;
+        send(200,{provider:route.provider,providerLabel:labels[route.provider],configuredModel:route.profile.model,model:resolve(route),
           rewrite:rewrite?{provider:rewrite.provider,providerLabel:labels[rewrite.provider],model:resolve(rewrite)}:null});return;
       }
       if(req.url==='/console/api/state'){await backoff.ready;let bot={};try{bot=JSON.parse(await plain(path.join(runtime,'status.json')));}catch{}send(200,{...settings.view(),availability:Object.fromEntries([...known].map(p=>[p,backoff.snapshot(p)])),busy:isBusy(),bot,queue:generations.snapshot(),recentMetrics});return;}

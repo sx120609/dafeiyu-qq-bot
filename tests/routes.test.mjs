@@ -4,6 +4,33 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {Settings,createGateway,validRoutes} from '../bridge/gateway.mjs';
+import {DeepSeekClient} from '../engine/Services.mjs';
+import {swiftURL} from '../engine/foundation.mjs';
+
+test('model identity follows the requested purpose when chat and director use different connections',async()=>{
+  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-model-info-test-'));
+  const settings=await new Settings(path.join(temp,'providers.json')).load();
+  settings.value.active='claude';settings.value.profiles.claude.model='opus';
+  settings.value.catalogs.claude={models:[{id:'opus',resolvedModel:'claude-opus-5-5'}]};
+  settings.value.profiles.cloud.model='claude-opus-5.5';
+  settings.value.routes={chat:{provider:'cloud'},rewrite:{provider:'codex'}};
+  const config={token:'synthetic-model-token',consoleToken:'synthetic-console-token'};
+  const server=createGateway(config,settings,{runtime:temp});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const client=new DeepSeekClient();
+  client.base=swiftURL(`http://127.0.0.1:${server.address().port}/v1`);
+  const identity=async purpose=>JSON.parse((await client.modelIdentity({key:config.token,config:{model:'dafeiyu-active'},purpose})).text).text;
+  try{
+    assert.equal(await identity('director'),'我现在用的是 claude-opus-5-5，通过官方 Claude Code调用。');
+    assert.match(await identity(),/claude-opus-5\.5，通过云端 API调用；说话的口吻再交给/);
+    settings.value.active='cloud';
+    settings.value.routes.director={provider:'claude',model:'claude-opus-5-5'};
+    assert.equal(await identity('director'),'我现在用的是 claude-opus-5-5，通过官方 Claude Code调用。');
+    settings.value.checks.claude={ok:true,configuredModel:'opus',model:'claude-opus-5-5'};
+    settings.value.routes.director.model='opus';
+    assert.equal(await identity('director'),'我现在用的是 claude-opus-5-5，通过官方 Claude Code调用。');
+  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
+});
 
 test('each purpose can go to its own model, falls back to the active one, and the rewrite stage is off until assigned',async()=>{
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-routes-test-'));

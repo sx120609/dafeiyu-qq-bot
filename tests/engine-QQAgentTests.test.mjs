@@ -359,3 +359,29 @@ test('onlyAdminsLearnWhatRunsTheBot', async () => {
     assert.equal(engine.agentAskedByAdmin('72', ['71'], {71: {sender: '54321'}}, engine.config.targets[0]), false, 'a message this turn did not see');
   } finally { await r.stop(); }
 });
+
+test('modelInfoAsksForTheDirectorIdentity', async () => {
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: '不用'};
+    return results(messages).length === 0 ? call('model_info', {requested_by: '71'}) : {content: '查完了'};
+  });
+  const requests = [];
+  r.engine.modelClient.modelIdentity = async request => {
+    requests.push(request);
+    return {text: JSON.stringify({text: '模型信息'})};
+  };
+  try {
+    const engine = r.engine;
+    engine.config.adminIDs = ['54321'];
+    engine.add(engine.contacts.find(contact => contact.number === '99999'));
+    engine.config.targets[0].enabled = true;
+    engine.start();
+    const asked = group(71, 54321, '你是什么模型');
+    asked.message.unshift({type: 'at', data: {qq: '12345'}});
+    r.fixture.inject([asked]);
+    assert.ok(await wait(() => engine.agentTurns.at(-1)?.note === '查完了'));
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].purpose, 'director');
+    assert.equal(engine.agentTurns.at(-1).errands[0].result, '模型信息');
+  } finally { await r.stop(); }
+});

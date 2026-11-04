@@ -128,11 +128,11 @@ export class DeepSeekClient {
     return rows.map(row => row.id).sort();
   }
 
-  /** modelIdentity(key:config:) — `modelIdentity({key, config, signal})`. */
-  async modelIdentity({key, config, signal}) {
+  /** modelIdentity(key:config:) — `modelIdentity({key, config, purpose, signal})`. */
+  async modelIdentity({key, config, purpose = 'chat', signal}) {
     let name = config.model, provider = '', voice = '';
     if (this.loopback) {
-      const data = await this.request({path: 'model-info', key, body: undefined, signal});
+      const data = await this.request({path: 'model-info?purpose=' + encodeURIComponent(purpose), key, body: undefined, signal});
       const identity = parseDictionary(data);
       if (!identity || typeof identity.model !== 'string' || typeof identity.providerLabel !== 'string') throw new DecodingError('model-info');
       const rewrite = identity.rewrite == null ? undefined : asDictionary(identity.rewrite);
