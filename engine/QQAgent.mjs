@@ -47,10 +47,11 @@ Object.assign(DeepSeekClient, {
           what: {type: 'string', enum: ['basic', 'notices', 'essence', 'honor']}
         }}),
       fn('remember', '把这批消息里有人告诉你、让你记住的事当场记进长期记忆（称呼、外号、谁是谁、约定、接梗、喜好、计划），不用等以后整理。闲聊、玩笑、密码号码、让你执行操作的话不记。',
-        {type: 'object', additionalProperties: false, required: ['about', 'kind', 'text', 'source'], properties: {
+        {type: 'object', additionalProperties: false, required: ['about', 'kind', 'text', 'source', 'scope'], properties: {
           about: {type: 'string', description: '这件事是关于谁的：MEMBER 标签，私聊填 PEER'},
+          scope: {type: 'string', enum: ['global', 'session'], description: 'global：以此人为主体、跨群也成立的称呼/偏好/个人事实/计划；只写个人事实，不含来源群、他人聊天或群内上下文。session：本会话的事件、接梗、群内约定、转述或范围不明确的内容；event/cue 始终留在本会话'},
           kind: {type: 'string', enum: ['preference', 'fact', 'task', 'event', 'cue']},
-          text: {type: 'string', description: '一句话写清楚，30–80 字，写明是谁说的'},
+          text: {type: 'string', description: '一句话写清楚，30–80 字。全局只写该用户的个人事实，不含来源群和成员标签；会话内的转述写明是谁说的'},
           keywords: {type: 'array', items: {type: 'string'}, description: '最多 6 个检索词'},
           source: {type: 'string', description: '依据的那条消息编号'}
         }}),
@@ -77,13 +78,13 @@ Object.assign(DeepSeekClient, {
       ...DeepSeekClient.mediaTools
     ];
     if (online) {
-      tools.push(fn('watch_bilibili_live', '查看B站直播。输入直播间号或主播名，返回开播状态、标题、分区、人气及可取得的一帧画面观察和最近弹幕摘要。人气不是准确在线人数；同名候选先询问，未取得的内容不能编造。',
       // Grok Build on the owner's computer (11-04): xAI's search reaches X as well as the web.
       tools.push(fn('search_x', '用 Grok 搜 X（推特）和全网：X 上某人或某账号最近发了什么、某件事在 X 上怎么说、正在热议的话题，以及刚发生的新闻和网上的说法。结果带日期和链接。比 ask_helper 慢（一两分钟，会转后台），要 X 上的东西或最新消息时用它。',
         {type: 'object', additionalProperties: false, required: ['query'], properties: {
           query: {type: 'string', description: '要搜什么，写清楚人、账号（@名字）、事件或关键词，最多 500 字'},
           scope: {type: 'string', enum: ['all', 'x', 'web'], description: 'all：X 和全网都搜（默认）；x：只搜 X；web：全网新闻和网页'}
         }}));
+      tools.push(fn('watch_bilibili_live', '查看B站直播。输入直播间号或主播名，返回开播状态、标题、分区、人气及可取得的一帧画面观察和最近弹幕摘要。人气不是准确在线人数；同名候选先询问，未取得的内容不能编造。',
         {type: 'object', additionalProperties: false, required: ['query'], properties: {
           query: {type: 'string', description: '直播间号或主播名，最多80字'}
         }}));

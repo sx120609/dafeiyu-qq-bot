@@ -409,7 +409,7 @@
       </article>
 
       <article class="card section ability" id="ab-memory" data-ability="长期记忆">
-        <div class="section-head"><div><h3>长期记忆</h3><p class="muted">各好友和群分开记：称呼、外号、谁是谁、约定、接梗、喜好。整理放到后台，不挡聊天。</p></div><input type="checkbox" class="switch" data-feature="memory" aria-label="长期记忆"></div>
+        <div class="section-head"><div><h3>长期记忆</h3><p class="muted">个人称呼、喜好和事实跟随 QQ 号，跨群和私聊共享；群事件、接梗和聊天上下文留在原会话。整理放到后台，不挡聊天。</p></div><input type="checkbox" class="switch" data-feature="memory" aria-label="长期记忆"></div>
         <p class="reason" data-reason="memory"></p>
         <form autocomplete="off" id="memory-form" class="col" novalidate>
           <div class="fields four">
@@ -580,9 +580,9 @@
           <tbody>
             <tr><td><code>/help</code></td><td>列出可用命令</td><td>所有人</td></tr>
             <tr><td><code>/new</code></td><td>开个新话题，忘掉刚才的上下文；长期记忆保留</td><td>私聊里的对方；群里仅管理员</td></tr>
-            <tr><td><code>/clear</code></td><td>新话题，并清空这个会话的长期记忆</td><td>私聊里的对方；群里仅管理员</td></tr>
-            <tr><td><code>/记忆</code></td><td>看看它在这个会话里记得你什么</td><td>所有人（只看自己的）</td></tr>
-            <tr><td><code>/忘记 关键词</code></td><td>删掉关于你、带这个关键词的记忆</td><td>所有人（只删自己的）</td></tr>
+            <tr><td><code>/clear</code></td><td>新话题，并清空本会话长期记忆；用户全局记忆保留</td><td>私聊里的对方；群里仅管理员</td></tr>
+            <tr><td><code>/记忆</code></td><td>查看关于你的全局记忆和本会话记忆</td><td>所有人（只看自己的）</td></tr>
+            <tr><td><code>/忘记 关键词</code></td><td>删除关于你、匹配关键词的全局和本会话记忆；全局删除在所有会话生效</td><td>所有人（只删自己的）</td></tr>
             <tr><td><code>/拉黑 QQ号</code></td><td>拉黑，之后完全不回复此人；群里也可以 <code>/拉黑 @某人</code></td><td>管理员</td></tr>
             <tr><td><code>/解除拉黑 QQ号</code></td><td>移出黑名单</td><td>管理员</td></tr>
             <tr><td><code>/黑名单</code></td><td>查看已拉黑的 QQ</td><td>管理员</td></tr>

@@ -58,6 +58,7 @@ export class QQStored {
     this.seen = fields.seen ?? {};
     this.memories = fields.memories; // Legacy migration only.
     this.memoryBooks = fields.memoryBooks;
+    this.userMemoryBooks = fields.userMemoryBooks;
     this.botMessageIDs = fields.botMessageIDs;
     this.ownershipSince = fields.ownershipSince;
     this.stickerHistory = fields.stickerHistory;
@@ -87,6 +88,7 @@ export class QQStored {
       seen: required(json, 'seen'),
       memories: optional('memories', value => mapValues(value, legacySummary)),
       memoryBooks: optional('memoryBooks', value => mapValues(value, book => QQMemoryBook.decode(book))),
+      userMemoryBooks: optional('userMemoryBooks', value => mapValues(value, book => QQMemoryBook.decode(book))),
       botMessageIDs: optional('botMessageIDs', value => value),
       ownershipSince: optional('ownershipSince', value => value),
       stickerHistory: optional('stickerHistory', value => mapValues(value, list => list.map(item => use.decode(item)))),
@@ -107,6 +109,7 @@ export class QQStored {
     const out = {config: this.config, usage: this.usage, sends: this.sends, logs: this.logs, seen: this.seen};
     const put = (key, value) => { if (value !== undefined && value !== null) out[key] = value; };
     put('memories', this.memories); put('memoryBooks', this.memoryBooks); put('botMessageIDs', this.botMessageIDs); put('ownershipSince', this.ownershipSince);
+    put('userMemoryBooks', this.userMemoryBooks);
     put('stickerHistory', this.stickerHistory); put('stickerLastSentAt', this.stickerLastSentAt && dateToSwift(this.stickerLastSentAt));
     put('artworkLedger', this.artworkLedger); put('contextResetAt', this.contextResetAt); put('outreachLedger', this.outreachLedger);
     put('removedTargets', this.removedTargets); put('decisions', this.decisions); put('timelineSummaries', this.timelineSummaries);
@@ -178,6 +181,7 @@ export class QQEngine {
     this.sends = new SendUsage();
     this.error = undefined;
     this.memoryBooks = {};
+    this.userMemoryBooks = {};
     this.memoryStatus = '记忆等待新消息';
     this.memoryIndexes = new Map();
     this.memoryWorker = undefined;
@@ -350,6 +354,7 @@ export class QQEngine {
             this.memoryBooks[scope].importLegacy(summary.text, subject, summary.updatedAt);
           }
         }
+        if (state.userMemoryBooks) this.userMemoryBooks = state.userMemoryBooks;
         this.logs = state.logs.filter(entry => entry.date > addSeconds(new Date(), -7 * 86400));
       }
     } catch (error) { this.storageOK = false; this.error = `QQ 配置读取失败，已阻止启动：${describe(error)}`; }
@@ -757,7 +762,7 @@ export class QQEngine {
       const scope = selfID + ':' + message.key;
       const subject = QQMemoryBook.subject(selfID, message.key, message.sender);
       this.memoryBooks[scope] ??= new QQMemoryBook();
-      this.memoryBooks[scope].append(new QQMemoryEvent({id: message.id, subject, text: message.text, at: new Date(message.time * 1000)}));
+      this.memoryBooks[scope].append(new QQMemoryEvent({id: message.id, subject, text: message.text, at: new Date(message.time * 1000), userID: message.sender}));
       try { this.persist(); } catch { return; }
       this.scheduleMemoryLearning();
     }
@@ -993,12 +998,14 @@ export class QQEngine {
           break;
         }
         case 'memories': {
-          // Only what this conversation taught it about the sender; other chats stay out of it.
+          // 2026-11-04: "/记忆、/忘记 能看到和删除这个用户的全局记忆"; identity comes from the sender.
           const subject = QQMemoryBook.subject(this.config.expectedSelfID, target.key, sender);
-          const items = this.memoryBooks[this.config.expectedSelfID + ':' + target.key]?.remembered(subject) ?? [];
-          text = !items.length ? '在这儿还没记下关于你的事。' :
-            `我在这儿记得你这些（${items.length} 条）：\n` + items.slice(0, 15).map(item => `· ${item.text}（${formatDate(item.updatedAt, 'M月d日', 'Asia/Shanghai')}）`).join('\n') +
-            (items.length > 15 ? '\n……' : '') + '\n记错了就用 /忘记 关键词 删掉。';
+          const local = this.memoryBooks[this.config.expectedSelfID + ':' + target.key]?.remembered(subject) ?? [];
+          const global = this.userMemoryBooks?.[QQMemoryBook.userKey(this.config.expectedSelfID, sender)]?.remembered('USER') ?? [];
+          const items = [...global, ...local];
+          text = !items.length ? '还没记下关于你的事。' :
+            `我记得你这些（${items.length} 条）：\n` + items.map(item => `· [${item.scope === 'global' ? '全局' : '本会话'}] ${item.text}（${formatDate(item.updatedAt, 'M月d日', 'Asia/Shanghai')}）`).join('\n') +
+            '\n记错了就用 /忘记 关键词 删掉（同时查找全局和本会话）。';
           break;
         }
         case 'forget': {
@@ -1007,6 +1014,7 @@ export class QQEngine {
           const scope = this.config.expectedSelfID + ':' + target.key;
           const forgotten = this.memoryBooks[scope]?.forget(subject, keyword) ?? [];
           if (forgotten.length) this.memoryIndexes.delete(scope);
+          forgotten.push(...(this.userMemoryBooks?.[QQMemoryBook.userKey(this.config.expectedSelfID, sender)]?.forget('USER', keyword, new Date(), true) ?? []));
           text = !forgotten.length ? `没找到关于你、带“${keyword}”的记忆。` : `忘掉了 ${forgotten.length} 条：\n` + forgotten.slice(0, 5).map(item => '· ' + item).join('\n');
           break;
         }
@@ -1662,6 +1670,32 @@ export class QQEngine {
     delete this.memoryBooks[scope]; this.memoryIndexes.delete(scope); this.memoryRetryAfter.delete(scope);
     try { this.persist(); this.memoryStatus = '该会话所有记忆和待整理片段已清除'; this.status = 'QQ 回复已暂停'; } catch (error) { this.error = describe(error); }
   }
+  memoryMembers(target, events = this.memoryBooks[this.config.expectedSelfID + ':' + target.key]?.recent ?? []) {
+    const account = this.config.expectedSelfID, members = {};
+    if (!target.group && !this.config.isBlocked(target.number)) members.PEER = target.number;
+    for (const event of events) {
+      if (event.userID && event.userID !== account && !this.config.isBlocked(event.userID) &&
+          QQMemoryBook.subject(account, target.key, event.userID) === event.subject) members[event.subject] = event.userID;
+    }
+    return members;
+  }
+  memoryItems(target, members = this.memoryMembers(target)) {
+    const account = this.config.expectedSelfID;
+    const items = [...(this.memoryBooks[account + ':' + target.key]?.items ?? [])];
+    for (const [subject, user] of Object.entries(members)) {
+      if (user === account || this.config.isBlocked(user) || QQMemoryBook.subject(account, target.key, user) !== subject) continue;
+      const book = this.userMemoryBooks?.[QQMemoryBook.userKey(account, user)];
+      // 2026-11-04: "不要把一个群的群聊内容泄露到别的群"; project only explicit user facts, never journals.
+      for (const item of book?.items ?? []) {
+        if (item.subject === 'USER' && QQMemoryBook.scope(item.scope, item.kind) === 'global') items.push(Object.assign(item.clone(), {subject}));
+      }
+    }
+    return items;
+  }
+  memoryContext(target, query, members = this.memoryMembers(target), characters = this.config.effectiveMemoryOptions.retrievalCharacters) {
+    if (!this.config.effectiveMemoryEnabled) return '';
+    return new QQMemoryIndex(this.memoryItems(target, members)).context(query, Object.keys(members), characters);
+  }
   scheduleMemoryLearning() {
     if (!(this.running && this.connected && this.config.effectiveMemoryEnabled && this.memoryWorker === undefined && this.storageOK)) return;
     const epoch = this.fence.epoch;
@@ -1680,8 +1714,8 @@ export class QQEngine {
           const batch = book.batch(); if (!batch.length) continue;
           try {
             this.check(epoch, target.key, target);
-            const index = this.memoryIndexes.get(scope) ?? new QQMemoryIndex(book.items);
-            this.memoryIndexes.set(scope, index);
+            const members = this.memoryMembers(target, batch);
+            const index = new QQMemoryIndex(this.memoryItems(target, members));
             let candidates = [];
             for (const subject of [...new Set(batch.map(event => event.subject))].sort()) {
               candidates.push(...index.search(batch.filter(event => event.subject === subject).map(event => event.text).join('\n'), subject, 24).filter(item => item.subject === subject));
@@ -1696,8 +1730,12 @@ export class QQEngine {
             this.check(epoch, target.key, target);
             const current = this.memoryBooks[scope]?.clone();
             if (!this.config.effectiveMemoryEnabled || !current) throw new CancellationError();
-            current.apply(delta, batch, suppliedIDs);
+            const users = new Map(Object.entries(members).map(([subject, user]) => [subject,
+              this.userMemoryBooks?.[QQMemoryBook.userKey(this.config.expectedSelfID, user)]?.clone() ?? new QQMemoryBook()]));
+            current.apply(delta, batch, suppliedIDs, new Date(), users);
             this.memoryBooks[scope] = current; this.memoryIndexes.set(scope, new QQMemoryIndex(current.items));
+            this.userMemoryBooks ??= {};
+            for (const [subject, userBook] of users) if (userBook.items.length) this.userMemoryBooks[QQMemoryBook.userKey(this.config.expectedSelfID, members[subject])] = userBook;
             this.usage.tokens += tokens; this.memoryRetryAfter.delete(scope);
             this.memoryStatus = `记忆整理完成：${batch.length} 条片段，${delta.changes.length} 项重点变更`;
             this.persist();
@@ -1771,7 +1809,7 @@ export class QQEngine {
           const lastAt = uses => uses.at(-1)?.at ?? distantPast;
           this.recentStickers = Object.fromEntries(Object.entries(this.recentStickers).sort((a, b) => lastAt(b[1]) - lastAt(a[1])).slice(0, 60));
         }
-        const state = new QQStored({config: this.config, usage: this.usage, sends: this.sends, logs: this.logs, seen: this.seen, memories: undefined, memoryBooks: this.memoryBooks,
+        const state = new QQStored({config: this.config, usage: this.usage, sends: this.sends, logs: this.logs, seen: this.seen, memories: undefined, memoryBooks: this.memoryBooks, userMemoryBooks: this.userMemoryBooks,
           botMessageIDs: this.botMessageIDs, ownershipSince: this.ownershipSince, stickerHistory: this.recentStickers, stickerLastSentAt: this.lastStickerAt,
           artworkLedger: this.artworkLedger, contextResetAt: this.contextResetAt, outreachLedger: this.outreachLedger,
           // They quote messages, so they reach the disk only when the owner lets the bot keep chat text.

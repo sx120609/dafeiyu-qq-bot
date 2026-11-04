@@ -34,25 +34,27 @@ export class QQMemoryOptions {
 
 export class QQMemoryEvent {
   /** The init redacts and bounds the text; decoding keeps the stored text as it is (synthesized Codable). */
-  constructor({id, subject, text, at} = {}) {
-    this.id = id; this.subject = subject; this.text = prefix(QQMemoryBook.redact(text), 1200); this.at = at;
+  constructor({id, subject, text, at, userID} = {}) {
+    this.id = id; this.subject = subject; this.text = prefix(QQMemoryBook.redact(text), 1200); this.at = at; this.userID = userID;
   }
   static decode(json) {
     const c = container(json, 'QQMemoryEvent');
     const event = Object.create(QQMemoryEvent.prototype);
     event.id = c.need('id', decodeString); event.subject = c.need('subject', decodeString);
     event.text = c.need('text', decodeString); event.at = c.need('at', decodeDate);
+    event.userID = c.maybe('userID', decodeString);
     return event;
   }
-  toJSON() { return {id: this.id, subject: this.subject, text: this.text, at: encodeDate(this.at)}; }
+  toJSON() { return {id: this.id, subject: this.subject, text: this.text, at: encodeDate(this.at), userID: this.userID}; }
   clone() { return deepClone(this); }
   equals(other) { return deepEqual(this, other); }
 }
 
 export class QQMemoryItem {
-  constructor({id = uuid(), subject, kind, text, keywords, importance, sourceIDs, updatedAt, expiresAt, invalidatedAt} = {}) {
+  constructor({id = uuid(), subject, kind, text, keywords, importance, sourceIDs, updatedAt, expiresAt, invalidatedAt, scope = 'session'} = {}) {
     this.id = id; this.subject = subject; this.kind = kind; this.text = text; this.keywords = keywords; this.importance = importance;
     this.sourceIDs = sourceIDs; this.updatedAt = updatedAt; this.expiresAt = expiresAt; this.invalidatedAt = invalidatedAt;
+    this.scope = scope;
   }
   current(now) { return this.invalidatedAt === undefined && this.expiresAt > now; }
   static decode(json) {
@@ -60,20 +62,21 @@ export class QQMemoryItem {
     return new QQMemoryItem({id: c.need('id', decodeString), subject: c.need('subject', decodeString), kind: c.need('kind', decodeString),
       text: c.need('text', decodeString), keywords: c.need('keywords', decodeArray(decodeString)), importance: c.need('importance', decodeInt),
       sourceIDs: c.need('sourceIDs', decodeArray(decodeString)), updatedAt: c.need('updatedAt', decodeDate),
-      expiresAt: c.need('expiresAt', decodeDate), invalidatedAt: c.maybe('invalidatedAt', decodeDate)});
+      expiresAt: c.need('expiresAt', decodeDate), invalidatedAt: c.maybe('invalidatedAt', decodeDate), scope: c.maybe('scope', decodeString) ?? 'session'});
   }
   toJSON() {
     return {id: this.id, subject: this.subject, kind: this.kind, text: this.text, keywords: this.keywords, importance: this.importance,
-      sourceIDs: this.sourceIDs, updatedAt: encodeDate(this.updatedAt), expiresAt: encodeDate(this.expiresAt), invalidatedAt: encodeDate(this.invalidatedAt)};
+      sourceIDs: this.sourceIDs, updatedAt: encodeDate(this.updatedAt), expiresAt: encodeDate(this.expiresAt), invalidatedAt: encodeDate(this.invalidatedAt), scope: this.scope};
   }
   clone() { return deepClone(this); }
   equals(other) { return deepEqual(this, other); }
 }
 
 class Change {
-  constructor({operation, replaces, subject, kind, text, keywords, importance, sourceID, evidence, days} = {}) {
+  constructor({operation, replaces, subject, kind, text, keywords, importance, sourceID, evidence, days, scope = 'session'} = {}) {
     this.operation = operation; this.replaces = replaces; this.subject = subject; this.kind = kind; this.text = text;
     this.keywords = keywords; this.importance = importance; this.sourceID = sourceID; this.evidence = evidence; this.days = days;
+    this.scope = scope;
   }
   /**
    * Swift's `init?(_ fields: [String: Any])`. Optional fields fall back to defaults: one change missing `replaces` or
@@ -86,7 +89,7 @@ class Change {
     if (subject === undefined || kind === undefined || sourceID === undefined) return undefined;
     return new Change({operation: asString(fields.operation) ?? 'upsert', replaces: asStrings(fields.replaces) ?? [], subject, kind, sourceID,
       text: asString(fields.text) ?? '', keywords: (asStrings(fields.keywords) ?? []).slice(0, 6), importance: asInt(fields.importance) ?? 2,
-      evidence: asString(fields.evidence) ?? '', days: asInt(fields.days) ?? 90});
+      evidence: asString(fields.evidence) ?? '', days: asInt(fields.days) ?? 90, scope: asString(fields.scope) ?? 'session'});
   }
   /** Synthesized Decodable (every key required). */
   static decode(json) {
@@ -94,7 +97,7 @@ class Change {
     return new Change({operation: c.need('operation', decodeString), replaces: c.need('replaces', decodeArray(decodeString)),
       subject: c.need('subject', decodeString), kind: c.need('kind', decodeString), text: c.need('text', decodeString),
       keywords: c.need('keywords', decodeArray(decodeString)), importance: c.need('importance', decodeInt), sourceID: c.need('sourceID', decodeString),
-      evidence: c.need('evidence', decodeString), days: c.need('days', decodeInt)});
+      evidence: c.need('evidence', decodeString), days: c.need('days', decodeInt), scope: c.maybe('scope', decodeString) ?? 'session'});
   }
 }
 
@@ -129,7 +132,7 @@ const allowedKinds = ['preference', 'fact', 'task', 'event', 'cue'];
 const redaction = new RegExp(`(sk-[a-z0-9_-]+|cfut_[a-z0-9_-]+|bearer[${ICU_SPACE}]+[a-z0-9._-]+|(?:密码|口令|密钥|token|api${ICU_DOT}?key)[${ICU_SPACE}]*[:：=][${ICU_SPACE}]*[^${ICU_SPACE}，。；;]+|https?://[^${ICU_SPACE}]+[?][^${ICU_SPACE}]+)`, 'giu');
 const dropped = /[\p{Z}\t\n\v\f\r\u0085\p{P}\p{S}]/gu;
 
-/** One account + one private peer/group. Pending excerpts survive pause; no cross-scope search. */
+/** Session journals and separate user books share a format; only explicit user facts cross chats. */
 export class QQMemoryBook {
   constructor({pending = [], recent = [], items = [], knownIDs = [], lastCompactedAt, droppedEvents = 0} = {}) {
     this.pending = pending; this.recent = recent; this.items = items; this.knownIDs = knownIDs;
@@ -141,6 +144,9 @@ export class QQMemoryBook {
     const digest = sha256(Buffer.from(account + ':' + target + ':' + sender, 'utf8'));
     return 'MEMBER_' + digest.subarray(0, 6).toString('hex');
   }
+  static userKey(account, user) { return account + ':' + user; }
+  // 2026-11-04: "只共享以该用户为主体的记忆"; episodes, group events and taught cues stay local.
+  static scope(scope, kind) { return scope === 'global' && ['preference', 'fact', 'task'].includes(kind) ? 'global' : 'session'; }
   static redact(text) { return text.replace(redaction, '[敏感信息省略]'); }
   /** @discardableResult */
   append(event) {
@@ -174,16 +180,16 @@ export class QQMemoryBook {
    * A fact the agent was told to keep, written at once instead of waiting for the next consolidation. The
    * caller checks that `subject` and `sourceID` belong to this batch.
    */
-  remember(subject, kind, text, keywords, sourceID, now = new Date()) {
+  remember(subject, kind, text, keywords, sourceID, now = new Date(), scope = 'session') {
     const clean = QQMemoryBook.redact(trimmed(text));
     if (!(allowedKinds.includes(kind) && clean !== '' && count(clean) <= 180)) throw CoreError.invalid('记忆内容无效');
     if (this.items.some(item => item.subject === subject && item.text === clean && item.current(now))) return;
     const days = kind === 'event' ? 90 : kind === 'task' ? 30 : 365;
     this.items.push(new QQMemoryItem({subject, kind, text: clean, keywords: keywords.slice(0, 6).map(word => QQMemoryBook.redact(prefix(word, 20))).filter(word => word !== ''),
-      importance: kind === 'cue' ? 3 : 2, sourceIDs: [sourceID], updatedAt: now, expiresAt: addDays(now, days)}));
+      importance: kind === 'cue' ? 3 : 2, sourceIDs: [sourceID], updatedAt: now, expiresAt: addDays(now, days), scope: QQMemoryBook.scope(scope, kind)}));
   }
   /** Validate every mutation against supplied evidence and candidates, then apply atomically. `candidateIDs` is a Set. */
-  apply(delta, batch, candidateIDs, now = new Date()) {
+  apply(delta, batch, candidateIDs, now = new Date(), userBooks = new Map()) {
     if (!(candidateIDs instanceof Set)) candidateIDs = new Set(candidateIDs ?? []);
     const sources = new Map(batch.map(event => [event.id, event]));
     const pendingIDs = new Set(this.pending.map(event => event.id));
@@ -201,11 +207,14 @@ export class QQMemoryBook {
       const spoken = QQMemoryBook.squeezed(source.text), said = new Set(graphemes(spoken)), quoted = QQMemoryBook.squeezed(item.evidence);
       const quotedCharacters = graphemes(quoted);
       if (!(quoted === '' || spoken.includes(quoted) || quotedCharacters.filter(c => said.has(c)).length >= quotedCharacters.length * 0.6)) return [];
-      const replaces = item.replaces.filter(id => candidateIDs.has(id) && this.items.some(entry => entry.id === id && entry.subject === item.subject && entry.current(now))).slice(0, 6);
+      const scope = userBooks.has(item.subject) ? QQMemoryBook.scope(item.scope, item.kind) : 'session';
+      const destination = scope === 'global' ? userBooks.get(item.subject) : this;
+      const subject = scope === 'global' ? 'USER' : item.subject;
+      const replaces = item.replaces.filter(id => candidateIDs.has(id) && destination.items.some(entry => entry.id === id && entry.subject === subject && entry.current(now))).slice(0, 6);
       const operation = item.operation === 'forget' ? 'forget' : 'upsert';
       const text = prefix(trimmed(item.text), 180);
       if (!(operation === 'forget' ? replaces.length > 0 : text !== '')) return [];
-      return [new Change({operation, replaces, subject: item.subject,
+      return [new Change({operation, replaces, subject: item.subject, scope,
         kind: allowedKinds.includes(item.kind) ? item.kind : 'fact', text: operation === 'forget' ? '' : text,
         keywords: item.keywords.map(word => prefix(word, 20)).filter(word => word !== '').slice(0, 6),
         importance: Math.min(3, Math.max(1, item.importance)), sourceID: item.sourceID,
@@ -213,16 +222,18 @@ export class QQMemoryBook {
     });
     // Old versions remain marked as historical.
     for (const change of changes) {
-      const obsoleteSources = new Set(this.items.filter(item => change.replaces.includes(item.id)).flatMap(item => item.sourceIDs));
-      for (const item of this.items) {
+      const destination = change.scope === 'global' ? userBooks.get(change.subject) : this;
+      const subject = change.scope === 'global' ? 'USER' : change.subject;
+      const obsoleteSources = new Set(destination.items.filter(item => change.replaces.includes(item.id)).flatMap(item => item.sourceIDs));
+      for (const item of destination.items) {
         if (change.replaces.includes(item.id) || (item.kind === 'episode' && item.sourceIDs.some(id => obsoleteSources.has(id)))) item.invalidatedAt = now;
       }
       if (change.operation !== 'upsert') continue;
       const text = QQMemoryBook.redact(change.text);
-      if (this.items.some(item => item.subject === change.subject && item.text === text && item.current(now))) continue;
+      if (destination.items.some(item => item.subject === subject && item.text === text && item.current(now))) continue;
       const days = Math.min(change.days, change.kind === 'event' ? 90 : change.kind === 'task' ? 30 : 365);
-      this.items.push(new QQMemoryItem({subject: change.subject, kind: change.kind, text, keywords: change.keywords.map(QQMemoryBook.redact),
-        importance: change.importance, sourceIDs: [change.sourceID], updatedAt: now, expiresAt: addDays(now, days)}));
+      destination.items.push(new QQMemoryItem({subject, kind: change.kind, text, keywords: change.keywords.map(QQMemoryBook.redact),
+        importance: change.importance, sourceIDs: [change.sourceID], updatedAt: now, expiresAt: addDays(now, days), scope: change.scope}));
     }
     if (trimmed(delta.summary) !== '') {
       this.items.push(new QQMemoryItem({subject: 'CONVERSATION', kind: 'episode', text: QQMemoryBook.redact(delta.summary), keywords: [], importance: 1,
@@ -252,17 +263,19 @@ export class QQMemoryBook {
   }
   /**
    * "/忘记 关键词": the person's current memories mentioning the keyword stop counting (kept as history
-   * only until they age out, like any corrected memory). Returns the forgotten texts.
+   * only until they age out, like any corrected memory). `remove` also erases historical versions,
+   * so a globally forgotten fact cannot surface in another chat's historical search. Returns the texts.
    */
-  forget(subject, keyword, now = new Date()) {
+  forget(subject, keyword, now = new Date(), remove = false) {
     const needle = keyword.toLowerCase();
     const forgotten = [];
     for (const item of this.items) {
-      if (item.subject === subject && item.kind !== 'episode' && item.current(now) &&
+      if (item.subject === subject && item.kind !== 'episode' && (remove || item.current(now)) &&
         (item.text.toLowerCase().includes(needle) || item.keywords.some(word => word.toLowerCase().includes(needle)))) {
         item.invalidatedAt = now; forgotten.push(item.text);
       }
     }
+    if (remove) this.items = this.items.filter(item => !(item.subject === subject && forgotten.includes(item.text)));
     return forgotten;
   }
   importLegacy(text, subject, at) {
@@ -329,14 +342,15 @@ export class QQMemoryIndex {
     }
     // Small persistent context even without word overlap: what is known about the current speaker,
     // and the latest conversation summaries, so "还记得我吗" or a new model still finds its footing.
-    for (const item of this.records.values()) if (item.subject === subject && ['preference', 'task', 'fact', 'legacy'].includes(item.kind)) add(item.id, 1);
+    const subjects = new Set(Array.isArray(subject) ? subject : [subject]);
+    for (const item of this.records.values()) if (subjects.has(item.subject) && ['preference', 'task', 'fact', 'legacy'].includes(item.kind)) add(item.id, 1);
     for (const item of [...this.records.values()].filter(item => item.kind === 'episode' && item.current(now)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 2)) add(item.id, 0.8);
     const scored = [];
     for (const [id, score] of scores) {
       const item = this.records.get(id);
       if (!item || !(item.current(now) || (history && secondsBetween(now, item.invalidatedAt ?? item.expiresAt) < 90 * DAY))) continue;
       const freshness = 1 / (1 + Math.max(0, secondsBetween(now, item.updatedAt)) / DAY);
-      scored.push([item, score + item.importance * 0.15 + freshness * 0.3 + (item.subject === subject ? 0.5 : 0)]);
+      scored.push([item, score + item.importance * 0.15 + freshness * 0.3 + (subjects.has(item.subject) ? 0.5 : 0)]);
     }
     return scored.sort((a, b) => a[1] === b[1] ? compareStrings(a[0].id, b[0].id) : b[1] - a[1]).slice(0, Math.max(0, limit)).map(([item]) => item);
   }
@@ -346,11 +360,10 @@ export class QQMemoryIndex {
     let used = 0;
     for (const item of this.search(query, subject, 12, now, historical)) {
       const state = !item.current(now) ? '历史/已失效，不能当作现在' : item.kind === 'legacy' ? '旧摘要/未经逐条核验' : item.kind === 'episode' ? '历史片段/当时状态' : '已记录';
-      const line = `[${item.subject}·${item.kind}·${iso8601(item.updatedAt).slice(0, 10)}·${state}] ${item.text}`;
+      const line = `[${item.subject}·${item.scope === 'global' ? '全局用户' : '本会话'}·${item.kind}·${iso8601(item.updatedAt).slice(0, 10)}·${state}] ${item.text}`;
       if (used + count(line) + 1 > characters) continue;
       lines.push(line); used += count(line) + 1;
     }
     return lines.join('\n');
   }
 }
-
