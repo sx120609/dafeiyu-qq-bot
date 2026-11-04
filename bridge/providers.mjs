@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {runCodex,completion} from './server.mjs';
 import {rateLimitError} from './provider-health.mjs';
 import {claudeSessions} from './claude-session.mjs';
+import {runDsh} from './dsh.mjs';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const win=p=>process.platform==='win32'?p:execFileSync('wslpath',['-w',p],{encoding:'utf8'}).trim();
 
@@ -304,5 +305,6 @@ export async function dispatch(body,config,provider,profile,signal){
   const effort=background?'low':['low','medium','high'].includes(profile.effort)?profile.effort:'medium';
   if(provider==='claude')return runClaude(search.body,config,profile,signal,{webSearch:search.webSearch,effort});
   if(provider==='cloud')return runCloud(routed,profile,signal);
+  if(provider==='dsh')return runDsh(routed,profile,signal);
   return runCodex(search.body,{...config,model:profile.model,webSearch:search.webSearch,effort,serviceTier:background?'default':profile.serviceTier||'default'},signal);
 }

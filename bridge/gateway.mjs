@@ -23,6 +23,7 @@ import {startSelfRepair} from './repair-host.mjs';
 import {QQHost} from './qq-host.mjs';
 import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 import {partOf} from './self-repair.mjs';
+import {dshModels} from './dsh.mjs';
 import {claudeSessions} from './claude-session.mjs';
 import {HotReload} from '../engine/HotReload.mjs';
 import {watch,statSync} from 'node:fs';
@@ -30,8 +31,9 @@ const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
 const assetTypes={'.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.html':'text/html; charset=utf-8','.png':'image/png'};
-export const defaults=()=>({revision:crypto.randomUUID(),active:'codex',profiles:{codex:{model},claude:{model:'sonnet'},cloud:{protocol:'openai',baseUrl:'https://api.openai.com/v1',model:'',apiKey:''}},catalogs:{},checks:{}});
-const known=new Set(['codex','cloud','claude']);
+export const defaults=()=>({revision:crypto.randomUUID(),active:'codex',profiles:{codex:{model},claude:{model:'sonnet'},cloud:{protocol:'openai',baseUrl:'https://api.openai.com/v1',model:'',apiKey:''},dsh:{model:''}},catalogs:{},checks:{}});
+// dsh: the models set up in the DeepSeek Harness on this computer (dsh.mjs), with the keys dsh keeps.
+const known=new Set(['codex','cloud','claude','dsh']);
 // What a model call is for. The owner can send each to its own connection and model instead of the active one
 // ("模型分工"); a purpose with no route follows the active connection. The rewrite stage (another model's draft
 // put into the bot's own voice) runs only while it has a route.
@@ -54,7 +56,7 @@ export function validRoutes(input,profiles){
 const plain=async file=>{try{return await fs.readFile(file,'utf8');}catch{return '';}};
 export class Settings{
   constructor(file){this.file=file;this.value=null;this.pending=Promise.resolve();}
-  async load(){const data=await plain(this.file);this.value=data?JSON.parse(data):defaults();if(!data)await this.persist();return this;}
+  async load(){const data=await plain(this.file);this.value=data?JSON.parse(data):defaults();this.value.profiles.dsh??={model:''};if(!data)await this.persist();return this;}
   async persist(){const snapshot=JSON.stringify(this.value,null,2);this.pending=this.pending.catch(()=>{}).then(async()=>{await fs.writeFile(this.file+'.tmp',snapshot,{mode:0o600});await fs.rename(this.file+'.tmp',this.file);});return this.pending;}
   view(){const v=structuredClone(this.value);v.profiles.cloud.hasApiKey=!!v.profiles.cloud.apiKey;delete v.profiles.cloud.apiKey;v.routes??={};return v;}
   // The connection and model a call for this purpose uses; `routed` when that is not simply the active one.
@@ -71,7 +73,7 @@ export class Settings{
     const previous=this.value.profiles[provider];
     const p={...previous};
     if(provider==='codex'&&input.serviceTier!==undefined){if(!['default','fast'].includes(input.serviceTier))throw new Error('不支持的速度档位');p.serviceTier=input.serviceTier;}
-    if(provider!=='cloud'&&input.effort!==undefined){if(!['low','medium','high'].includes(input.effort))throw new Error('不支持的思考强度');p.effort=input.effort;}
+    if(!['cloud','dsh'].includes(provider)&&input.effort!==undefined){if(!['low','medium','high'].includes(input.effort))throw new Error('不支持的思考强度');p.effort=input.effort;}
     if(input.model!==undefined){if(typeof input.model!=='string'||input.model.length>150||/[\x00-\x1f]/.test(input.model))throw new Error('模型 ID 无效');p.model=input.model.trim();}
     if(provider==='cloud'){
       if(input.protocol!==undefined){if(!['openai','anthropic'].includes(input.protocol))throw new Error('未知 API 协议');p.protocol=input.protocol;}
@@ -96,7 +98,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels,dsh:()=>dshModels()},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -189,7 +191,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/v1/models'){const p=settings.value.profiles[settings.value.active];send(200,{object:'list',data:[{id:'dafeiyu-active',object:'model',owned_by:settings.value.active},{id:p.model,object:'model',owned_by:settings.value.active}]});return;}
       if(req.url==='/v1/model-info'){
         // Names the model that actually writes the replies, and the one that rewrites them when that stage is on.
-        const labels={codex:'本机 Codex',claude:'官方 Claude Code',cloud:'云端 API'};
+        const labels={codex:'本机 Codex',claude:'官方 Claude Code',cloud:'云端 API',dsh:'本机 dsh'};
         const resolve=({provider,profile:p})=>{
           const check=settings.value.checks[provider],canonical=settings.value.catalogs[provider]?.models?.find(x=>x.id===p.model)?.resolvedModel;
           return check?.ok&&check.configuredModel===p.model?check.model:canonical||p.model;
@@ -437,7 +439,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(!site){socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;}
     integrations.upgrade(req,socket,head,site.origin);
   });
-  server.refreshCatalogs=()=>Promise.allSettled(['codex','claude',...(settings.value.profiles.cloud.apiKey?['cloud']:[])].map(p=>catalog(p,settings.value.profiles[p])));
+  server.refreshCatalogs=()=>Promise.allSettled(['codex','claude','dsh',...(settings.value.profiles.cloud.apiKey?['cloud']:[])].map(p=>catalog(p,settings.value.profiles[p])));
   return server;
 }
 
@@ -482,6 +484,8 @@ export async function composeGateway(config,configFile,{host,auth,reload},previo
     computer:await new ComputerControl({runtime}).load(),
     agentTools:await new AgentTools({runtime}).load()};
   // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
+  // A connection added since these settings were loaded (11-04: dsh) gets its empty profile.
+  state.settings.value.profiles.dsh??={model:''};
   // The Reloader was made by the first generation; it runs this generation's code too (its watcher calls apply()).
   if(reload)Object.setPrototypeOf(reload,Reloader.prototype);
   state.agentTools.rewire({qq:host?(action,params)=>host.qqCall(action,params):null,writer:(request,options)=>writeToolCode(request,config,options)});

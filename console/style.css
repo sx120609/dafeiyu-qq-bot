@@ -547,6 +547,9 @@ input[type=file]::file-selector-button:hover{background:var(--fill)}
   .btn.small{position:relative;height:34px;padding:0 11px}
   .btn.small::before{content:"";position:absolute;inset:-4px -2px}
   .segmented{border-radius:8px}
+  /* The four connections side by side would scroll the last one out of sight: two rows of two. */
+  .page[data-page=model]>.segmented{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible;width:100%;align-self:stretch}
+  .page[data-page=model]>.segmented button{justify-content:center}
   .segmented button{height:36px;padding:0 13px;border-radius:6px}
   .segmented.compact button{height:30px;padding:0 10px}
   .switch{width:42px;height:25px}

@@ -17,11 +17,12 @@ const pages={
   settings:['设置','控制台密码、开机自启和其他平台']
 };
 const aliases={agent:'activity',features:'abilities',images:'abilities',voice:'abilities',chat:'rhythm',limits:'rhythm'};
-const providerNames={codex:'本机 Codex',claude:'本机 Claude Code',cloud:'云端 API'};
+const providerNames={codex:'本机 Codex',claude:'本机 Claude Code',cloud:'云端 API',dsh:'本机 dsh'};
 const providerHelp={
   codex:'通过官方 Codex CLI 调用，复用这台电脑已登录的 ChatGPT 账号，不需要 API Key。',
   claude:'通过官方 Claude Code 调用，登录由官方客户端管理；不读取或转发登录令牌。Claude 没有绘图模型，绘图会自动交给 Codex。',
-  cloud:'使用你自己的 API Key，支持 OpenAI 兼容接口和 Anthropic 官方接口。密钥只保存在本机。'
+  cloud:'使用你自己的 API Key，支持 OpenAI 兼容接口和 Anthropic 官方接口。密钥只保存在本机。',
+  dsh:'使用这台电脑上 DeepSeek Harness（dsh）里配好的模型和它保存的密钥，不用再填一遍；在 dsh 里加了模型，刷新目录就能选。'
 };
 const qqPattern=/^[1-9]\d{4,11}$/;
 
@@ -937,7 +938,7 @@ function loadProfile(){
   $('mf-title').textContent=providerNames[selected];$('mf-help').textContent=providerHelp[selected];
   $('mf-model').value=p.model||'';
   $('fast-row').hidden=selected!=='codex';$('mf-fast').checked=p.serviceTier==='fast';
-  $('effort-row').hidden=selected==='cloud';$('mf-effort').value=p.effort||'medium';
+  $('effort-row').hidden=['cloud','dsh'].includes(selected);$('mf-effort').value=p.effort||'medium';
   $('cloud-fields').hidden=selected!=='cloud';
   if(selected==='cloud'){
     $('mf-protocol').value=p.protocol;$('mf-base').value=p.baseUrl;$('mf-key').value='';
@@ -963,7 +964,7 @@ function renderModelStatus(){
 function collectProfile(){
   const p={model:$('mf-model').value.trim()};
   if(selected==='codex')p.serviceTier=$('mf-fast').checked?'fast':'default';
-  if(selected!=='cloud')p.effort=$('mf-effort').value;
+  if(!['cloud','dsh'].includes(selected))p.effort=$('mf-effort').value;
   if(selected==='cloud')Object.assign(p,{protocol:$('mf-protocol').value,baseUrl:$('mf-base').value.trim(),apiKey:$('mf-key').value,imageModel:$('mf-image').value.trim()});
   return p;
 }
@@ -1054,7 +1055,7 @@ function renderRoutes(){
     const route=routes[purpose],choice=route?route.provider:'default';
     const provider=el('select',{});provider.dataset.purpose=purpose;provider.setAttribute('aria-label',name+' 用的连接');
     const options=[['default',`跟随当前连接（${providerNames[active]}）`]];
-    for(const p of ['codex','claude','cloud'])if(p!=='cloud'||modelState.profiles.cloud.hasApiKey)options.push([p,providerNames[p]]);
+    for(const p of ['codex','claude','cloud','dsh'])if(p!=='cloud'||modelState.profiles.cloud.hasApiKey)options.push([p,providerNames[p]]);
     provider.append(...options.map(([value,label])=>el('option',{value,selected:value===choice},label)));
     const list=el('datalist',{id:'route-models-'+purpose});
     const model=el('input',{className:'mono',value:route?.model||'',autocomplete:'off',spellcheck:false});
