@@ -206,7 +206,7 @@ Object.assign(DeepSeekClient, {
       }}),
     fn('send_image', '发一张现成的图：网上的图片（url）、聊天里某条消息的图（message，转发或再发一次），或某人的 QQ 头像、群头像（avatar）。要画新的图用 draw_image。',
       {type: 'object', additionalProperties: false, properties: {
-        url: {type: 'string', description: '图片网址'},
+        url: {type: 'string', description: '图片网址或工具返回的 file://、base64:// 图片引用'},
         message: {type: 'string', description: '带图的消息编号'},
         avatar: {type: 'string', description: 'MEMBER 标签、PEER、BOT（你自己）或 GROUP（这个群）'},
         caption: {type: 'string', description: '和图一起发的一句话，可不填'}

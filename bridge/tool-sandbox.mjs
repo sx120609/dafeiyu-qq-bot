@@ -4,7 +4,7 @@
 import readline from 'node:readline';
 
 const write=process.stdout.write.bind(process.stdout);
-const send=message=>write(JSON.stringify(message)+'\n');
+const send=(message,callback)=>write(JSON.stringify(message)+'\n',callback);
 const pending=new Map();let nextId=1,started=false;
 
 const log=(...values)=>send({type:'log',text:values.map(v=>typeof v==='string'?v:JSON.stringify(v)).join(' ').slice(0,2000)});
@@ -38,8 +38,9 @@ async function run({code,args}){
     const AsyncFunction=(async()=>{}).constructor;
     const value=await new AsyncFunction('args','tools',code)(args??{},tools);
     const output=typeof value==='string'?value:value===undefined?'':JSON.stringify(value,null,1);
-    send({type:'done',output:String(output).slice(0,20000)});
-  }catch(error){send({type:'error',message:String(error?.stack||error).slice(0,4000)});}
+    // 2026-11-06: "别截断长字段"; the gateway needs complete bytes to make a reusable file reference.
+    await new Promise(resolve=>send({type:'done',output:String(output)},resolve));
+  }catch(error){await new Promise(resolve=>send({type:'error',message:String(error?.stack||error).slice(0,4000)},resolve));}
   process.exit(0);
 }
 readline.createInterface({input:process.stdin}).on('line',line=>{

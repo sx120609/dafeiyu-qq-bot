@@ -9,7 +9,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import net from 'node:net';
 import {spawn} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {writeToolCode} from './tool-writer.mjs';
 
 const runner=path.join(path.dirname(fileURLToPath(import.meta.url)),'tool-sandbox.mjs');
@@ -156,9 +157,32 @@ export class AgentTools{
     await fs.writeFile(file+'.tmp',JSON.stringify(data));await fs.rename(file+'.tmp',file);
     return true;
   }
-  execute(code,args,name='my_test'){
+  async referenceOutput(output){
+    // 2026-11-06: "给可以直接用的短引用"; binary payloads must survive the director's text previews.
+    let changed=false;
+    const replace=async value=>{
+      if(typeof value==='string'){
+        const match=value.match(/^base64:\/\/([A-Za-z0-9+/]+={0,2})$/);
+        if(!match)return value;
+        const bytes=Buffer.from(match[1],'base64');
+        const directory=path.join(path.dirname(this.file),'agent-tool-files');
+        const file=path.join(directory,createHash('sha256').update(bytes).digest('hex')+'.bin');
+        await fs.mkdir(directory,{recursive:true});
+        await fs.writeFile(file,bytes,{mode:0o600});
+        changed=true;return pathToFileURL(path.resolve(file)).href;
+      }
+      if(Array.isArray(value))return Promise.all(value.map(replace));
+      if(value&&typeof value==='object')return Object.fromEntries(await Promise.all(Object.entries(value).map(async([key,item])=>[key,await replace(item)])));
+      return value;
+    };
+    let value;
+    try{value=JSON.parse(output);}catch{return replace(output);}
+    const referenced=await replace(value);
+    return changed?JSON.stringify(referenced,null,1):output;
+  }
+  async execute(code,args,name='my_test'){
     const started=Date.now();
-    return new Promise(resolve=>{
+    const result=await new Promise(resolve=>{
       let child;
       try{child=this.spawnSandbox();}catch(error){resolve({ok:false,error:'沙箱没能启动：'+error.message,logs:[],ms:0});return;}
       let buffer='',stderr='',fetches=0,settled=false;const logs=[];
@@ -192,5 +216,10 @@ export class AgentTools{
       child.on('close',()=>finish({ok:false,error:'沙箱意外退出'+(stderr.trim()?'：'+stderr.trim().split('\n').slice(-3).join(' ').slice(0,600):'')}));
       child.stdin.write(JSON.stringify({code,args})+'\n');
     });
+    if(result.ok){
+      try{result.output=await this.referenceOutput(result.output);}
+      catch(error){return {...result,ok:false,output:undefined,error:'工具结果保存失败：'+error.message};}
+    }
+    return result;
   }
 }

@@ -660,7 +660,7 @@ export const mediaMethods = {
   async agentSendImage(input, context) {
     const {target} = context;
     let data;
-    if (/^https?:\/\//iu.test(string(input.url))) {
+    if (/^(https?|file|base64):\/\//iu.test(string(input.url))) {
       data = (await this.agentDownload(string(input.url), QQAgentMedia.limits.image, context.signal)).data;
     } else if (string(input.message) !== '') {
       const found = await this.agentFindMessage(string(input.message), target);
