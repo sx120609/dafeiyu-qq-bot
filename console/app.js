@@ -922,7 +922,7 @@ async function enterModel(){
   modelState=await api('state');
   if(!selected)selected=modelState.active;
   if(!modelDirty)loadProfile();
-  renderRoutes();
+  renderRoutes();renderImageApi();
   if(!modelState.catalogs[selected]&&(selected!=='cloud'||modelState.profiles.cloud.hasApiKey))refreshCatalog().catch(()=>{});
 }
 function renderProviderTabs(){
@@ -1072,6 +1072,33 @@ function renderRoutes(){
   }));
   routesSnapshot=routeValues();
 }
+/* The image API: drawing on an address and key of its own, apart from the chat connection (11-07) */
+function renderImageApi(){
+  const image=modelState.image||{};
+  $('ia-base').value=image.baseUrl||'';$('ia-key').value='';$('ia-model').value=image.model||'';
+  $('ia-key-hint').textContent=image.hasApiKey?'已保存密钥。留空保留。':'尚未保存 API Key。';
+  $('ia-clear').hidden=!image.hasApiKey;
+  $('ia-badge').className='badge '+(image.source==='生图接口'?'ok':image.source==='本机 Codex'?'warn':'');
+  $('ia-badge').textContent='现在用：'+(image.source||'本机 Codex');
+}
+onSubmit($('image-api-form'),async()=>{
+  modelState={...modelState,...await api('image-api',{revision:modelState.revision,baseUrl:$('ia-base').value.trim(),apiKey:$('ia-key').value,model:$('ia-model').value.trim()})};
+  renderImageApi();toast('生图接口已保存，下一张图起生效');
+});
+$('ia-clear').onclick=()=>busy($('ia-clear'),async()=>{
+  if(!await confirmDialog({title:'清除生图接口的密钥？',message:'清除后画图改用云端 API 或本机 Codex。',confirmText:'清除',danger:true}))return;
+  modelState={...modelState,...await api('image-api',{revision:modelState.revision,clearKey:true})};renderImageApi();toast('密钥已清除');
+});
+$('ia-test').onclick=()=>busy($('ia-test'),async()=>{
+  const note=$('ia-note'),started=Date.now();note.className='note';
+  const tick=()=>{note.textContent=`正在画一张小图… ${Math.floor((Date.now()-started)/1000)} 秒`;};tick();const timer=setInterval(tick,1000);
+  try{
+    const result=await api('image-api/test',{},{timeout:330000});
+    note.className='note '+(result.ok?'ok':'bad');
+    note.textContent=result.ok?`画出来了 · ${result.source} · ${result.model} · ${result.seconds.toFixed(0)} 秒`:`没画出来（${result.source} · ${result.model}）：${result.error}`;
+  }catch(error){note.className='note bad';note.textContent=error.message;}
+  finally{clearInterval(timer);}
+});
 onSubmit($('routes-form'),async()=>{
   const routes={};
   for(const select of $$('#routes-rows select')){

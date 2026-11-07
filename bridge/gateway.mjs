@@ -32,7 +32,9 @@ const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
 const assetTypes={'.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.html':'text/html; charset=utf-8','.png':'image/png'};
-export const defaults=()=>({revision:crypto.randomUUID(),active:'codex',profiles:{codex:{model},claude:{model:'sonnet'},cloud:{protocol:'openai',baseUrl:'https://api.openai.com/v1',model:'',apiKey:''},dsh:{model:''}},catalogs:{},checks:{}});
+export const defaults=()=>({revision:crypto.randomUUID(),active:'codex',profiles:{codex:{model},claude:{model:'sonnet'},cloud:{protocol:'openai',baseUrl:'https://api.openai.com/v1',model:'',apiKey:''},dsh:{model:''}},image:imageDefaults(),catalogs:{},checks:{}});
+// The image API of its own (11-07): drawing need not share the chat connection (that one may be Anthropic).
+export const imageDefaults=()=>({baseUrl:'',apiKey:'',model:'gpt-image-2.6-sunburst'});
 // dsh: the models set up in the DeepSeek Harness on this computer (dsh.mjs), with the keys dsh keeps.
 const known=new Set(['codex','cloud','claude','dsh']);
 // What a model call is for. The owner can send each to its own connection and model instead of the active one
@@ -57,9 +59,27 @@ export function validRoutes(input,profiles){
 const plain=async file=>{try{return await fs.readFile(file,'utf8');}catch{return '';}};
 export class Settings{
   constructor(file){this.file=file;this.value=null;this.pending=Promise.resolve();}
-  async load(){const data=await plain(this.file);this.value=data?JSON.parse(data):defaults();this.value.profiles.dsh??={model:''};if(!data)await this.persist();return this;}
+  async load(){const data=await plain(this.file);this.value=data?JSON.parse(data):defaults();this.value.profiles.dsh??={model:''};this.value.image??=imageDefaults();if(!data)await this.persist();return this;}
   async persist(){const snapshot=JSON.stringify(this.value,null,2);this.pending=this.pending.catch(()=>{}).then(async()=>{await fs.writeFile(this.file+'.tmp',snapshot,{mode:0o600});await fs.rename(this.file+'.tmp',this.file);});return this.pending;}
-  view(){const v=structuredClone(this.value);v.profiles.cloud.hasApiKey=!!v.profiles.cloud.apiKey;delete v.profiles.cloud.apiKey;v.routes??={};return v;}
+  view(){const v=structuredClone(this.value);v.profiles.cloud.hasApiKey=!!v.profiles.cloud.apiKey;delete v.profiles.cloud.apiKey;v.routes??={};
+    v.image={...imageDefaults(),...v.image,hasApiKey:!!v.image?.apiKey,source:this.imageSource()?.label||'本机 Codex'};delete v.image.apiKey;return v;}
+  /** Where pictures are drawn: the image API when it is set up, else the cloud API's image model when that connection
+   *  speaks OpenAI; null leaves it to the local Codex. */
+  imageSource(){
+    const own=this.value.image;
+    if(own?.baseUrl&&own.apiKey&&own.model)return {protocol:'openai',baseUrl:own.baseUrl,apiKey:own.apiKey,imageModel:own.model,label:'生图接口'};
+    const cloud=this.value.profiles.cloud;
+    return cloud.protocol==='openai'&&cloud.apiKey&&cloud.imageModel?{...cloud,label:'云端 API'}:null;
+  }
+  /** The image API's settings from the console: an OpenAI-compatible address, a key kept unless replaced, a model. */
+  imageApi(input={}){
+    const next={...imageDefaults(),...this.value.image};
+    if(input.baseUrl!==undefined){if(typeof input.baseUrl!=='string')throw new Error('接口地址无效');next.baseUrl=input.baseUrl.trim();if(next.baseUrl)cloudBase({baseUrl:next.baseUrl});}
+    if(input.apiKey){if(typeof input.apiKey!=='string'||input.apiKey.length>8192||/[\r\n]/.test(input.apiKey))throw new Error('API Key 格式无效');next.apiKey=input.apiKey.trim();}
+    if(input.clearKey)next.apiKey='';
+    if(input.model!==undefined){if(typeof input.model!=='string'||input.model.length>150||/[\x00-\x1f]/.test(input.model))throw new Error('生图模型 ID 无效');next.model=input.model.trim();}
+    return next;
+  }
   // The connection and model a call for this purpose uses; `routed` when that is not simply the active one.
   route(purpose){
     const route=this.value.routes?.[purpose],own=route&&known.has(route.provider);
@@ -320,6 +340,24 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       return;
     }
     if(req.url==='/console/api/timing'){try{send(200,await runtimeControl.timing(data));}catch(e){fail(e);}return;}
+    if(req.url==='/console/api/image-api'){
+      try{
+        settings.checkRevision(data.revision);
+        settings.value.image=settings.imageApi(data);
+        settings.value.revision=crypto.randomUUID();await settings.persist();send(200,settings.view());
+      }catch(e){fail(e);}return;
+    }
+    // One small, cheap picture through the image API as it is saved, so the owner sees it works (or why not).
+    if(req.url==='/console/api/image-api/test'){
+      const source=settings.imageSource();
+      if(!source){send(400,{error:'还没配生图接口，云端 API 也不是 OpenAI 兼容的生图连接'});return;}
+      const started=Date.now();
+      try{
+        const result=await metered('cloud',{model:source.imageModel},'image','',()=>generateCloudImage('一只蓝色的小鲸鱼，简单的贴纸风格',source,undefined,{quality:'low'}));
+        send(200,{ok:true,source:source.label,model:result.model,seconds:(Date.now()-started)/1000});
+      }catch(e){send(200,{ok:false,source:source.label,model:source.imageModel,error:e.message,seconds:(Date.now()-started)/1000});}
+      return;
+    }
     if(req.url==='/console/api/routes'){
       try{
         settings.checkRevision(data.revision);
@@ -363,8 +401,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       // Every request draws at once, side by side: no one-at-a-time slot and no queue (11-02 18:20–18:26 a second
       // request was refused with "已有图片在生成" six times; 11-03 the owner wanted no one-picture queue either).
       const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
-      // The cloud API draws first when the owner named an image model for it; the local Codex client is the fallback.
-      const cloud=settings.value.profiles.cloud,viaCloud=cloud.protocol==='openai'&&!!cloud.apiKey&&!!cloud.imageModel;
+      // The image API (or the cloud API's image model) draws first; the local Codex client is the fallback.
+      const cloud=settings.imageSource(),viaCloud=!!cloud;
       try{
         let result=null,cloudFailure=null;
         // Reference images, size, quality, background and count come checked from imageOptions (11-03).
@@ -372,9 +410,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
         if(viaCloud)try{result=await metered('cloud',{model:cloud.imageModel},'image','',()=>generateCloudImage(data.prompt,cloud,controller.signal,data));}
           catch(e){if(e.status===422||controller.signal.aborted)throw e;cloudFailure=e;}
         // Codex draws stills only: an animated request without the cloud model says so instead of sending a still (11-07).
-        if(!result&&options.animated)throw cloudFailure||Object.assign(new Error('动图要云端 API 配好 GPT Image 2.6 生图模型'),{status:503});
+        if(!result&&options.animated)throw cloudFailure||Object.assign(new Error('动图要在控制台「模型 → 生图接口」配好 GPT Image 2.6'),{status:503});
         if(!result)try{result=await metered('codex',{model:'image'},'image','',()=>generateCodexImage(data.prompt,config,controller.signal,options));}
-          catch(e){if(cloudFailure&&e.status!==422)e.message=`云端 API：${cloudFailure.message}；本机 Codex：${e.message}`;throw e;}
+          catch(e){if(cloudFailure&&e.status!==422)e.message=`${cloud.label}：${cloudFailure.message}；本机 Codex：${e.message}`;throw e;}
         send(200,result);
       }catch(e){send(e.status||503,{error:{message:e.message}});}return;
     }
@@ -496,8 +534,8 @@ export async function composeGateway(config,configFile,{host,auth,reload},previo
     computer:await new ComputerControl({runtime}).load(),
     agentTools:await new AgentTools({runtime}).load()};
   // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
-  // A connection added since these settings were loaded (11-04: dsh) gets its empty profile.
-  state.settings.value.profiles.dsh??={model:''};
+  // A connection added since these settings were loaded (11-04: dsh; 11-07: the image API) gets its empty profile.
+  state.settings.value.profiles.dsh??={model:''};state.settings.value.image??=imageDefaults();
   // The Reloader was made by the first generation; it runs this generation's code too (its watcher calls apply()).
   if(reload)Object.setPrototypeOf(reload,Reloader.prototype);
   state.agentTools.rewire({qq:host?(action,params)=>host.qqCall(action,params):null,writer:(request,options)=>writeToolCode(request,config,options)});

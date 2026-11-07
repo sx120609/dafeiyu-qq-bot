@@ -517,7 +517,7 @@
             <label class="field"><span>接口地址</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-base" id="mf-base" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></label>
             <label class="field"><span>API Key</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-key" id="mf-key" type="text" class="secret" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存的密钥"><small id="mf-key-hint" class="muted"></small></label>
             <label class="field"><span>生图模型（可选）</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-image" id="mf-image" class="mono" list="mf-image-list" autocomplete="off" spellcheck="false" placeholder="例如 gpt-image-1；不填只用本机 Codex 画图"><datalist id="mf-image-list"></datalist>
-              <small class="muted">填了就先用这个 API 画图，画不出来再交给本机 Codex。只支持 OpenAI 兼容的 /images/generations；不管当前用哪种连接聊天都生效。</small></label>
+              <small class="muted">下面「生图接口」配好后优先用那里；没配时用这个 API 画图（要 OpenAI 兼容协议），画不出来再交给本机 Codex。</small></label>
           </div>
           <label class="field"><span>模型 ID</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="mf-model" id="mf-model" class="mono" autocomplete="off" spellcheck="false" placeholder="从右侧目录选择，或直接填写"></label>
           <label id="effort-row" class="field"><span>思考强度</span>
@@ -545,6 +545,16 @@
           <div id="catalog-list" class="catalog-list" role="list"></div>
         </div>
       </div>
+      <form autocomplete="off" id="image-api-form" class="card section" novalidate>
+        <div class="section-head"><div><h3>生图接口</h3><p class="muted">画图单独走这里，跟聊天用哪种连接无关。填 OpenAI 兼容的地址、Key 和生图模型（默认 GPT Image 2.6 Sunburst，能画动图）；没填就用云端 API 的生图模型，再不行交给本机 Codex（只能画静图）。</p></div><span id="ia-badge" class="badge"></span></div>
+        <div class="fields">
+          <label class="field"><span>接口地址</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="ia-base" id="ia-base" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>API Key</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="ia-key" id="ia-key" type="text" class="secret" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存的密钥"><small id="ia-key-hint" class="muted"></small></label>
+          <label class="field"><span>生图模型</span><input data-1p-ignore data-lpignore="true" data-form-type="other" name="ia-model" id="ia-model" class="mono" autocomplete="off" spellcheck="false" placeholder="gpt-image-2.6-sunburst"></label>
+        </div>
+        <div class="actions"><button id="ia-save" class="btn primary" type="submit">保存</button><button id="ia-test" class="btn" type="button">画一张小图试试</button><button id="ia-clear" class="btn ghost" type="button" hidden>清除密钥</button></div>
+        <div id="ia-note" class="note" role="status" aria-live="polite">保存后可以画一张低画质的小图试试（花几美分），不会发到 QQ。</div>
+      </form>
       <form autocomplete="off" id="routes-form" class="card section" novalidate>
         <div class="section-head"><div><h3>模型分工</h3><p class="muted">每种活交给哪个模型；没单独指定的跟着上面“当前使用中”的连接。最要紧的是“指挥”和“助手”：指挥负责看消息、拿主意、说话，用最会说话的模型；助手只跑腿，可以用便宜的。单独指定的模型出错或没额度时，这一次自动改用当前连接。</p></div></div>
         <div id="routes-rows" class="route-rows"></div>
