@@ -7,6 +7,7 @@ import {runCodex,completion} from './server.mjs';
 import {rateLimitError} from './provider-health.mjs';
 import {claudeSessions} from './claude-session.mjs';
 import {runDsh} from './dsh.mjs';
+import {animateImageSheet} from './image-animation.mjs';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const win=p=>process.platform==='win32'?p:execFileSync('wslpath',['-w',p],{encoding:'utf8'}).trim();
 
@@ -232,8 +233,9 @@ export async function generateCloudImage(prompt,profile,signal,options={}){
     ...(complexity?{complexity}:{})};
   // GPT Image 2.6 draws an animated GIF itself (11-07: "加入新模型特性如原生动图"): the motion and loop are in the prompt.
   const motion=animated?{output_format:'gif',frame_count:frames,frame_duration_ms:frameMs}:{};
+  let sheet;
   const send=plain=>{
-    const fields={model:profile.imageModel,prompt,n,size:animated?'auto':size,...motion,...(plain?{}:extras)};
+    const fields={model:profile.imageModel,prompt:sheet?.prompt??prompt,n,size:animated?'auto':size,...(sheet?{}:motion),...(plain?{}:extras)};
     if(!images.length)return fetch(cloudBase(profile)+'/images/generations',{method:'POST',headers:{...headers,'Content-Type':'application/json'},
       body:JSON.stringify(fields),signal:deadline(),redirect:'error'});
     const form=new FormData();
@@ -242,9 +244,24 @@ export async function generateCloudImage(prompt,profile,signal,options={}){
     return fetch(cloudBase(profile)+'/images/edits',{method:'POST',headers,body:form,signal:deadline(),redirect:'error'});
   };
   const refused=(status,raw)=>status===400&&/content[_ ]?policy|moderation|safety|sensitive|违规|审核/i.test(raw);
-  let response=await send(false),raw=await response.text();
-  // An API that does not know one of the optional fields says so with a 400: once more with only the basic ones.
-  if(response.status===400&&!refused(400,raw)){response=await send(true);raw=await response.text();}
+  const gifDisabled=(status,raw)=>animated&&status===400&&!refused(status,raw)&&/\bgif output is not enabled\b/i.test(raw);
+  const request=async()=>{
+    let response=await send(false),raw=await response.text();
+    // An API that does not know one of the optional fields says so with a 400: once more with only the basic ones.
+    if(response.status===400&&!refused(400,raw)&&!gifDisabled(400,raw)){response=await send(true);raw=await response.text();}
+    return {response,raw};
+  };
+  let {response,raw}=await request();
+  if(gifDisabled(response.status,raw)){
+    // 2026-11-07: "GIF output is not enabled for this request": model names do not grant native GIF access.
+    // Draw all poses together for consistent characters, then encode the requested motion locally instead of retrying GIF.
+    const columns=Math.ceil(Math.sqrt(frames)),rows=Math.ceil(frames/columns);
+    sheet={columns,rows,frames,frameMs,prompt:prompt+`\n\nCreate one animation sprite sheet with exactly ${columns} columns and ${rows} rows of equal-sized cells. `+
+      `The first ${frames} cells, read left to right then top to bottom, are successive distinct poses of the requested motion, ${frameMs} ms apart. `+
+      'Keep the character, camera, scale and background consistent; the last pose flows back into the first. '+
+      'Fill each cell edge to edge, with no borders, gaps, labels or text; leave unused trailing cells blank.'};
+    ({response,raw}=await request());
+  }
   if(refused(response.status,raw))throw Object.assign(new Error('内容审核未通过'),{status:422});
   if(response.status===429)throw rateLimitError('429',60);
   if(!response.ok){
@@ -263,6 +280,7 @@ export async function generateCloudImage(prompt,profile,signal,options={}){
     }else continue;
     if(bytes.length>12_000_000)throw new Error('生成的图片过大');
     if(!imageKind(bytes))throw new Error('生成的图片格式无效');
+    if(sheet){bytes=await animateImageSheet(bytes,sheet,signal);if(bytes.length>12_000_000)throw new Error('生成的图片过大');}
     pictures.push(bytes);
   }
   if(!pictures.length)throw new Error('生图接口没有返回图片');
