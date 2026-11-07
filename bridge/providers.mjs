@@ -198,8 +198,10 @@ export async function runCloud(body,profile,signal,options={}){
 // reference images to change or draw from (11-03: "不能根据用户发的图片进行修改"). Some APIs answer with base64,
 // others with a link to the file; a link is fetched over HTTPS only, and either way the bytes must be a real image.
 export const imageSizes={square:'1024x1024',portrait:'1024x1536',landscape:'1536x1024',auto:'auto'};
-const imageKind=b=>b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?'png':b[0]===255&&b[1]===216?'jpeg':b.subarray(8,12).toString()==='WEBP'?'webp':'';
-/** What a drawing request may ask for, checked: reference images (base64, up to 8), size, quality, background, count. */
+const imageKind=b=>b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?'png':b[0]===255&&b[1]===216?'jpeg':b.subarray(8,12).toString()==='WEBP'?'webp':
+  b.subarray(0,4).toString()==='GIF8'?'gif':'';
+/** What a drawing request may ask for, checked: reference images (base64, up to 8), size, quality, background, count;
+ *  and GPT Image 2.6's animated GIF (frames 2–16, 20–2000 ms each) and complexity (low/medium/high). */
 export function imageOptions(data={}){
   const images=(Array.isArray(data.images)?data.images:[]).slice(0,8).map(x=>typeof x==='string'?Buffer.from(x.replace(/^data:[^,]*,/,''),'base64'):null);
   if(images.some(b=>!b||!b.length||b.length>12_000_000||!imageKind(b)))throw Object.assign(new Error('参考图不是有效的 PNG、JPEG 或 WebP'),{status:400});
@@ -207,11 +209,17 @@ export function imageOptions(data={}){
   const quality=['low','medium','high'].includes(data.quality)?data.quality:undefined;
   const background=data.background==='transparent'||data.transparent===true?'transparent':undefined;
   const n=Math.min(4,Math.max(1,Number.isInteger(data.n)?data.n:1));
-  return {images,size,quality,background,n};
+  const animated=data.output_format==='gif'||data.animated===true;
+  const frames=animated?Math.min(16,Math.max(2,Number.isInteger(data.frame_count)?data.frame_count:9)):undefined;
+  const frameMs=animated?Math.round(Math.min(2000,Math.max(20,Number(data.frame_duration_ms)||200))/10)*10:undefined;
+  const complexity=['low','medium','high'].includes(data.complexity)?data.complexity:undefined;
+  return {images,size,quality,background,n,animated,frames,frameMs,complexity};
 }
 export async function generateCloudImage(prompt,profile,signal,options={}){
   if(typeof prompt!=='string'||!prompt.trim()||prompt.length>4000)throw new Error('画面描述需为 1–4000 字');
-  const {images,size,quality,background,n}=imageOptions(options);
+  const {images,size,quality,background:still,n,animated,frames,frameMs,complexity}=imageOptions(options);
+  // GIF frames share one pixel budget, so the API picks their size; a transparent background is for PNG and WebP only.
+  const background=animated?undefined:still;
   // The relay treats `size` as a hint (asked for 1024x1536, it drew 1536x1024), so the orientation is said in words too.
   const shape={'1024x1536':'竖版构图（高大于宽）','1536x1024':'横版构图（宽大于高）'}[size];
   if(shape)prompt+=`\n\n画幅：${shape}`;
@@ -220,9 +228,12 @@ export async function generateCloudImage(prompt,profile,signal,options={}){
   const deadline=()=>signal?AbortSignal.any([signal,AbortSignal.timeout(300000)]):AbortSignal.timeout(300000);
   // OpenAI's image models take moderation 'low' (the default 'auto' refused an ordinary anime character, 11-03:
   // "你的内容审核别搞那么严格啊"). input_fidelity 'high' keeps faces and details of the reference images.
-  const extras={moderation:'low',...(quality?{quality}:{}),...(background?{background}:{}),...(images.length?{input_fidelity:'high'}:{})};
+  const extras={moderation:'low',...(quality?{quality}:{}),...(background?{background}:{}),...(images.length?{input_fidelity:'high'}:{}),
+    ...(complexity?{complexity}:{})};
+  // GPT Image 2.6 draws an animated GIF itself (11-07: "加入新模型特性如原生动图"): the motion and loop are in the prompt.
+  const motion=animated?{output_format:'gif',frame_count:frames,frame_duration_ms:frameMs}:{};
   const send=plain=>{
-    const fields={model:profile.imageModel,prompt,n,size,...(plain?{}:extras)};
+    const fields={model:profile.imageModel,prompt,n,size:animated?'auto':size,...motion,...(plain?{}:extras)};
     if(!images.length)return fetch(cloudBase(profile)+'/images/generations',{method:'POST',headers:{...headers,'Content-Type':'application/json'},
       body:JSON.stringify(fields),signal:deadline(),redirect:'error'});
     const form=new FormData();
@@ -255,8 +266,9 @@ export async function generateCloudImage(prompt,profile,signal,options={}){
     pictures.push(bytes);
   }
   if(!pictures.length)throw new Error('生图接口没有返回图片');
+  if(animated&&!pictures.some(b=>imageKind(b)==='gif'))throw new Error(`${profile.imageModel} 没画出动图（动图要 GPT Image 2.6 这一代模型）`);
   return {created:Math.floor(Date.now()/1000),model:profile.imageModel,data:pictures.map(b=>({b64_json:b.toString('base64')})),usage:result.usage,
-    edited:images.length>0,elapsedMs:Date.now()-started};
+    edited:images.length>0,animated,elapsedMs:Date.now()-started};
 }
 
 export async function codexModels(config){

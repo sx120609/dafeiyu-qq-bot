@@ -143,7 +143,10 @@ Object.assign(DeepSeekClient, {
           size: {type: 'string', enum: ['square', 'portrait', 'landscape'], description: '方图（默认）、竖图（手机壁纸、立绘、全身）、横图（电脑壁纸、风景、多人）'},
           quality: {type: 'string', enum: ['low', 'medium', 'high'], description: '要很精细就 high（慢一些）；不填由模型定'},
           transparent: {type: 'boolean', description: '透明背景：做表情包、贴纸、抠出来的角色时'},
-          count: {type: 'integer', description: '画几张让人挑，1–4，默认 1'}}, ['prompt']));
+          count: {type: 'integer', description: '画几张让人挑，1–4，默认 1'},
+          animated: {type: 'boolean', description: '画成会动的 GIF 动图（GPT Image 2.6）：prompt 里写清主体怎么动、怎么循环（回到起始姿势）；可以配参考图让它动起来'},
+          frames: {type: 'integer', description: '动图帧数 2–16，默认 9；帧越多每帧越小'},
+          frame_ms: {type: 'integer', description: '动图每帧多少毫秒 20–2000，默认 200'}}, ['prompt']));
     }
     if (kinds.has('artwork')) tools.push(tool('send_artwork', '把这一轮 find_artwork 找到的插画发出来（程序附作者和出处）。'));
     if (kinds.has('later')) {

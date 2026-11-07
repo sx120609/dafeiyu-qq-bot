@@ -33,6 +33,9 @@ export const referencePrices={
   // accuracy-first one, spends more tokens per picture than Flare, the speed-first one).
   'gpt-image-2.5-flare':{input:5,cachedInput:1.25,imageInput:8,cachedImageInput:2,output:30},
   'gpt-image-2.5-sunburst':{input:5,cachedInput:1.25,imageInput:8,cachedImageInput:2,output:30},
+  // GPT Image 2.6 (11-04) costs the same per token as 2.5 (developers.openai.com model page).
+  'gpt-image-2.6-flare':{input:5,cachedInput:1.25,imageInput:8,cachedImageInput:2,output:30},
+  'gpt-image-2.6-sunburst':{input:5,cachedInput:1.25,imageInput:8,cachedImageInput:2,output:30},
   // Voice: the realtime models' output is audio, priced at the audio rate; input is the text to read.
   'gpt-realtime-2.1-mini':{input:0.6,cachedInput:0.06,output:20},
   'gpt-realtime-2.1':{input:4,cachedInput:0.4,output:64},

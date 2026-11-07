@@ -1628,6 +1628,7 @@ export class QQEngine {
   }
   async prepareImage({request, proposed, proactive, epoch, message, target, key, signal, references = [], options = {}}) {
     const {plan, tokens} = await this.modelClient.prepareQQImage({key, config: this.config.ai, text: request, proposed, proactive, references: references.length,
+      animated: options.animated === true,
       reserve: async () => this.reserveModel(epoch, message.key, target), signal});
     this.check(epoch, message.key, target); this.usage.tokens += tokens;
     // The chat model asked to draw after reading the whole conversation; "none" here only means the latest

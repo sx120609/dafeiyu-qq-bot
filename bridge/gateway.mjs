@@ -371,6 +371,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
         const options=imageOptions(data);
         if(viaCloud)try{result=await metered('cloud',{model:cloud.imageModel},'image','',()=>generateCloudImage(data.prompt,cloud,controller.signal,data));}
           catch(e){if(e.status===422||controller.signal.aborted)throw e;cloudFailure=e;}
+        // Codex draws stills only: an animated request without the cloud model says so instead of sending a still (11-07).
+        if(!result&&options.animated)throw cloudFailure||Object.assign(new Error('动图要云端 API 配好 GPT Image 2.6 生图模型'),{status:503});
         if(!result)try{result=await metered('codex',{model:'image'},'image','',()=>generateCodexImage(data.prompt,config,controller.signal,options));}
           catch(e){if(cloudFailure&&e.status!==422)e.message=`云端 API：${cloudFailure.message}；本机 Codex：${e.message}`;throw e;}
         send(200,result);

@@ -47,8 +47,9 @@ export class QQImageGenerator {
     const failures = [];
     for (const [index, provider] of providers.entries()) {
       checkCancellation(signal);
-      // Only the model gateway draws from reference images; the Zhipu and Cloudflare models take text alone.
+      // Only the model gateway draws from reference images or animates; the Zhipu and Cloudflare models take text alone.
       if (references.length && provider !== 'codex') { failures.push(QQImageProvider.title(provider) + '：不能照着参考图画'); continue; }
+      if (options.animated && provider !== 'codex') { failures.push(QQImageProvider.title(provider) + '：不会画动图'); continue; }
       const key = provider === 'codex' ? credentials.codexToken : provider === 'zhipu' ? credentials.zhipuKey : credentials.cloudflareToken;
       if (!key || (provider === 'cloudflare' && !settings.cloudflareAccountID)) {
         failures.push(QQImageProvider.title(provider) + '：凭证未配置'); continue;
@@ -90,7 +91,8 @@ export class QQImageGenerator {
       }
       const body = {prompt, ...(references.length ? {images: references.map(image => Buffer.from(image).toString('base64'))} : {}),
         ...(options.size ? {size: options.size} : {}), ...(options.quality ? {quality: options.quality} : {}),
-        ...(options.transparent ? {background: 'transparent'} : {}), ...(options.count > 1 ? {n: options.count} : {})};
+        ...(options.transparent ? {background: 'transparent'} : {}), ...(options.count > 1 ? {n: options.count} : {}),
+        ...(options.animated ? {output_format: 'gif', ...(options.frames ? {frame_count: options.frames} : {}), ...(options.frameMs ? {frame_duration_ms: options.frameMs} : {})} : {})};
       // Editing and several pictures take longer than one new picture; the gateway gives up at 300 s.
       const {data, status} = await this.fetch({url: url.href, method: 'POST', timeoutInterval: 330, signal,
         headers: {Authorization: 'Bearer ' + key, 'Content-Type': 'application/json'}, body: JSON.stringify(body)}, 80_000_000);
@@ -103,7 +105,9 @@ export class QQImageGenerator {
         const reason = message !== undefined ? prefix(message, 200) : `HTTP ${status}`;
         throw new GenerationFailure(`模型网关没画出来（${reason}）`, true);
       }
-      try { for (const image of images) await LinuxImages.process(image, 'generated'); } catch { throw new GenerationFailure('生成图片校验失败', true); }
+      // An animated GIF is checked frame by frame like an animated sticker; a still one must be a single frame.
+      try { for (const image of images) await LinuxImages.process(image, image.subarray(0, 4).toString() === 'GIF8' ? 'sticker' : 'generated'); }
+      catch { throw new GenerationFailure('生成图片校验失败', true); }
       return images;
     }
     const url = provider === 'zhipu'

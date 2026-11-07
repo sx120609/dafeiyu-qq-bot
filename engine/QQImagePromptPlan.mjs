@@ -41,7 +41,7 @@ Object.assign(DeepSeekClient.prototype, {
   /** prepareQQImage(key:config:text:proposed:proactive:reserve:) — one named-arguments object (plus an optional
    *  signal). Resolves to the Swift tuple (QQImagePromptPlan, Int) as `[plan, tokens]`, which also carries
    *  `.plan` and `.tokens`. */
-  async prepareQQImage({key, config, text, proposed, proactive, reserve, signal, references = 0}) {
+  async prepareQQImage({key, config, text, proposed, proactive, reserve, signal, references = 0, animated = false}) {
     const rule = new ChatRule({name: '生图意图整理'});
     rule.prompt = [
       '[IMAGE_PROMPT_PLAN] 你是中文生图意图与画面提示词整理器，不扮演聊天人设。',
@@ -56,6 +56,10 @@ Object.assign(DeepSeekClient.prototype, {
     if (proposed != null && !proactive) {
       rule.prompt += '\n这一轮是聊天模型结合整段对话后主动调用了生图（draft_visual_description 是它要画的内容）：要不要画已经定了，最新发言可能只是“那你就画一张”“你挑一个画”这类接着上文的话，不能因为它单看不像画图请求就 none。你只做两件事：以草稿为主整理画面 generate；只有露骨色情或未成年人性化才 decline。';
     }
+    if (animated) {
+      // 11-07: GPT Image 2.6 draws GIFs; the motion has to be in the prompt or the frames barely move.
+      rule.prompt += '\n这次画的是会动的 GIF 动图：prompt 里写清主体做什么动作、怎么动、最后回到起始姿势形成循环，背景尽量稳定不乱动。';
+    }
     if (references > 0) {
       // 11-03: drawing from the pictures people send. Rewritten as a fresh scene, the edit lost the picture.
       rule.prompt += `\n这次附了 ${references} 张参考图（reference_images），是改图或照着图画：prompt 写成对参考图要做的改动（改哪里、改成什么、哪些保持不变），不要把参考图的内容重新描述成一张新图，也不要编参考图里没有的细节。`;
@@ -63,7 +67,7 @@ Object.assign(DeepSeekClient.prototype, {
     if (proactive) {
       rule.prompt += '\n本轮确定为群主动接话，最高优先步骤是判断收件人：机器人仅叫大肥鱼或小肥鱼，不叫小王、小李或其他人。未明确点名机器人，一律 action=none，不继续整理画面。例：‘小王，帮我画一张猫’→none；‘帮我画张猫’→none；‘@临时大肥鱼 生成一张你的可爱的图’→generate；‘大肥鱼，这张图可爱’→none。';
     }
-    const input = {latest_message: prefix(text, 6000), draft_visual_description: prefix(proposed ?? '', 1500), proactive, ...(references > 0 ? {reference_images: references} : {})};
+    const input = {latest_message: prefix(text, 6000), draft_visual_description: prefix(proposed ?? '', 1500), proactive, ...(references > 0 ? {reference_images: references} : {}), ...(animated ? {animated: true} : {})};
     const result = await this.reply({key, config, rule, history: [], text: serialize(input), jsonOutput: true, thinkingEnabled: true,
       purpose: 'imageplan', reserve, signal});
     const plan = QQImagePromptPlan.decode(result.text);

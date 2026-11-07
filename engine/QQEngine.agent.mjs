@@ -992,7 +992,8 @@ export const agentMethods = {
             try { references = await this.agentDrawingReferences(bubble.images ?? [], {target, state: {members}, signal}); }
             catch (error) { if (isCancellation(error)) throw error; references = '参考图下载不下来：' + prefix(describe(error), 120); }
             if (typeof references === 'string') { failure('没画：' + references); continue; }
-            const options = {size: bubble.size, quality: bubble.quality, transparent: bubble.transparent, count: bubble.count};
+            const options = {size: bubble.size, quality: bubble.quality, transparent: bubble.transparent, count: bubble.count,
+              animated: bubble.animated, frames: bubble.frames, frameMs: bubble.frameMs};
             // prepareImage only needs the chat's key from the message; a turn with nothing to answer still draws.
             const prepared = await this.prepareImage({request: prompt, proposed: prompt, proactive: false, epoch, message: targetMessage ?? {key: target.key}, target, key, signal,
               references, options});
@@ -1004,9 +1005,12 @@ export const agentMethods = {
             }
             this.check(epoch, target.key, target);
             const credit = prepared.sources.filter(source => !source.startsWith('http')).join('\n');
-            const segments = images.map(image => ({type: 'image', data: {file: 'base64://' + base64(image)}}));
+            // A GIF goes out as QQ's animated image (sub_type 1); as a plain image QQ shows only its first frame.
+            const segments = images.map(image => image.subarray(0, 4).toString() === 'GIF8' ? QQPolicy.stickerSegment(image)
+              : {type: 'image', data: {file: 'base64://' + base64(image)}});
             if (credit !== '') segments.unshift({type: 'text', data: {text: credit + '\n'}});
-            const what = (references.length ? '照着参考图' : '') + '画了' + (images.length > 1 ? ` ${images.length} 张图` : '一张图');
+            const what = (references.length ? '照着参考图' : '') + '画了' + (images.length > 1 ? ` ${images.length} 张` : '一张') +
+              (images.some(image => image.subarray(0, 4).toString() === 'GIF8') ? '动图' : '图');
             await this.agentSend(target, segments, `[${what}] ` + prefix(prompt, 60), answering, epoch, signal);
             this.agentRememberDrawing(target.key, images);
             previous = ''; success(what);
