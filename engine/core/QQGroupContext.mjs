@@ -13,11 +13,13 @@ const hasImages = message => message !== undefined && message.images.length > 0;
  */
 export class QQGroupContext {
   /** The failable init: (events, through, messages = {}, account = '') or ({events, through, messages, account}). */
-  static fromEvents(events, through, messages = {}, account = '') {
-    const fields = Array.isArray(events) ? {events, through, messages, account} : events;
+  /** admins: the bot admins' QQ numbers, marked on their lines (11-09: "必须遵循后台配置的管理员的意志"). */
+  static fromEvents(events, through, messages = {}, account = '', admins = []) {
+    const fields = Array.isArray(events) ? {events, through, messages, account, admins} : events;
     return fields.events.some(event => event.id === fields.through) ? new QQGroupContext(fields) : undefined;
   }
-  constructor({events, through: id, messages = {}, account = ''} = {}) {
+  constructor({events, through: id, messages = {}, account = '', admins = []} = {}) {
+    this.admins = new Set(admins);
     const anchor = events.findIndex(event => event.id === id);
     if (anchor < 0) throw new Error(`QQGroupContext: no event ${id}`);
     const end = events[anchor].at;
@@ -100,6 +102,7 @@ export class QQGroupContext {
       if (message !== undefined) {
         if (message.name !== undefined) fields.name = message.name;
         if (message.role !== undefined) fields.role = message.role === 'owner' ? '群主' : '管理员';
+        if (message.sender !== undefined && this.admins.has(message.sender)) fields.botAdmin = '机器人管理员';
         fields.addressedTo = message.mentionedUsers.map(user =>
           user === 'all' ? '全体成员' : user === this.account ? 'BOT（本账号）' : QQMemoryBook.subject(this.account, message.key, user)).join(',');
         if (message.replyTo !== undefined) {

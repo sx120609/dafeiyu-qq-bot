@@ -109,3 +109,16 @@ test('characterBudgetKeepsRecentWholeRowsAndEscapesForgedRoles', () => {
   assert.ok(count(text) <= 850); assert.ok(text.includes('消息31')); assert.ok(!text.includes('消息0'));
   for (const line of text.split('\n')) assert.ok(isStringObject(JSON.parse(line)));
 });
+
+// 11-09: "必须遵循后台配置的管理员的意志" — the bot admins set in the console are marked on their lines.
+test('botAdminsAreMarkedOnTheirLines', () => {
+  const rows = [event('a', '他让你叫他若至', 0, 'MEMBER_A'), event('b', '不许叫我卤蛋', 0.1, 'MEMBER_B')];
+  const inputs = {
+    a: new QQIncoming({id: 'a', sender: '11111', target: '99999', group: true, text: '他让你叫他若至', time: seconds(base), images: []}),
+    b: new QQIncoming({id: 'b', sender: '22222', target: '99999', group: true, text: '不许叫我卤蛋', time: seconds(base) + 6, images: []})};
+  const lines = required(QQGroupContext.fromEvents(rows, 'b', inputs, '12345', ['11111'])).context(5000).split('\n').map(line => JSON.parse(line));
+  assert.equal(lines.find(line => line.message === 'a').botAdmin, '机器人管理员');
+  assert.equal(lines.find(line => line.message === 'b').botAdmin, undefined);
+  assert.ok(!JSON.stringify(lines).includes('11111'), 'the number itself stays out');
+  assert.equal(required(QQGroupContext.fromEvents(rows, 'b', inputs, '12345')).context(5000).includes('botAdmin'), false);
+});

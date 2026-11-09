@@ -157,7 +157,7 @@ export const agentMethods = {
       // has what the owner typed by hand.
       let timeline = '', groupContext;
       if (target.group) {
-        groupContext = QQGroupContext.fromEvents(events, events.at(-1)?.id ?? anchor.id, inputs, account);
+        groupContext = QQGroupContext.fromEvents(events, events.at(-1)?.id ?? anchor.id, inputs, account, this.config.effectiveAdminIDs);
         if (!groupContext) return;
         notes.push(!fresh.length ? '这一轮没有新消息，下面是聊天现在的样子。' : '这一批新消息（从旧到新）：' + fresh.join('、') + '，都在下面的时间线里；更早的行是前文。');
       } else {
@@ -758,6 +758,7 @@ export const agentMethods = {
       const label = target.group ? QQMemoryBook.subject(account, key, message.sender) : 'PEER';
       if (!message.isOwner && message.sender !== account && !this.config.isBlocked(message.sender)) state.members[label] = message.sender;
       let line = `${id} ` + (message.name !== undefined ? `${message.name}(${label})` : label) + '：' + prefix(message.text, 300);
+      if (this.config.isAdmin(message.sender)) line += ' [机器人管理员]';
       if (message.mentionsSelf) line += ' [@了你]';
       if (message.images.length) line += ' [带图，要看用 look_at_image]';
       if (message.replyTo !== undefined) line += ` [引用了 ${message.replyTo}]`;
