@@ -654,9 +654,17 @@ export const agentMethods = {
     // 2026-11-03: "Find the root cause and fix it in the code"; SnowLuma anchors history by message_id, not message_seq.
     if (before !== undefined && isInt64(before)) { params.message_id = before; params.reverse_order = true; }
     let rows;
-    try { const response = await this.connection.action(target.group ? 'get_group_msg_history' : 'get_friend_msg_history', params); rows = isDictionary(response.data) ? response.data : undefined; } catch {}
+    try {
+      const response = await this.connection.action(target.group ? 'get_group_msg_history' : 'get_friend_msg_history', params);
+      rows = isDictionary(response?.data) ? response.data : undefined;
+    } catch (error) {
+      // 2026-11-11: "Find the root cause and fix it in the code": a failed lookup is not evidence that older messages do not exist.
+      if (isCancellation(error) || QQRepair.isBug(error)) throw error;
+      return '读取 QQ 聊天记录失败：' + describe(error);
+    }
     const messages = rows && Array.isArray(rows.messages) && rows.messages.every(isDictionary) ? rows.messages : undefined;
-    if (!messages?.length) return 'QQ 没给出更早的记录。';
+    if (!messages) return '读取 QQ 聊天记录失败：QQ 返回的记录格式不正确。';
+    if (!messages.length) return 'QQ 没给出更早的记录。';
     const account = this.config.expectedSelfID;
     const lines = messages.flatMap(row => {
       const id = identifier(row.message_id);

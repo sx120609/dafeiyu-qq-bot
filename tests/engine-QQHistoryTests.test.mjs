@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {agentMethods} from '../engine/QQEngine.agent.mjs';
+import {OneBotRejection} from '../engine/OneBotConnection.mjs';
+import {CancellationError} from '../engine/BoundedDownload.mjs';
 
 for (const group of [true, false]) {
   test(`read_qq_history pages backwards by message ID in ${group ? 'groups' : 'private chats'}`, async () => {
@@ -46,3 +48,29 @@ for (const group of [true, false]) {
     assert.equal(calls[2].params.reverse_order, true);
   });
 }
+
+test('read_qq_history distinguishes failed requests from empty history', async () => {
+  const target = {group: true, number: '99999', key: 'group:99999'};
+  for (const error of [new OneBotRejection({retcode: 100, detail: 'message not found'}), new Error('OneBot response timed out')]) {
+    const engine = {connection: {async action() { throw error; }}};
+    const result = await agentMethods.agentReadHistory.call(engine, '{"before":"-900001"}', target);
+    assert.ok(result.startsWith('读取 QQ 聊天记录失败：'), result);
+    assert.ok(result.includes(error.message), result);
+    assert.ok(!result.includes('没给出更早的记录'), result);
+  }
+});
+
+test('read_qq_history preserves cancellation and program errors and rejects malformed responses', async () => {
+  const target = {group: false, number: '54321', key: 'private:54321'};
+  const engine = {connection: {}};
+  for (const error of [new CancellationError(), new TypeError('broken history handler')]) {
+    engine.connection.action = async () => { throw error; };
+    await assert.rejects(agentMethods.agentReadHistory.call(engine, '{}', target), thrown => thrown === error);
+  }
+  for (const response of [undefined, {}, {data: null}, {data: {}}, {data: {messages: [null]}}]) {
+    engine.connection.action = async () => response;
+    assert.equal(await agentMethods.agentReadHistory.call(engine, '{}', target), '读取 QQ 聊天记录失败：QQ 返回的记录格式不正确。');
+  }
+  engine.connection.action = async () => ({data: {messages: []}});
+  assert.equal(await agentMethods.agentReadHistory.call(engine, '{}', target), 'QQ 没给出更早的记录。');
+});
