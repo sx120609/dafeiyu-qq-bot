@@ -61,6 +61,8 @@ export function sniff(data) {
   if (at(0, '\x89PNG') || at(0, '\xFF\xD8\xFF') || at(0, 'GIF8') || at(0, 'BM') || (at(0, 'RIFF') && at(8, 'WEBP'))) return 'image';
   if (at(4, 'ftypheic') || at(4, 'ftypheix') || at(4, 'ftypavif') || at(4, 'ftypmif1')) return 'image';
   if (at(0, '#!AMR') || at(0, '\x02#!SILK') || at(0, '#!SILK') || at(0, 'ID3') || at(0, 'OggS') || at(0, 'fLaC') || (at(0, 'RIFF') && at(8, 'WAVE'))) return 'audio';
+  // 2026-11-11: "Find the root cause and fix it in the code": a UTF-16 BOM also matches the broad audio sync mask below.
+  if (at(0, '\xFF\xFE') || at(0, '\xFE\xFF')) return 'text';
   if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) return 'audio';
   if (at(4, 'ftypM4A')) return 'audio';
   if (at(4, 'ftyp') || at(0, '\x1A\x45\xDF\xA3') || at(0, 'FLV') || (at(0, 'RIFF') && at(8, 'AVI '))) return 'video';
@@ -244,8 +246,8 @@ export class QQFileText {
     if (kind === 'audio' || (audioExtensions.has(ext) && kind !== 'text')) return {kind: 'audio', format: ext === '' ? 'mp3' : ext === 'slk' ? 'silk' : ext};
     if (kind === 'video' || (videoExtensions.has(ext) && kind !== 'text')) return {kind: 'video'};
     if (kind === 'text' || textExtensions.has(ext) || htmlExtensions.has(ext)) {
+      // 2026-11-11: "Find the root cause and fix it in the code": HTML edits need scripts and markup, which xmlText discards.
       const text = decodeText(data);
-      if (htmlExtensions.has(ext) || /^\s*<(!doctype html|html)\b/iu.test(text.slice(0, 200))) return {kind: 'text', text: xmlText(text)};
       return {kind: 'text', text};
     }
     if (kind === 'archive') return {kind: 'unknown', note: 'rar / 7z / gz 压缩包，这里解不开'};
