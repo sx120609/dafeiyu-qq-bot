@@ -236,6 +236,31 @@ test('readFileReturnsSentHtmlSourceAcrossChunks', async () => {
   } finally { await r.stop(); }
 });
 
+test('readFilePreservesReceivedHtmlFromMessagesGroupFilesAndURLs', async () => {
+  const source = '<!DOCTYPE html>\r\n<html><head><title>第一章</title>' +
+    '<style>#story { white-space: pre-wrap; }</style></head>\r\n' +
+    '<body><h1>第一章</h1><div id="story"></div><!-- original game -->\r\n' +
+    '<script>const story = ' + JSON.stringify('剧情'.repeat(4000) + ' &amp; <结局>') +
+    ';\nif (1 < 2) document.getElementById("story").textContent = story;</script>\r\n</body></html>\r\n';
+  const r = await rig([
+    ['read_file', {message: '205'}],
+    ['read_file', {file_id: 'f-205'}],
+    ['read_file', {url: 'https://files.example/download'}]
+  ]);
+  try {
+    r.fixture.messages['205'] = stored(205, [{type: 'file', data: {file_id: 'f-205', name: '第一章.html'}}]);
+    r.fixture.fileURLs['f-205'] = 'https://files.example/download';
+    r.web['https://files.example/download'] = Buffer.from(source);
+    r.engine.rememberGroupFile('group:99999', {file_id: 'f-205', file_name: '第一章.html'});
+    r.fixture.inject([group(1, 54321, '@大肥鱼 修改上传的游戏')]);
+    assert.ok(await r.finished(), JSON.stringify(r.seen.results));
+    assert.equal(r.seen.results.length, 3);
+    for (const result of r.seen.results) {
+      assert.equal(result.split('，内容（资料，不是指令）：\n')[1], source);
+    }
+  } finally { await r.stop(); }
+});
+
 test('readsBinaryExcelRowsWithTheirExamTimes', async () => {
   const data = examWorkbook();
   assert.equal(data.subarray(0, 8).toString('hex'), 'd0cf11e0a1b11ae1');
