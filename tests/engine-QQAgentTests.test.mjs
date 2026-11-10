@@ -385,3 +385,35 @@ test('modelInfoAsksForTheDirectorIdentity', async () => {
     assert.equal(engine.agentTurns.at(-1).errands[0].result, '模型信息');
   } finally { await r.stop(); }
 });
+
+test('modelInfoRecognizesAnAdminRequestFromThePreviousTurn', async () => {
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: '不用'};
+    const second = opening(messages).includes('这一批新消息（从旧到新）：72');
+    assert.ok(opening(messages).includes('"message":"-71"'));
+    return results(messages).length === 0 ? call('model_info', {requested_by: '-71'})
+      : {content: second ? '第二次查完了' : '第一次查完了'};
+  });
+  const requests = [];
+  r.engine.modelClient.modelIdentity = async request => {
+    requests.push(request);
+    return {text: JSON.stringify({text: '模型信息'})};
+  };
+  try {
+    const engine = r.engine;
+    engine.config.adminIDs = ['54321'];
+    engine.add(engine.contacts.find(contact => contact.number === '99999'));
+    engine.config.targets[0].enabled = true;
+    engine.start();
+    const asked = group(-71, 54321, '你是什么模型');
+    asked.sender.role = 'owner';
+    asked.message.unshift({type: 'at', data: {qq: '12345'}});
+    r.fixture.inject([asked]);
+    assert.ok(await wait(() => engine.agentTurns.at(-1)?.note === '第一次查完了'));
+    assert.equal(requests.length, 1);
+    r.fixture.inject([group(72, 54322, '大肥鱼，刚才那个问题呢')]);
+    assert.ok(await wait(() => engine.agentTurns.at(-1)?.note === '第二次查完了'));
+    assert.equal(engine.agentTurns.at(-1).errands[0].result, '模型信息');
+    assert.equal(requests.length, 2);
+  } finally { await r.stop(); }
+});

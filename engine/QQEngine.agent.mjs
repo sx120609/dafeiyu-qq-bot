@@ -374,7 +374,7 @@ export const agentMethods = {
             } else if (name === 'remember' && tools0.has(name)) {
               output = this.agentRemember(argumentsText, [...fresh, ...state.consumed], state.inputs, state.members, target);
               done = output === '记下了。';
-            } else if (name === 'model_info' && !this.agentAskedByAdmin(fields(argumentsText).requested_by, [...fresh, ...state.consumed], state.inputs, target)) {
+            } else if (name === 'model_info' && !this.agentAskedByAdmin(fields(argumentsText).requested_by, [...state.messages], state.inputs, target)) {
               // 11-03: "不许让别人查我的这个".
               output = '没查：用的什么模型、怎么跑的只告诉主人和机器人管理员（requested_by 要填他们的消息）。别人问就说不方便透露，别报模型名、版本、平台。';
             } else if (name === 'model_info') {
@@ -1145,6 +1145,8 @@ export const agentMethods = {
   },
   /// Whether the message named in requested_by (one this turn has seen) is from the owner or a bot admin. In a
   /// private chat with a bot admin that is the other side.
+  // 2026-11-10: "Find the root cause"; seen must include the turn's timeline, since an admin's request can
+  // remain there after its original batch has finished. The retained input still verifies who sent it.
   agentAskedByAdmin(requested, seen, inputs, target) {
     if (!target.group && this.config.isAdmin(target.number)) return true;
     const asker = typeof requested === 'string' && seen.includes(requested) ? inputs[requested] : undefined;
