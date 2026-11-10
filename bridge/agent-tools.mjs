@@ -96,7 +96,7 @@ export class AgentTools{
   // Creates a tool, or replaces one of the same name. Codex writes the code from the requirement (unless the agent
   // brought its own), every draft is run with the test arguments, a failing one goes back with its error; the tool is
   // saved and enabled only when a run works.
-  async create({name,description,requirement,parameters,code,test_arguments:testArguments={},chat=''},{signal}={}){
+  async create({name,description,requirement,parameters,code,test_arguments:testArguments={},chat=''},{signal,context}={}){
     if(typeof name!=='string'||!NAME.test(name))throw new Error('name 要以 my_ 开头，只用小写字母、数字和下划线');
     if(!testArguments||typeof testArguments!=='object'||Array.isArray(testArguments))throw new Error('test_arguments 要是一个对象');
     const existing=this.find(name);
@@ -112,7 +112,7 @@ export class AgentTools{
       let schema;
       try{schema=validParameters(draft.parameters);}catch(error){test={ok:false,error:error.message,logs:[]};}
       if(schema){
-        test=await this.execute(draft.code,testArguments,name);
+        test=await this.execute(draft.code,testArguments,name,context);
         if(test.ok){
           const now=new Date().toISOString();
           const tool={name,description:String(draft.description||wanted).trim(),requirement:wanted,parameters:schema,code:draft.code,enabled:true,
@@ -128,10 +128,10 @@ export class AgentTools{
     }
     return {saved:false,name,test,drafts};
   }
-  async run(name,args){
+  async run(name,args,context){
     const tool=this.find(name);
     if(!tool||!tool.enabled)throw new Error('没有这个工具，或者已经停用');
-    const result=await this.execute(tool.code,args&&typeof args==='object'&&!Array.isArray(args)?args:{},name);
+    const result=await this.execute(tool.code,args&&typeof args==='object'&&!Array.isArray(args)?args:{},name,context);
     tool.runs=(tool.runs||0)+1;if(!result.ok)tool.failures=(tool.failures||0)+1;
     tool.lastRunAt=new Date().toISOString();tool.lastOutput=result.ok?result.output:'出错：'+result.error;
     await this.persist();
@@ -180,7 +180,7 @@ export class AgentTools{
     const referenced=await replace(value);
     return changed?JSON.stringify(referenced,null,1):output;
   }
-  async execute(code,args,name='my_test'){
+  async execute(code,args,name='my_test',context){
     const started=Date.now();
     const result=await new Promise(resolve=>{
       let child;
@@ -203,7 +203,11 @@ export class AgentTools{
         else if(message.type==='qq'){
           if(!this.qq){reply({id:message.id,error:'QQ 没连上'});return;}
           if(!allowedAction(message.action)){reply({id:message.id,error:'这个 QQ 操作工具不能直接做（踢人、禁言、退群、删好友、改机器人资料、拿登录凭证这类）；要做就让机器人自己按管理员的要求来'});return;}
-          this.qq(message.action,message.params&&typeof message.params==='object'?message.params:{}).then(response=>reply({id:message.id,response}),error=>reply({id:message.id,error:error.message}));
+          const params={...(message.params&&typeof message.params==='object'?message.params:{})};
+          // 2026-11-10: "Find the root cause and fix it in the code"; defaults belong to this invocation
+          // because concurrent chats share the broker but must never share a destination.
+          if(/(?:^|_)group(?:_|$)/.test(message.action)&&params.group_id==null&&context?.group_id!=null)params.group_id=context.group_id;
+          this.qq(message.action,params).then(response=>reply({id:message.id,response}),error=>reply({id:message.id,error:error.message}));
         }
       };
       child.stdout.on('data',chunk=>{

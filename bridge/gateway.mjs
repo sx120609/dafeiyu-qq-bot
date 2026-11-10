@@ -298,7 +298,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(req.url==='/console/api/computer'){try{send(200,{...await computer.update(data),history:await computer.history()});}catch(e){fail(e);}return;}
     if(req.url==='/v1/agent-tools/create'){
       const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
-      try{send(200,await agentTools.create(data,{signal:controller.signal}));}catch(e){fail(e);}return;
+      try{send(200,await agentTools.create(data,{signal:controller.signal,context:data.context}));}catch(e){fail(e);}return;
     }
     // Program errors from the engine and the agent's report_bug: {source, kind, message, stack, context}.
     if(req.url==='/v1/repair/report'){if(!repair){send(200,{accepted:false,reason:'自我修复没开'});return;}try{send(200,await repair.report(data));}catch(e){fail(e);}return;}
@@ -316,7 +316,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(req.url==='/v1/audio/transcriptions'){
       try{if(typeof data.audio!=='string'||!data.audio)throw new Error('没有音频');send(200,await voice.transcribe(Buffer.from(data.audio,'base64'),String(data.format||'mp3')));}catch(e){fail(e);}return;
     }
-    if(req.url==='/v1/agent-tools/run'){try{send(200,await agentTools.run(String(data.name||''),data.arguments));}catch(e){fail(e);}return;}
+    if(req.url==='/v1/agent-tools/run'){try{send(200,await agentTools.run(String(data.name||''),data.arguments,data.context));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/tools'){
       try{
         if(data.test===true){const tool=agentTools.find(String(data.name||''));if(!tool)throw new Error('没有这个工具');send(200,{result:await agentTools.execute(tool.code,data.arguments&&typeof data.arguments==='object'?data.arguments:{})});return;}

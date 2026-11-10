@@ -354,10 +354,10 @@ export const agentMethods = {
             } else if (name === 'manage_chat') {
               output = this.agentManage(argumentsText, [...fresh, ...state.consumed], state.inputs, state.members, target);
             } else if (name === 'create_tool' && tools0.has('create_tool')) {
-              output = await QQCustomTools.create(argumentsText, this.chatLabel(target), credential);
+              output = await QQCustomTools.create(argumentsText, {chat: this.chatLabel(target), key: credential, target});
               customTools.definitions = await QQCustomTools.definitions(credential);
             } else if (name.startsWith('my_') && customTools.names.has(name)) {
-              output = await QQCustomTools.run(name, argumentsText, credential);
+              output = await QQCustomTools.run(name, {arguments: argumentsText, key: credential, target});
             } else if (name === 'computer_task' && superMode && computerOwner !== undefined) {
               output = await this.agentComputer(argumentsText, computerOwner, state, fresh, key, credential, target);
             } else if ((name === 'write_note' || name === 'delete_note') && tools0.has(name)) {
