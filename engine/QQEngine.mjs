@@ -290,7 +290,7 @@ export class QQEngine {
     this.agentJobsDone = new Map();
     /// How long a slow tool may hold up its turn before it goes on in the background. Drawing and the computer go
     /// almost at once (a refusal or a bad argument still comes back in time); lookups get longer.
-    this.agentPatience = {draw_image: 3, computer_task: 3, browse_bilibili: 20, watch_bilibili_live: 20, ask_helper: 25, search_x: 20,
+    this.agentPatience = {draw_image: 3, computer_task: 3, browse_bilibili: 20, watch_bilibili_live: 20, ask_helper: 25, search_x: 20, compose_music: 5,
       look_at_image: 20, send_voice: 20, find_artwork: 20, create_tool: 30,
       read_file: 30, watch_video: 25, listen_voice: 25, read_forward: 20, look_at_avatar: 20, send_file: 40, send_image: 25, send_forward: 30};
     /// How often the "正在输入" state is renewed in a private chat while a turn works.

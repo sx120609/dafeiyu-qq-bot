@@ -207,6 +207,14 @@ Object.assign(DeepSeekClient, {
         title: {type: 'string', description: '卡片标题，例如“今天的新闻”；可不填'},
         summary: {type: 'string', description: '卡片底下的一行小字，例如“共 5 条”；可不填'}
       }}),
+    // 11-13: "加一个创作音乐的功能", "让肥鱼多自由发挥" — what the song is like is up to the bot.
+    fn('compose_music', '作一首歌发出来：词、曲风、情绪、乐器、男声女声还是纯音乐、多长，都由你自己定，想怎么写就怎么写。在 5090 上现做，一两分钟，做好直接发语音和 MP3 文件。有人想听歌、让你唱一首、写首歌、来段 BGM 时用。',
+      {type: 'object', additionalProperties: false, required: ['style'], properties: {
+        style: {type: 'string', description: '这首歌是什么样：风格、情绪、乐器、人声、节奏、场景，随你写，中英文都行'},
+        lyrics: {type: 'string', description: '歌词，你自己写；可以用 [Verse] [Chorus] [Bridge] 这类段落标记，也可以不用；不填就是纯音乐'},
+        seconds: {type: 'integer', description: '大概多长，10–300 秒，默认 60'},
+        title: {type: 'string', description: '歌名，也是文件名'}
+      }}),
     fn('send_image', '发一张现成的图：网上的图片（url）、聊天里某条消息的图（message，转发或再发一次），或某人的 QQ 头像、群头像（avatar）。要画新的图用 draw_image。',
       {type: 'object', additionalProperties: false, properties: {
         url: {type: 'string', description: '图片网址或工具返回的 file://、base64:// 图片引用'},

@@ -7,7 +7,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {AppFailure, uuid, prefix, count, trim, temporaryDirectory} from './swift.mjs';
 import {isDictionary, parseDictionary} from './foundation.mjs';
-import {boundedData, defaultSession, taskSleep, URLError} from './BoundedDownload.mjs';
+import {boundedData, defaultSession, sessionData, taskSleep, URLError} from './BoundedDownload.mjs';
 import {QQPolicy, QQIncomingImage} from './core/QQPolicy.mjs';
 import {QQAgentPlan} from './core/QQAgentPlan.mjs';
 import {QQMemoryBook} from './core/QQMemoryBook.mjs';
@@ -42,7 +42,7 @@ const readChunk = 20000;
 export const QQAgentMedia = {
   /** The tools this module carries out. */
   names: new Set(['read_file', 'list_group_files', 'send_file', 'listen_voice', 'watch_video', 'read_forward', 'send_forward',
-    'send_image', 'look_at_avatar', 'find_member', 'set_my_card']),
+    'send_image', 'look_at_avatar', 'find_member', 'set_my_card', 'compose_music']),
   /** Only in groups. */
   groupOnly: new Set(['list_group_files', 'find_member', 'set_my_card']),
   /** Size limits of what is downloaded, by purpose. */
@@ -66,6 +66,7 @@ export const mediaMethods = {
         case 'look_at_avatar': return await this.agentLookAtAvatar(input, context);
         case 'find_member': return await this.agentFindMember(input, context);
         case 'set_my_card': return await this.agentSetCard(input, context);
+        case 'compose_music': return await this.agentComposeMusic(input, context);
         default: return '没有这个工具。';
       }
     } catch (error) {
@@ -612,6 +613,38 @@ export const mediaMethods = {
     const failed = await this.agentDeliver(context, {segments: nodes, override: {action, params: routed, timeout: 120}, text: prefix(label, 200),
       done: `发了一条合并转发（${nodes.length} 段${title === '' ? '' : '，' + title}）`});
     return failed ?? `发了一条合并转发（${nodes.length} 段）。`;
+  },
+
+  // MARK: Music
+
+  /** A song the bot writes itself (11-13: "加一个创作音乐的功能", "让肥鱼多自由发挥"): the description and the lyrics
+   *  are its own, made on the GPU server by the gateway (bridge/music.mjs). It goes out as a voice message to play
+   *  at once and as an MP3 to keep, since QQ's voice is low quality and may refuse a long one. */
+  async agentComposeMusic(input, context) {
+    const style = string(input.style), lyrics = typeof input.lyrics === 'string' ? input.lyrics : '';
+    if (style === '') return 'compose_music 要写 style：这首歌是什么样（风格、情绪、乐器、人声，随你写）。';
+    const url = QQVoice.endpoint('/music/compose');
+    if (!url) return '作曲要通过本机网关，引擎现在没连着网关。';
+    const {data, response} = await sessionData(QQVoice.session, {url: url.href, method: 'POST', timeoutInterval: 900, signal: context.signal,
+      headers: {Authorization: 'Bearer ' + (this.runtimeCredentials?.deepSeekKey ?? context.key), 'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt: style, lyrics, seconds: Number(input.seconds) || 60})});
+    const object = parseDictionary(data);
+    if (response.statusCode !== 200 || typeof object?.audio !== 'string') return '没做出来：' + (typeof object?.error === 'string' ? object.error : `HTTP ${response.statusCode}`);
+    const title = safeName(string(input.title) || '大肥鱼的歌').replace(/\.mp3$/iu, '');
+    const voiceFailed = await this.agentDeliver(context, {segments: [{type: 'record', data: {file: 'base64://' + object.audio}}],
+      override: {timeout: 120}, text: `[语音] ${title}`, done: `发了一段歌「${title}」`});
+    const directory = this.agentScratch();
+    try {
+      const file = path.join(directory, title + '.mp3');
+      fs.writeFileSync(file, Buffer.from(object.audio, 'base64'));
+      const fileFailed = await this.agentDeliver(context, {segments: [{type: 'file', data: {file, name: title + '.mp3'}}], override: {timeout: 300},
+        text: `[文件] ${title}.mp3`, done: `发了歌的文件「${title}.mp3」`});
+      const length = `${Math.round(Number(object.seconds) || 0)} 秒`;
+      if (voiceFailed && fileFailed) return `歌做好了（${length}），但没发出去：${voiceFailed}`;
+      return `歌「${title}」做好了（${length}），` + (voiceFailed ? '语音没发出去，MP3 文件发了。' : fileFailed ? '语音发了，MP3 文件没发出去。' : '语音和 MP3 文件都发了。');
+    } finally {
+      try { fs.rmSync(directory, {recursive: true, force: true}); } catch {}
+    }
   },
 
   // MARK: Pictures and people

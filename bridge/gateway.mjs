@@ -25,6 +25,7 @@ import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 import {partOf} from './self-repair.mjs';
 import {dshModels} from './dsh.mjs';
 import {grokSearch} from './grok.mjs';
+import {composeMusic} from './music.mjs';
 import {claudeSessions} from './claude-session.mjs';
 import {HotReload} from '../engine/HotReload.mjs';
 import {watch,statSync} from 'node:fs';
@@ -313,6 +314,13 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     }
     if(req.url==='/console/api/repairs'){if(!repair){send(404,{error:'自我修复没开'});return;}try{send(200,typeof data.retry==='string'?await repair.retry(data.retry):repair.view());}catch(e){fail(e);}return;}
     // A voice message as text, for the agent's listen_voice: {audio: base64, format}.
+    // A song on the GPU server (music.mjs) for the bot's compose_music tool.
+    if(req.url==='/v1/music/compose'){
+      const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
+      try{const song=await composeMusic({prompt:data.prompt,lyrics:data.lyrics??'',seconds:data.seconds},config,{signal:controller.signal});
+        send(200,{audio:song.audio.toString('base64'),seconds:song.seconds,took:song.took});}
+      catch(e){send(e.status||503,{error:e.message});}return;
+    }
     if(req.url==='/v1/audio/transcriptions'){
       try{if(typeof data.audio!=='string'||!data.audio)throw new Error('没有音频');send(200,await voice.transcribe(Buffer.from(data.audio,'base64'),String(data.format||'mp3')));}catch(e){fail(e);}return;
     }
