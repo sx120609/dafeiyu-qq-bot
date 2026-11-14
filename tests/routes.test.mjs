@@ -32,6 +32,45 @@ test('model identity follows the requested purpose when chat and director use di
   }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
 });
 
+test('model identity ignores connection probe models for director, chat and rewrite',async t=>{
+  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-model-probe-test-'));
+  const settings=await new Settings(path.join(temp,'providers.json')).load();
+  settings.value.active='claude';settings.value.profiles.claude.model='opus';
+  settings.value.catalogs.claude={models:[{id:'opus',resolvedModel:'claude-opus-5-5'}]};
+  settings.value.routes={rewrite:{provider:'active'}};
+  const config={token:'synthetic-model-token',consoleToken:'synthetic-console-token'};
+  const invoke=async body=>({model:body.metadata?.dafeiyu_purpose==='test'?'claude-haiku-5-5':'claude-opus-5-5',
+    choices:[{message:{content:'ok'},finish_reason:'stop'}],usage:{prompt_tokens:3,completion_tokens:1}});
+  const server=createGateway(config,settings,{runtime:temp,invoke});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;
+  const info=purpose=>fetch(base+'/v1/model-info?purpose='+purpose,{headers:{Authorization:'Bearer '+config.token}}).then(r=>r.json());
+  const client=new DeepSeekClient();client.base=swiftURL(base+'/v1');
+  try{
+    const probe=await fetch(base+'/console/api/test',{method:'POST',headers:{Authorization:'Bearer '+config.consoleToken,'Content-Type':'application/json',Origin:base},body:JSON.stringify({provider:'claude'})});
+    assert.equal(probe.status,200);assert.equal((await probe.json()).model,'claude-haiku-5-5');
+    assert.equal(settings.value.checks.claude.configuredModel,'opus');
+    const reply=await fetch(base+'/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+config.token,'Content-Type':'application/json'},
+      body:JSON.stringify({model:'dafeiyu-active',messages:[{role:'user',content:'hi'}],metadata:{dafeiyu_purpose:'director'}})}).then(r=>r.json());
+    assert.equal(reply.model,'claude-opus-5-5');
+    await t.test('catalog resolution wins over a successful probe',async()=>{
+      assert.equal((await info('director')).model,'claude-opus-5-5');
+      const chat=await info('chat');assert.equal(chat.model,'claude-opus-5-5');assert.equal(chat.rewrite.model,'claude-opus-5-5');
+      const identity=await client.modelIdentity({key:config.token,config:{model:'dafeiyu-active'},purpose:'director'});
+      assert.equal(JSON.parse(identity.text).text,'我现在用的是 claude-opus-5-5，通过官方 Claude Code调用。');
+    });
+    await t.test('an unresolved alias stays configured instead of borrowing a probe model',async()=>{
+      delete settings.value.catalogs.claude;
+      assert.equal((await info('director')).model,'opus');
+    });
+    await t.test('an explicit routed model cannot be replaced by a matching probe',async()=>{
+      settings.value.routes.director={provider:'claude',model:'claude-opus-5-5'};
+      settings.value.checks.claude.configuredModel='claude-opus-5-5';
+      const identity=await info('director');
+      assert.equal(identity.configuredModel,'claude-opus-5-5');assert.equal(identity.model,'claude-opus-5-5');
+    });
+  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
+});
+
 test('each purpose can go to its own model, falls back to the active one, and the rewrite stage is off until assigned',async()=>{
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-routes-test-'));
   const settings=await new Settings(path.join(temp,'providers.json')).load();

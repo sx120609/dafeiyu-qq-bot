@@ -217,8 +217,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
         const purpose=purposes.includes(requested)?requested:'chat';
         const labels={codex:'本机 Codex',claude:'官方 Claude Code',cloud:'云端 API',dsh:'本机 dsh'};
         const resolve=({provider,profile:p})=>{
-          const check=settings.value.checks[provider],canonical=settings.value.catalogs[provider]?.models?.find(x=>x.id===p.model)?.resolvedModel;
-          return check?.ok&&check.configuredModel===p.model?check.model:canonical||p.model;
+          // 2026-11-15: "Find the root cause"; a connection probe can report a helper model, not the routed conversation model.
+          const canonical=settings.value.catalogs[provider]?.models?.find(x=>x.id===p.model)?.resolvedModel;
+          return canonical||p.model;
         };
         const route=settings.route(purpose),rewrite=purpose==='chat'&&settings.rewriteEnabled()?settings.route('rewrite'):null;
         send(200,{provider:route.provider,providerLabel:labels[route.provider],configuredModel:route.profile.model,model:resolve(route),
