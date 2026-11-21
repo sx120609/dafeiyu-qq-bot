@@ -5,6 +5,41 @@ import os from 'node:os';
 import path from 'node:path';
 import {UsageLedger,usageDay} from '../bridge/usage.mjs';
 
+test('model contributions keep gateway attempts separate from successes and legacy failures',()=>{
+  const ledger=new UsageLedger({runtime:'.runtime/test-temp'});
+  ledger.schedule=()=>{};
+  const now=Date.UTC(2026,10,21,4);
+  ledger.data.days[usageDay(now)]={'claude|opus|director|':{calls:1524,failures:1524,ms:0,input:0,cached:0,output:0,reasoning:0,reportedCost:0}};
+  const usage={model_usage:[
+    {model:'claude-haiku-5-5',usage:{prompt_tokens:10,completion_tokens:1,cost_usd:0.01}},
+    {model:'claude-opus-5-5',usage:{prompt_tokens:150,cached_tokens:50,completion_tokens:20,cost_usd:2}}
+  ]};
+  ledger.record({provider:'claude',model:'claude-opus-5-5',purpose:'director',usage,at:now});
+  ledger.record({provider:'claude',model:'claude-opus-5-5',purpose:'director',ok:false,failure:'error_max_structured_output_retries',
+    usage:{model_usage:[{model:'claude-opus-5-5',usage:{prompt_tokens:100,cost_usd:0.4}}]},at:now});
+  const summary=ledger.summary({days:1,now});
+  assert.equal(summary.totals.calls,1526);
+  assert.equal(summary.totals.successes,1);
+  assert.equal(summary.totals.failures,1525);
+  assert.equal(summary.models.find(m=>m.model==='opus').successes,0);
+  assert.equal(summary.models.find(m=>m.model==='claude-haiku-5-5').usd,0.01);
+  assert.equal(summary.models.find(m=>m.model==='claude-opus-5-5').usd,2.4);
+  assert.equal(summary.totals.input,260);
+  assert.equal(summary.totals.cached,50);
+  assert.equal(summary.purposes[0].calls,1526);
+  assert.equal(summary.daily[0].successes,1);
+  assert.deepEqual(summary.failureReasons,{unknown:1524,error_max_structured_output_retries:1});
+  assert.equal(summary.window.start,'2026-11-21T00:00:00+08:00');
+  assert.equal(summary.counting.upstreamRequests,'not-recorded');
+});
+
+test('a reported zero cost does not become a list-price charge',()=>{
+  const ledger=new UsageLedger({runtime:'.runtime/test-temp'});ledger.schedule=()=>{};
+  ledger.record({provider:'claude',model:'opus',usage:{prompt_tokens:1000,cost_usd:0}});
+  assert.equal(ledger.summary().totals.usd,0);
+  assert.equal(ledger.summary().models[0].costSource,'reported');
+});
+
 test('usage ledger: sums per Beijing day, prefers reported cost, prices the rest, persists',async()=>{
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-usage-test-'));
   const ledger=await new UsageLedger({runtime:temp}).load();

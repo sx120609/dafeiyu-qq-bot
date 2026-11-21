@@ -6,12 +6,13 @@ import {fileURLToPath} from 'node:url';
 import {runCodex,completion} from './server.mjs';
 import {rateLimitError} from './provider-health.mjs';
 import {claudeSessions} from './claude-session.mjs';
+import {ClaudeUsageMeter,claudeResultError} from './claude-usage.mjs';
 import {runDsh} from './dsh.mjs';
 import {animateImageSheet} from './image-animation.mjs';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const win=p=>process.platform==='win32'?p:execFileSync('wslpath',['-w',p],{encoding:'utf8'}).trim();
 
-export function runProcess(exe,args,input='',{signal,timeout=600000,cwd,env=process.env}={}){
+export function runProcess(exe,args,input='',{signal,timeout=600000,cwd,env=process.env,acceptExitOutput=()=>false}={}){
   return new Promise((resolve,reject)=>{
     const child=spawn(exe,args,{cwd,env,windowsHide:true,stdio:['pipe','pipe','pipe']});
     let out='',err='',done=false;
@@ -24,7 +25,7 @@ export function runProcess(exe,args,input='',{signal,timeout=600000,cwd,env=proc
     child.stdout.on('data',b=>{out+=b;if(out.length>8_000_000){child.kill();finish(new Error('响应过大'));}});
     child.stderr.on('data',b=>{err=(err+b).slice(-3000);const limited=rateLimitError(err);if(limited){child.kill();finish(limited);}});
     child.stdin.on('error',()=>{});child.stdin.end(input);
-    child.on('close',code=>code===0?finish(null,out):finish(new Error(`官方客户端退出（${code}）${err.includes('authentication')?'，请检查登录状态':''}`)));
+    child.on('close',code=>code===0||acceptExitOutput(out)?finish(null,out):finish(new Error(`官方客户端退出（${code}）${err.includes('authentication')?'，请检查登录状态':''}`)));
   });
 }
 
@@ -94,7 +95,7 @@ export function claudeSessionOptions(config,profile,{webSearch=false,effort='med
 }
 const claudeSchema=JSON.parse(await fs.readFile(path.join(here,'schema.json'),'utf8'));
 
-export async function runClaude(body,config,profile,signal,{webSearch=false,effort='medium',sessions=claudeSessions}={}){
+export async function runClaude(body,config,profile,signal,{webSearch=false,effort='medium',sessions=claudeSessions,run=runProcess}={}){
   if(!config.claude)throw new Error('未检测到官方 Claude Code');
   // A director turn is one session across its rounds (11-03, "更快速"): no start-up per round, and the growing
   // conversation is cached. A lone call keeps the one-shot process. Only where the gateway runs on Windows next to
@@ -122,14 +123,18 @@ export async function runClaude(body,config,profile,signal,{webSearch=false,effo
     '--system-prompt-file',win(system.file),'--json-schema',schema,
     '--input-format','stream-json','--output-format','stream-json','--verbose'];
   const input=JSON.stringify({type:'user',message:{role:'user',content}})+'\n';
-  const output=await runProcess(config.claude,args,input,{signal,cwd:config.tempRoot,env:claudeEnv(config)});
+  // 2026-11-21: "Find the root cause". A failed CLI result can still contain billed usage and a failure subtype.
+  const output=await run(config.claude,args,input,{signal,cwd:config.tempRoot,env:claudeEnv(config),acceptExitOutput:output=>output.split('\n').some(line=>{
+    try{return JSON.parse(line).type==='result';}catch{return false;}
+  })});
   const events=output.trim().split('\n').map(l=>{try{return JSON.parse(l);}catch{return {};}});
   const result=events.findLast(e=>e.type==='result');
-  if(result?.is_error){const limited=rateLimitError(JSON.stringify(result));if(limited)throw limited;}
-  if(!result || result.is_error || !result.structured_output)throw new Error('Claude 未返回有效结构化回复，请检查登录与额度');
-  // Claude Code reports what each call cost at API prices; the usage page uses that figure.
-  const response=completion(body,result.structured_output,{...(result.usage||{}),cost_usd:result.total_cost_usd});
-  response.model=Object.keys(result.modelUsage||{})[0]||profile.model;
+  const metered=new ClaudeUsageMeter().read(result||{},profile.model,events.findLast(e=>e.type==='assistant')?.message?.model);
+  if(!result || result.is_error || !result.structured_output)throw claudeResultError(result,metered);
+  let response;
+  try{response=completion(body,result.structured_output,metered.usage);}
+  catch(error){throw Object.assign(error,metered,{usageFailure:'claude_invalid_reply'});}
+  response.model=metered.model;
   return response;
 }
 

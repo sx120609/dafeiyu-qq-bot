@@ -4,7 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ClaudeSessions, sessionNote} from '../bridge/claude-session.mjs';
-import {runClaude, claudeSessionOptions} from '../bridge/providers.mjs';
+import {runClaude, runProcess, claudeSessionOptions} from '../bridge/providers.mjs';
+import {ClaudeUsageMeter} from '../bridge/claude-usage.mjs';
+import os from 'node:os';
 
 function fakeSDK(answer) {
   const sessions = [];
@@ -35,6 +37,70 @@ const tool = name => ({type: 'function', function: {name, description: name, par
 const director = (messages, session = 'turn-1', tools = [tool('send_message'), tool('end_turn')]) =>
   ({model: 'gpt-6-astra', messages, tools, metadata: {dafeiyu_purpose: 'director', dafeiyu_session: session}});
 const options = {model: 'opus', effort: 'medium', tools: []};
+
+test('model usage is split and differenced instead of charging the first auxiliary model', async t => {
+  const sdk = fakeSDK((input, session) => {
+    const turn = session.inputs.length;
+    return {result: {type: 'result', is_error: false, structured_output: {content: 'ok'}, total_cost_usd: 2 * turn + 0.01,
+      usage: {input_tokens: 999}, modelUsage: {
+        'claude-haiku-5-5': {inputTokens: 10, outputTokens: 1, costUSD: 0.01},
+        'claude-opus-5-5': {inputTokens: 100 * turn, cacheReadInputTokens: 50 * turn, outputTokens: 20 * turn, costUSD: 2 * turn}
+      }}};
+  });
+  const sessions = new ClaudeSessions({query: sdk.query, spares: 0});
+  t.after(() => sessions.closeAll());
+  const first = [{role: 'user', content: 'first'}];
+  const one = await sessions.run({key: 'usage', system: 'S', rest: first, body: director(first), options, model: 'opus'});
+  assert.equal(one.model, 'claude-opus-5-5');
+  assert.equal(one.usage.prompt_tokens, 160);
+  assert.equal(one.usage.model_usage.length, 2);
+  assert.equal(one.usage.model_usage[0].usage.cost_usd, 0.01);
+  const next = [...first, {role: 'assistant', content: 'ok'}, {role: 'user', content: 'next'}];
+  const two = await sessions.run({key: 'usage', system: 'S', rest: next, body: director(next), options, model: 'opus'});
+  assert.equal(two.usage.prompt_tokens, 150);
+  assert.equal(two.usage.model_usage.length, 1);
+  assert.equal(two.usage.model_usage[0].model, 'claude-opus-5-5');
+  assert.equal(two.usage.cost_usd, 2);
+});
+
+test('failed Claude results retain metering and a specific failure category', async t => {
+  const sdk = fakeSDK(() => ({result: {type: 'result', is_error: true, subtype: 'error_max_structured_output_retries',
+    total_cost_usd: 0.4, modelUsage: {'claude-opus-5-5': {inputTokens: 100, outputTokens: 20, costUSD: 0.4}}}}));
+  const sessions = new ClaudeSessions({query: sdk.query, spares: 0});
+  t.after(() => sessions.closeAll());
+  const rest = [{role: 'user', content: 'test'}];
+  await assert.rejects(sessions.run({key: 'failed', system: 'S', rest, body: director(rest), options, model: 'opus'}), error => {
+    assert.equal(error.usageFailure, 'error_max_structured_output_retries');
+    assert.equal(error.usage.cost_usd, 0.4);
+    assert.equal(error.model, 'claude-opus-5-5');
+    return true;
+  });
+});
+
+test('repeated cumulative usage does not charge tokens again',()=>{
+  const meter=new ClaudeUsageMeter();
+  const result={total_cost_usd:2,usage:{input_tokens:100},modelUsage:{'claude-opus-5-5':{inputTokens:100,costUSD:2}}};
+  assert.equal(meter.read(result,'opus').usage.prompt_tokens,100);
+  const repeated=meter.read(result,'opus').usage;
+  assert.equal(repeated.prompt_tokens,0);
+  assert.equal(repeated.cost_usd,0);
+  assert.equal(repeated.model_usage[0].usage.prompt_tokens,0);
+});
+
+test('one-shot Claude parses metering even when the CLI exits with a failed result',{skip:process.platform!=='win32'},async()=>{
+  const result={type:'result',is_error:true,subtype:'error_max_structured_output_retries',total_cost_usd:2.01,
+    modelUsage:{'claude-haiku-5-5':{inputTokens:10,costUSD:0.01},'claude-opus-5-5':{inputTokens:100,costUSD:2}}};
+  const run=(_exe,_args,input,options)=>runProcess(process.execPath,
+    ['-e',`process.stdout.write(${JSON.stringify(JSON.stringify(result)+'\n')},()=>process.exit(1))`],input,options);
+  const body={messages:[{role:'user',content:'synthetic'}]};
+  await assert.rejects(runClaude(body,{claude:'synthetic',tempRoot:os.tmpdir(),claudeSessions:false},{model:'opus'},undefined,{run}),error=>{
+    assert.equal(error.usageFailure,'error_max_structured_output_retries');
+    assert.equal(error.model,'claude-opus-5-5');
+    assert.equal(error.usage.cost_usd,2.01);
+    assert.equal(error.usage.model_usage[0].usage.cost_usd,0.01);
+    return true;
+  });
+});
 
 test('a director turn keeps one session and sends only what is new', async () => {
   const sdk = fakeSDK(input => input.conversation ? {content: '', tool_calls: [{name: 'send_message', arguments: '{"text":"hi"}'}]} : {content: '说完了', tool_calls: []});

@@ -5,8 +5,37 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {Settings,createGateway} from '../bridge/gateway.mjs';
+import {UsageLedger} from '../bridge/usage.mjs';
 import {runCloud,cloudBase,cloudModels,anthropicBody,useNativeSearch,withCompliance,generateCloudImage} from '../bridge/providers.mjs';
 const request={model:'dafeiyu-active',messages:[{role:'user',content:'hi'}],response_format:{type:'json_object'},thinking:{type:'enabled'}};
+
+test('gateway meters billed Claude failures and reports request and model counting units',async()=>{
+  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-claude-usage-'));
+  const settings=await new Settings(path.join(temp,'providers.json')).load();
+  const usage=new UsageLedger({runtime:temp});usage.schedule=()=>{};
+  let failed=false;
+  const invoke=async()=>{
+    const metered={model:'claude-opus-5-5',usage:{model_usage:[
+      {model:'claude-haiku-5-5',usage:{prompt_tokens:10,cost_usd:0.01}},
+      {model:'claude-opus-5-5',usage:{prompt_tokens:100,cost_usd:2}}
+    ]}};
+    if(failed)throw Object.assign(new Error('synthetic failure'),metered,{usageFailure:'error_max_structured_output_retries'});
+    return {...metered,choices:[{message:{content:'ok'}}]};
+  };
+  const config={consoleToken:'synthetic-console',token:'synthetic-model'};
+  const server=createGateway(config,settings,{runtime:temp,invoke,usage});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;
+  const call=()=>fetch(base+'/console/api/test',{method:'POST',headers:{Authorization:'Bearer '+config.consoleToken,Origin:base,'Content-Type':'application/json'},body:JSON.stringify({provider:'claude'})});
+  try{
+    assert.equal((await call()).status,200);failed=true;assert.equal((await call()).status,400);
+    const summary=await (await fetch(base+'/console/api/usage?days=1',{headers:{Authorization:'Bearer '+config.consoleToken}})).json();
+    assert.equal(summary.totals.calls,2);assert.equal(summary.totals.successes,1);assert.equal(summary.totals.failures,1);
+    assert.equal(summary.models.find(m=>m.model==='claude-haiku-5-5').usd,0.02);
+    assert.equal(summary.models.find(m=>m.model==='claude-opus-5-5').usd,4);
+    assert.equal(summary.failureReasons.error_max_structured_output_retries,1);
+    assert.equal(summary.counting.calls,'gateway-attempts');
+  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
+});
 test('cloud protocols: model listing, JSON generation, tool messages and no secret redirects',async()=>{
   let observed;
   const server=http.createServer(async(req,res)=>{

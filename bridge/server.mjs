@@ -57,9 +57,10 @@ export function normalizeUsage(u={}){
   const prompt=(u.input_tokens??u.prompt_tokens??0)+(u.cache_creation_input_tokens||0)+(u.cache_read_input_tokens||0);
   const output=u.output_tokens??u.completion_tokens??0;
   return {prompt_tokens:prompt,completion_tokens:output,total_tokens:prompt+output,
-    cached_tokens:u.cached_input_tokens??u.cache_read_input_tokens??u.prompt_tokens_details?.cached_tokens??0,
-    reasoning_tokens:u.reasoning_output_tokens??u.output_tokens_details?.thinking_tokens??u.completion_tokens_details?.reasoning_tokens??0,
-    ...(Number(u.cost_usd)>0?{cost_usd:Number(u.cost_usd)}:{})};
+    cached_tokens:u.cached_tokens??u.cached_input_tokens??u.cache_read_input_tokens??u.prompt_tokens_details?.cached_tokens??0,
+    reasoning_tokens:u.reasoning_tokens??u.reasoning_output_tokens??u.output_tokens_details?.thinking_tokens??u.completion_tokens_details?.reasoning_tokens??0,
+    ...(typeof u.cost_usd==='number'&&Number.isFinite(u.cost_usd)&&u.cost_usd>=0?{cost_usd:u.cost_usd}:{}),
+    ...(Array.isArray(u.model_usage)?{model_usage:u.model_usage}:{})};
 }
 
 export async function runCodex(body, config, signal, launch=spawn) {

@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import {query as sdkQuery} from '@anthropic-ai/claude-agent-sdk';
 import {rateLimitError} from './provider-health.mjs';
 import {completion} from './server.mjs';
+import {ClaudeUsageMeter,claudeResultError} from './claude-usage.mjs';
 
 const digest = value => crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 
@@ -32,8 +33,9 @@ class Session {
   constructor({key, fingerprint, options, query, onEnd}) {
     this.key = key; this.fingerprint = fingerprint; this.onEnd = onEnd;
     this.queue = []; this.wake = undefined; this.pending = undefined; this.closed = false;
-    this.cost = 0; this.consumed = 0; this.prefix = ''; this.calls = []; this.tools = undefined; this.timer = undefined;
+    this.consumed = 0; this.prefix = ''; this.calls = []; this.tools = undefined; this.timer = undefined;
     this.stderr = ''; this.limit = undefined; this.lastUsed = Date.now();
+    this.usageMeter = new ClaudeUsageMeter(); this.model = options.model; this.answerModel = undefined;
     this.controller = new AbortController();
     this.query = query({prompt: this.input(), options: {...options, abortController: this.controller, stderr: text => this.onStderr(text)}});
     this.loop();
@@ -54,6 +56,7 @@ class Session {
       if (signal?.aborted) { reject(signal.reason || new Error('请求已取消')); this.close(); return; }
       signal?.addEventListener('abort', abort, {once: true});
       this.pending = {resolve, reject, done: () => signal?.removeEventListener('abort', abort)};
+      this.answerModel = undefined;
       this.queue.push({type: 'user', message: {role: 'user', content}, parent_tool_use_id: null, session_id: ''});
       this.wake?.(); this.wake = undefined;
     });
@@ -79,7 +82,8 @@ class Session {
           this.limit = Number.isFinite(resets) ? Math.max(1, Math.ceil(resets - Date.now() / 1000)) : 60;
         } else if (message.type === 'assistant' && message.error === 'rate_limit') {
           this.fail(rateLimitError('429', this.limit ?? 60));
-        } else if (message.type === 'result') this.result(message);
+        } else if (message.type === 'assistant') this.answerModel = message.message?.model || this.answerModel;
+        else if (message.type === 'result') this.result(message);
       }
       this.fail(new Error('Claude Code 会话已结束'));
     } catch (error) {
@@ -87,16 +91,12 @@ class Session {
     }
   }
   result(message) {
+    const metered = this.usageMeter.read(message, this.model, this.answerModel);
     if (message.is_error || !message.structured_output) {
-      const limited = message.is_error ? rateLimitError(JSON.stringify(message), this.limit ?? 60) : null;
-      this.fail(limited ?? new Error('Claude 未返回有效结构化回复，请检查登录与额度'));
+      this.fail(claudeResultError(message, metered, this.limit ?? 60));
       return;
     }
-    // Claude Code reports the session's cost so far; each call is metered with its own share.
-    const total = Number(message.total_cost_usd) || 0;
-    const cost = Math.max(0, total - this.cost); this.cost = Math.max(this.cost, total);
-    this.settle(undefined, {output: message.structured_output, usage: {...(message.usage || {}), cost_usd: cost},
-      model: Object.keys(message.modelUsage || {})[0]});
+    this.settle(undefined, {output: message.structured_output, ...metered});
   }
   idle(ms) {
     clearTimeout(this.timer);
@@ -181,7 +181,9 @@ export class ClaudeSessions {
     // The chat's next turn gets a session that has already started.
     if (starting) this.warm(fingerprint, options, system);
     let response;
-    try { response = completion(body, answer.output, answer.usage); } catch (error) { session.close(); throw error; }
+    try { response = completion(body, answer.output, answer.usage); } catch (error) {
+      session.close(); throw Object.assign(error, {model: answer.model, usage: answer.usage, usageFailure: 'claude_invalid_reply'});
+    }
     response.model = answer.model || model;
     const calls = response.choices[0].message.tool_calls || [];
     session.consumed = rest.length; session.prefix = digest(rest); session.calls = calls;

@@ -58,17 +58,28 @@ export class UsageLedger{
     return this.writing;
   }
   schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.persist().catch(()=>{});},2000);this.timer.unref?.();}
-  record({provider,model,purpose='chat',chat='',ok=true,ms=0,usage={},at=Date.now()}){
+  record({provider,model,purpose='chat',chat='',ok=true,ms=0,usage={},failure='unknown',at=Date.now()}){
     const today=usageDay(at),days=this.data.days;
     const clean=v=>String(v||'').replaceAll('|','/').slice(0,60);
-    const row=(days[today]??={})[[provider,clean(model)||'unknown',purpose,clean(chat)].join('|')]??=blank();
-    row.calls++;if(!ok)row.failures++;row.ms+=Math.max(0,ms|0);
-    // OpenAI chat names its fields prompt/completion; the image, Realtime and Anthropic APIs say input/output.
-    row.input+=usage.prompt_tokens||usage.input_tokens||0;
-    row.cached+=usage.cached_tokens||usage.prompt_tokens_details?.cached_tokens||usage.input_tokens_details?.cached_tokens||usage.input_token_details?.cached_tokens||0;
-    row.imageInput=(row.imageInput||0)+(usage.input_tokens_details?.image_tokens||0);
-    row.output+=usage.completion_tokens||usage.output_tokens||0;
-    row.reasoning+=usage.reasoning_tokens||0;row.reportedCost+=Number(usage.cost_usd)||0;
+    const parts=Array.isArray(usage.model_usage)&&usage.model_usage.length?usage.model_usage:[{model,usage}];
+    // 2026-11-21: "调用次数为何差这么多". Several model contributions still belong to one gateway attempt.
+    // Keep legacy rows readable; their calls already counted gateway attempts, including failures.
+    const primary=parts.findIndex(part=>part.model===model),requestIndex=primary<0?0:primary;
+    for(const [index,part] of parts.entries()){
+      const row=(days[today]??={})[[provider,clean(part.model)||'unknown',purpose,clean(chat)].join('|')]??=blank();
+      row.requestCalls??=row.calls;row.requestFailures??=row.failures;
+      row.failureReasons??=row.failures?{unknown:row.failures}:{};
+      if(index===requestIndex){row.requestCalls++;if(!ok){row.requestFailures++;row.failureReasons[failure]=(row.failureReasons[failure]||0)+1;}}
+      row.calls++;if(!ok)row.failures++;row.ms+=index===requestIndex?Math.max(0,ms|0):0;
+      const usage=part.usage||{};
+      // OpenAI chat names its fields prompt/completion; the image, Realtime and Anthropic APIs say input/output.
+      row.input+=usage.prompt_tokens||usage.input_tokens||0;
+      row.cached+=usage.cached_tokens||usage.prompt_tokens_details?.cached_tokens||usage.input_tokens_details?.cached_tokens||usage.input_token_details?.cached_tokens||0;
+      row.imageInput=(row.imageInput||0)+(usage.input_tokens_details?.image_tokens||0);
+      row.output+=usage.completion_tokens||usage.output_tokens||0;
+      row.reasoning+=usage.reasoning_tokens||0;row.reportedCost+=Number(usage.cost_usd)||0;
+      if(Number.isFinite(usage.cost_usd))row.reportedCalls=(row.reportedCalls||0)+1;
+    }
     for(const old of Object.keys(days).sort().slice(0,-keep))delete days[old];
     this.schedule();
   }
@@ -80,7 +91,7 @@ export class UsageLedger{
     return listed?{price:listed,source:'reference'}:null;
   }
   cost(provider,model,row){
-    if(row.reportedCost>0)return {usd:row.reportedCost,source:'reported'};
+    if(row.reportedCost>0||row.reportedCalls>0)return {usd:row.reportedCost,source:'reported'};
     const found=this.priceFor(provider,model);
     if(!found)return {usd:0,source:'unpriced'};
     // Images given to an image model have their own input rate; the rest of the input is text.
@@ -89,26 +100,33 @@ export class UsageLedger{
   }
   summary({days=7,now=Date.now()}={}){
     const dates=[...Array(days).keys()].map(i=>usageDay(now-(days-1-i)*86400_000));
-    const totals={...blank(),usd:0,unpriced:0},byModel={},byPurpose={},byChat={},daily=[];
+    const totals={...blank(),usd:0,unpriced:0},byModel={},byPurpose={},byChat={},daily=[],failureReasons={};
     for(const date of dates){
-      const day={date,calls:0,tokens:0,usd:0};
+      const day={date,calls:0,failures:0,tokens:0,usd:0};
       for(const [key,row] of Object.entries(this.data.days[date]||{})){
         const [provider,model,purpose,chat='']=key.split('|'),{usd,source}=this.cost(provider,model,row);
-        for(const field of Object.keys(blank()))totals[field]+=row[field];
+        const calls=row.requestCalls??row.calls,failures=row.requestFailures??row.failures;
+        for(const field of Object.keys(blank()))totals[field]+=row[field]||0;
+        totals.calls+=calls-row.calls;totals.failures+=failures-row.failures;
+        for(const [reason,count] of Object.entries(row.failureReasons||{unknown:failures}))failureReasons[reason]=(failureReasons[reason]||0)+count;
         totals.usd+=usd;if(source==='unpriced')totals.unpriced+=row.calls;
         const m=byModel[`${provider}|${model}`]??={provider,model,...blank(),usd:0,costSource:source};
-        for(const field of Object.keys(blank()))m[field]+=row[field];
+        for(const field of Object.keys(blank()))m[field]+=row[field]||0;
         m.usd+=usd;if(source!=='unpriced')m.costSource=source;
         const p=byPurpose[purpose]??={purpose,calls:0,failures:0,tokens:0,usd:0};
-        p.calls+=row.calls;p.failures+=row.failures;p.tokens+=row.input+row.output;p.usd+=usd;
-        if(chat){const c=byChat[chat]??={chat,calls:0,tokens:0,usd:0};c.calls+=row.calls;c.tokens+=row.input+row.output;c.usd+=usd;}
-        day.calls+=row.calls;day.tokens+=row.input+row.output;day.usd+=usd;
+        p.calls+=calls;p.failures+=failures;p.tokens+=row.input+row.output;p.usd+=usd;
+        if(chat){const c=byChat[chat]??={chat,calls:0,failures:0,tokens:0,usd:0};c.calls+=calls;c.failures+=failures;c.tokens+=row.input+row.output;c.usd+=usd;}
+        day.calls+=calls;day.failures+=failures;day.tokens+=row.input+row.output;day.usd+=usd;
       }
       daily.push(day);
     }
-    const models=Object.values(byModel).sort((a,b)=>b.calls-a.calls).map(m=>({...m,price:this.data.prices[`${m.provider}|${m.model}`]||null,referencePrice:referencePrices[m.model]||null}));
+    const models=Object.values(byModel).sort((a,b)=>b.calls-a.calls).map(m=>({...m,successes:m.calls-m.failures,price:this.data.prices[`${m.provider}|${m.model}`]||null,referencePrice:referencePrices[m.model]||null}));
     const chats=Object.values(byChat).sort((a,b)=>b.tokens-a.tokens).slice(0,20);
-    return {days,totals,models,purposes:Object.values(byPurpose).sort((a,b)=>b.calls-a.calls),chats,daily,cnyPerUsd:this.data.cnyPerUsd};
+    for(const row of [totals,...Object.values(byPurpose),...chats,...daily])row.successes=row.calls-row.failures;
+    return {days,totals,models,purposes:Object.values(byPurpose).sort((a,b)=>b.calls-a.calls),chats,daily,failureReasons,
+      window:{timezone:'Asia/Shanghai',start:`${dates[0]}T00:00:00+08:00`,end:new Date(now).toISOString(),kind:'calendar-days'},
+      counting:{calls:'gateway-attempts',models:'gateway-attempts-with-model-usage',upstreamRequests:'not-recorded',claudeCost:'client-estimate'},
+      cnyPerUsd:this.data.cnyPerUsd};
   }
   // Every model worth a price: the configured ones, any used in the ledger, and any already priced.
   // Claude Code reports its own cost, so it is not listed.
