@@ -27,6 +27,67 @@ const friend = (id, text) => ({post_type: 'message', self_id: 12345, user_id: 54
   sub_type: 'friend', message_id: id, message: [{type: 'text', data: {text}}]});
 const directed = model => model.calls.filter(item => item.purpose === 'director');
 
+for (const rejectSecond of [false, true]) {
+  test(`sent message IDs remain usable by react after ${rejectSecond ? 'a partial send' : 'a split send'}`, async () => {
+    const ids = ['-900101', '-900102'];
+    const r = await rig((purpose, messages) => {
+      if (purpose !== 'director') return {content: '不用'};
+      const seen = results(messages);
+      if (!seen.length) return call('send_message', {text: '第一段\n\n第二段'});
+      const received = seen[0].match(/消息编号：([^\n]+)/)?.[1].split('、') ?? ids;
+      if (seen.length <= received.length) return call('react', {message: received[seen.length - 1], emoji: '赞'});
+      return {content: '编号验证完毕'};
+    });
+    const request = r.fixture.request.bind(r.fixture);
+    let sends = 0;
+    r.fixture.request = value => {
+      if (value.action !== 'send_group_msg') return request(value);
+      const id = ids[sends++];
+      if (rejectSecond && sends === 2) return r.fixture.failed(value, 'synthetic send failure');
+      r.fixture.payloads.push(value.params);
+      r.fixture.ok(value, {message_id: Number(id)});
+    };
+    try {
+      r.engine.add(r.engine.contacts.find(contact => contact.number === '99999'));
+      r.engine.config.targets[0].enabled = true;
+      r.engine.start();
+      r.fixture.inject([group(81, 54321, '分段发完给自己贴表情')]);
+      assert.ok(await wait(() => r.engine.agentTurns.at(-1)?.note === '编号验证完毕', 12));
+      const expected = rejectSecond ? ids.slice(0, 1) : ids;
+      assert.deepEqual(r.fixture.reactions.map(item => item.message_id), expected);
+      const receipt = r.engine.agentTurns[0].errands[0].result;
+      assert.ok(receipt.includes('消息编号：' + expected.join('、')), receipt);
+      if (rejectSecond) assert.ok(!receipt.includes(ids[1]), receipt);
+    } finally { await r.stop(); }
+  });
+}
+
+test('react accepts self and peer message IDs returned by read_qq_history', async () => {
+  const ids = ['-900201', '-900202'];
+  const r = await rig((purpose, messages) => {
+    if (purpose !== 'director') return {content: '不用'};
+    const seen = results(messages);
+    if (!seen.length) return call('read_qq_history', {count: 5});
+    const received = [...seen[0].matchAll(/^\[[^\]]*\] (-?\d+) /gm)].map(match => match[1]);
+    if (seen.length <= received.length) return call('react', {message: received[seen.length - 1], emoji: '赞'});
+    return {content: '历史编号验证完毕'};
+  });
+  const request = r.fixture.request.bind(r.fixture);
+  r.fixture.request = value => {
+    if (value.action !== 'get_group_msg_history') return request(value);
+    r.fixture.ok(value, {messages: ids.map((id, index) => group(Number(id), index ? 54321 : 12345, '历史消息'))});
+  };
+  try {
+    r.engine.add(r.engine.contacts.find(contact => contact.number === '99999'));
+    r.engine.config.targets[0].enabled = true;
+    r.engine.start();
+    r.fixture.inject([group(82, 54321, '读历史再贴表情')]);
+    assert.ok(await wait(() => r.engine.agentTurns.at(-1)?.note === '历史编号验证完毕'));
+    assert.deepEqual(r.fixture.reactions.map(item => item.message_id), ids);
+    assert.ok(r.engine.agentTurns[0].errands.slice(1).every(item => item.result.includes('贴了')));
+  } finally { await r.stop(); }
+});
+
 test('aMissingReactionMessageKeepsItsReasonAndDoesNotDisableTheEmoji', async () => {
   const r = await rig((purpose, messages) => {
     if (purpose !== 'director') return {content: '不用'};

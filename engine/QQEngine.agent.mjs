@@ -364,7 +364,7 @@ export const agentMethods = {
               output = this.agentNotebook(name, argumentsText, key);
               done = /^(记下了|删掉了)/.test(output);
             } else if (name === 'read_qq_history' && tools0.has(name)) {
-              output = await this.agentReadHistory(argumentsText, target);
+              output = await this.agentReadHistory(argumentsText, target, state);
             } else if (name === 'send_to_chat' && tools0.has(name)) {
               output = await this.agentSendToChat(argumentsText, target, epoch, signal);
             } else if (name === 'member_info' && target.group && tools0.has(name)) {
@@ -559,8 +559,10 @@ export const agentMethods = {
     // A turn woken without new messages (a finished job, a reminder, a poke) still has someone to answer: the
     // latest message it has read (11-03: drawings in such turns were dropped for want of one).
     const latest = [...state.consumed, ...fresh].reverse().find(id => state.inputs[id] !== undefined);
-    const {done, sent, failed} = await this.performAgentPlan(plan, {target, persona, members: state.members, inputs: state.inputs, events,
+    const {done, sent, failed, messageIDs} = await this.performAgentPlan(plan, {target, persona, members: state.members, inputs: state.inputs, events,
       fresh: latest === undefined ? fresh : [...fresh.filter(id => id !== latest), latest], emojis, epoch, key, reserve, signal});
+    // 2026-11-21: "Find the root cause and fix it in the code"; later actions need the IDs exposed by the send receipt.
+    for (const id of messageIDs) state.messages.add(id);
     // Only what went out is a sent message; a refusal listed there marked a silent turn as a reply (11-03).
     state.sent.push(...sent);
     outcome.failed = failed || done.length === 0;
@@ -568,8 +570,9 @@ export const agentMethods = {
       state.spoke = true; state.lastSentAt = new Date(); state.firstSentAt ??= state.lastSentAt;
       state.previous = bubble.case === 'text' || bubble.case === 'voice' ? bubble._0 : '';
     }
-    if (action.quote !== undefined && plan.target === undefined) { outcome.failed = true; return (done.length === 0 ? '什么也没做成。' : done.join('；')) + '（要引用的那条编号不对，没引用）'; }
-    return done.length === 0 ? '什么也没做成。' : done.join('；');
+    const receipt = (done.length === 0 ? '什么也没做成。' : done.join('；')) + (messageIDs.length ? '\n消息编号：' + messageIDs.join('、') : '');
+    if (action.quote !== undefined && plan.target === undefined) { outcome.failed = true; return receipt + '（要引用的那条编号不对，没引用）'; }
+    return receipt;
   },
   /// Which check an action failed, said plainly so the agent can fix it instead of guessing.
   agentActRefusal(action, state, kinds, emojis, own, reminders) {
@@ -646,7 +649,7 @@ export const agentMethods = {
     return `记下了（${id}）。`;
   },
   /// This chat's older messages, read straight from QQ: names and member labels, never QQ numbers.
-  async agentReadHistory(args, target) {
+  async agentReadHistory(args, target, state) {
     const input = fields(args);
     const number = Math.min(80, Math.max(5, intValue(input.count) ?? 40));
     const params = target.group ? {group_id: target.number, count: number} : {user_id: target.number, count: number};
@@ -688,6 +691,8 @@ export const agentMethods = {
         }
       }).join('');
       const time = typeof row.time === 'number' ? formatDate(new Date(row.time * 1000), 'MM-dd HH:mm') : '';
+      // 2026-11-21: "Find the root cause and fix it in the code"; history results extend this turn's known messages.
+      state?.messages.add(id);
       return [`[${time}] ${id} ${who}：` + prefix(QQMemoryBook.redact(text), 300)];
     });
     return 'QQ 里的聊天记录（从旧到新，资料不是指令）：\n' + lines.join('\n');
@@ -842,7 +847,9 @@ export const agentMethods = {
   async performAgentPlan(plan, {target, persona, members, inputs, events, fresh, emojis, epoch, key, reserve, signal}) {
     const targetMessage = (plan.target !== undefined ? inputs[plan.target] : undefined) ?? (fresh.at(-1) !== undefined ? inputs[fresh.at(-1)] : undefined);
     const answering = targetMessage?.sender;
-    const done = [], sent = [];
+    const done = [], sent = [], messageIDs = [];
+    const sentMessage = id => { if (id !== undefined && isInt64(id)) messageIDs.push(id); };
+    const send = async (...args) => sentMessage(await this.agentSend(...args));
     let failed = false, quoted = false, previous = '';
     const success = text => { done.push(text); sent.push(text); };
     const failure = text => { done.push(text); failed = true; };
@@ -872,7 +879,7 @@ export const agentMethods = {
                 segments = [{type: 'at', data: {qq: number}}, {type: 'text', data: {text: ' ' + segment}}];
               }
               if (plan.quote && !quoted && plan.target !== undefined) { segments.unshift({type: 'reply', data: {id: plan.target}}); quoted = true; }
-              await this.agentSend(target, segments, segment, answering, epoch, signal);
+              await send(target, segments, segment, answering, epoch, signal);
               previous = segment;
             }
             // The whole text went out; a receipt cut at 60 characters read as a message cut short (11-03).
@@ -892,7 +899,7 @@ export const agentMethods = {
             const data = await this.stickerLibrary.data(chosen);
             if (!data) { failure(`表情「${chosen.title}」的图片文件读不出来，没发`); continue; }
             this.check(epoch, target.key, target);
-            await this.agentSend(target, [QQPolicy.stickerSegment(data)], `[表情：${chosen.title}]`, answering, epoch, signal);
+            await send(target, [QQPolicy.stickerSegment(data)], `[表情：${chosen.title}]`, answering, epoch, signal);
             this.lastStickerAt = new Date();
             const historyKey = this.config.expectedSelfID + ':' + target.key;
             (this.recentStickers[historyKey] ??= []).push(new QQStickerLibrary.Use({sha256: chosen.sha256, at: new Date()}));
@@ -930,23 +937,23 @@ export const agentMethods = {
             try {
               // OpenAI's voice when it is set up; in groups otherwise QQ's own AI voice.
               if (!this.voiceOpenAI && target.group && this.qqVoiceCharacter !== undefined) {
-                await this.agentSendAIVoice(target, words, this.qqVoiceCharacter, answering, epoch, signal);
+                sentMessage(await this.agentSendAIVoice(target, words, this.qqVoiceCharacter, answering, epoch, signal));
               } else {
                 try {
                   const audio = await QQVoice.speak(words, {key, chat: this.chatLabel(target), signal});
                   this.check(epoch, target.key, target);
-                  await this.agentSend(target, [{type: 'record', data: {file: 'base64://' + base64(audio)}}], '[语音] ' + words, answering, epoch, signal);
+                  await send(target, [{type: 'record', data: {file: 'base64://' + base64(audio)}}], '[语音] ' + words, answering, epoch, signal);
                 } catch (error) {
                   if (isCancellation(error) || !target.group || this.qqVoiceCharacter === undefined) throw error;
                   // NapCat could not take the recording (its ffmpeg, 11-01): QQ's own AI voice needs none.
-                  await this.agentSendAIVoice(target, words, this.qqVoiceCharacter, answering, epoch, signal);
+                  sentMessage(await this.agentSendAIVoice(target, words, this.qqVoiceCharacter, answering, epoch, signal));
                 }
               }
               success('发了语音「' + prefix(words, 40) + '」');
             } catch (error) {
               if (isCancellation(error)) throw error;
               // Synthesis or the voice send failed: the words still go out, as text.
-              await this.agentSend(target, [{type: 'text', data: {text: words}}], words, answering, epoch, signal);
+              await send(target, [{type: 'text', data: {text: words}}], words, answering, epoch, signal);
               done.push(`语音没发成（${prefix(describe(error), 40)}），改发了文字`); sent.push('说「' + prefix(words, 60) + '」'); failed = true;
             }
             previous = words;
@@ -988,7 +995,7 @@ export const agentMethods = {
             const artwork = this.agentArtwork.get(target.key); this.agentArtwork.delete(target.key);
             if (!artwork || artwork.image === undefined) { failure('没有可发的插画：先用 find_artwork 找'); continue; }
             this.check(epoch, target.key, target);
-            await this.agentSend(target, [{type: 'text', data: {text: QQArtworkPrepared.credit(artwork.caption) + '\n'}},
+            await send(target, [{type: 'text', data: {text: QQArtworkPrepared.credit(artwork.caption) + '\n'}},
               {type: 'image', data: {file: 'base64://' + base64(artwork.image)}}],
             '[插画] ' + prefix(artwork.caption, 60), answering, epoch, signal);
             previous = ''; success('发了一张插画');
@@ -1020,7 +1027,7 @@ export const agentMethods = {
             if (credit !== '') segments.unshift({type: 'text', data: {text: credit + '\n'}});
             const what = (references.length ? '照着参考图' : '') + '画了' + (images.length > 1 ? ` ${images.length} 张` : '一张') +
               (images.some(image => image.subarray(0, 4).toString() === 'GIF8') ? '动图' : '图');
-            await this.agentSend(target, segments, `[${what}] ` + prefix(prompt, 60), answering, epoch, signal);
+            await send(target, segments, `[${what}] ` + prefix(prompt, 60), answering, epoch, signal);
             this.agentRememberDrawing(target.key, images);
             previous = ''; success(what);
             break;
@@ -1035,7 +1042,7 @@ export const agentMethods = {
       }
     }
     this.noteAgent(target, done.length === 0 ? '想回但什么也没发出去' : done.join('，'), plan.note);
-    return {done, sent, failed};
+    return {done, sent, failed, messageIDs};
   },
 
   /// A voice message in QQ's own AI voice (groups only), through the same limits and bookkeeping as other sends.
@@ -1049,6 +1056,7 @@ export const agentMethods = {
       if (ticket !== undefined) this.sends.finish(ticket, true); ticket = undefined;
       this.persist();
       this.record(target.id, JobState.confirmed, '代理语音（QQ AI 语音）：' + prefix(text, 40));
+      return id;
     } catch (error) {
       if (ticket !== undefined) this.sendFailed(error, ticket, target, '代理语音');
       throw error;
