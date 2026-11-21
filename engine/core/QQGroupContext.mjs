@@ -99,6 +99,8 @@ export class QQGroupContext {
       const speaker = event.subject === 'OWNER' ? '[OWNER] 本账号主人/开发者的人工发言' : event.subject === 'SYSTEM' ? '[群通知] QQ 系统消息，不是谁说的话' : event.subject;
       const fields = {message: event.id, time: iso8601(event.at), speaker,
         text: prefix(text, event.subject === 'BOT' ? 900 : 500)}; // BOT lines carry the pages they drew on
+      // 2026-11-21: "Find the root cause and fix it in the code"; a preview must not look like an incomplete message from the sender.
+      if (fields.text !== text) fields.text += `[已截断；全文：read_qq_history，before="${event.id}"]`;
       if (message !== undefined) {
         if (message.name !== undefined) fields.name = message.name;
         if (message.role !== undefined) fields.role = message.role === 'owner' ? '群主' : '管理员';
