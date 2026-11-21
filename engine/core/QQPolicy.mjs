@@ -286,7 +286,8 @@ export class QQPolicy {
       case 'contact': return '[推荐' + (data.type === 'group' ? '群聊' : '联系人') + ']';
       case 'markdown': {
         const content = asString(data.content);
-        return content === undefined || trimmed(content) === '' ? '[Markdown 消息]' : '[Markdown 消息：' + prefix(trimmed(content), 2000) + ']';
+        // 2026-11-21: "Find the root cause and fix it in the code"; history uses this renderer to recover full messages.
+        return content === undefined || trimmed(content) === '' ? '[Markdown 消息]' : '[Markdown 消息：' + content + ']';
       }
       case 'inline_keyboard': return QQCards.keyboard(data);
       case 'json': return QQCards.json(data.data).text;
@@ -413,7 +414,8 @@ export class QQPolicy {
           text += QQPolicy.placeholder(kind, data);
       }
     }
-    text = prefix(trimmed(text), 12000);
+    // 2026-11-21: "Find the root cause and fix it in the code"; display previews must not destroy the stored original.
+    text = trimmed(text);
     if (images.length > 0 && text === '') text = '（对方发来图片或表情包，请结合画面和前文简短回应。）';
     if (group && mention && text === '') text = '（对方只 @ 了你，请简短回应一声。）';
     if (group && allowUnmentionedGroup && text === '') text = '（群成员发来提及或引用，暂无文字内容）';

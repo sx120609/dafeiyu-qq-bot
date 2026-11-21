@@ -33,9 +33,10 @@ export class QQMemoryOptions {
 }
 
 export class QQMemoryEvent {
-  /** The init redacts and bounds the text; decoding keeps the stored text as it is (synthesized Codable). */
+  /** The init redacts the text; decoding keeps the stored text as it is (synthesized Codable). */
   constructor({id, subject, text, at, userID} = {}) {
-    this.id = id; this.subject = subject; this.text = prefix(QQMemoryBook.redact(text), 1200); this.at = at; this.userID = userID;
+    // 2026-11-21: "Find the root cause and fix it in the code"; timeline rendering needs the original length to mark previews.
+    this.id = id; this.subject = subject; this.text = QQMemoryBook.redact(text); this.at = at; this.userID = userID;
   }
   static decode(json) {
     const c = container(json, 'QQMemoryEvent');
@@ -171,7 +172,8 @@ export class QQMemoryBook {
     for (const event of this.pending.slice(0, 32)) {
       // JSONEncoder with .iso8601 dates.
       const cost = count(encodeJSON(event, {dates: 'iso8601'})) + 1;
-      if (size + cost > 7500) break;
+      // 2026-11-21: "Find the root cause and fix it in the code"; a complete long message must not block the queue forever.
+      if (result.length > 0 && size + cost > 7500) break;
       result.push(event); size += cost;
     }
     return result;

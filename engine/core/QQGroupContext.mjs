@@ -97,10 +97,7 @@ export class QQGroupContext {
         text = '[语音、视频、卡片或表情，内容看不到，别猜]';
       }
       const speaker = event.subject === 'OWNER' ? '[OWNER] 本账号主人/开发者的人工发言' : event.subject === 'SYSTEM' ? '[群通知] QQ 系统消息，不是谁说的话' : event.subject;
-      const fields = {message: event.id, time: iso8601(event.at), speaker,
-        text: prefix(text, event.subject === 'BOT' ? 900 : 500)}; // BOT lines carry the pages they drew on
-      // 2026-11-21: "Find the root cause and fix it in the code"; a preview must not look like an incomplete message from the sender.
-      if (fields.text !== text) fields.text += `[已截断；全文：read_qq_history，before="${event.id}"]`;
+      const fields = {message: event.id, time: iso8601(event.at), speaker, text};
       if (message !== undefined) {
         if (message.name !== undefined) fields.name = message.name;
         if (message.role !== undefined) fields.role = message.role === 'owner' ? '群主' : '管理员';
@@ -112,7 +109,14 @@ export class QQGroupContext {
           fields.quotedSpeaker = this.speaker(message.replyTo) ?? '引用作者未核验，不猜测';
         }
       }
-      const line = serialize(fields, {sortedKeys: true});
+      let line = serialize(fields, {sortedKeys: true});
+      // 2026-11-21: "Find the root cause and fix it in the code"; preserve a whole problem statement when it fits,
+      // and keep a full-text lookup on previews so the sender is never mistaken for having omitted the ending.
+      if (used + count(line) + 1 > characters) {
+        fields.text = prefix(text, event.subject === 'BOT' ? 900 : 500);
+        if (fields.text !== text) fields.text += `[已截断；全文：read_qq_history，before="${event.id}"]`;
+        line = serialize(fields, {sortedKeys: true});
+      }
       if (!(used + count(line) + 1 <= characters)) break;
       lines.push(line); used += count(line) + 1;
     }
