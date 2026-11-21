@@ -5,6 +5,9 @@ import path from 'node:path';
 export const usageDay=(time=Date.now())=>new Date(time+8*3600_000).toISOString().slice(0,10);
 const keep=120;
 const blank=()=>({calls:0,failures:0,ms:0,input:0,cached:0,imageInput:0,output:0,reasoning:0,reportedCost:0});
+const origins=()=>({legacy:0,primary:0,auxiliary:0,unreported:0});
+const hasUsage=usage=>Number.isFinite(usage.cost_usd)||['prompt_tokens','input_tokens','cached_tokens','completion_tokens','output_tokens','reasoning_tokens']
+  .some(field=>usage[field]>0)||usage.prompt_tokens_details?.cached_tokens>0||usage.input_tokens_details?.cached_tokens>0||usage.input_token_details?.cached_tokens>0;
 // List prices (USD per million tokens) for models the bot can use through Codex or the cloud API, so their
 // cost is estimated without the owner typing anything. From third-party price trackers in October 2026
 // (aitokenprice.com, benchlm.ai); gpt-6.1-terra is not listed anywhere and is set between Sol and Luna.
@@ -58,17 +61,26 @@ export class UsageLedger{
     return this.writing;
   }
   schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.persist().catch(()=>{});},2000);this.timer.unref?.();}
-  record({provider,model,purpose='chat',chat='',ok=true,ms=0,usage={},failure='unknown',at=Date.now()}){
+  record({provider,model,requestedModel=model,purpose='chat',chat='',ok=true,ms=0,usage={},failure='unknown',at=Date.now()}){
     const today=usageDay(at),days=this.data.days;
     const clean=v=>String(v||'').replaceAll('|','/').slice(0,60);
-    const parts=Array.isArray(usage.model_usage)&&usage.model_usage.length?usage.model_usage:[{model,usage}];
+    const parts=Array.isArray(usage.model_usage)&&usage.model_usage.length?[...usage.model_usage]:[{model,usage}];
     // 2026-11-21: "调用次数为何差这么多". Several model contributions still belong to one gateway attempt.
     // Keep legacy rows readable; their calls already counted gateway attempts, including failures.
-    const primary=parts.findIndex(part=>part.model===model),requestIndex=primary<0?0:primary;
+    // 2026-11-21: "Find the root cause". An auxiliary-only delta must not inherit the main request's failure.
+    if(!parts.some(part=>part.model===model))parts.unshift({model,usage:{}});
+    const requestIndex=parts.findIndex(part=>part.model===model);
     for(const [index,part] of parts.entries()){
       const row=(days[today]??={})[[provider,clean(part.model)||'unknown',purpose,clean(chat)].join('|')]??=blank();
       row.requestCalls??=row.calls;row.requestFailures??=row.failures;
       row.failureReasons??=row.failures?{unknown:row.failures}:{};
+      // 2026-11-21: "Find the root cause". Old Haiku rows can contain whole Opus requests; their split is lost.
+      row.usageOrigins??={...origins(),legacy:row.calls};
+      const origin=hasUsage(part.usage||{})?(index===requestIndex?'primary':'auxiliary'):'unreported';
+      row.usageOrigins[origin]++;
+      row.requestedModels??={};
+      const requested=clean(requestedModel)||'unknown';
+      row.requestedModels[requested]=(row.requestedModels[requested]||0)+1;
       if(index===requestIndex){row.requestCalls++;if(!ok){row.requestFailures++;row.failureReasons[failure]=(row.failureReasons[failure]||0)+1;}}
       row.calls++;if(!ok)row.failures++;row.ms+=index===requestIndex?Math.max(0,ms|0):0;
       const usage=part.usage||{};
@@ -92,6 +104,8 @@ export class UsageLedger{
   }
   cost(provider,model,row){
     if(row.reportedCost>0||row.reportedCalls>0)return {usd:row.reportedCost,source:'reported'};
+    // 2026-11-21: "Find the root cause". Missing usage cannot support a zero-dollar list-price estimate.
+    if(!(row.input||row.cached||row.imageInput||row.output||row.reasoning))return {usd:0,source:'unpriced'};
     const found=this.priceFor(provider,model);
     if(!found)return {usd:0,source:'unpriced'};
     // Images given to an image model have their own input rate; the rest of the input is text.
@@ -110,8 +124,12 @@ export class UsageLedger{
         totals.calls+=calls-row.calls;totals.failures+=failures-row.failures;
         for(const [reason,count] of Object.entries(row.failureReasons||{unknown:failures}))failureReasons[reason]=(failureReasons[reason]||0)+count;
         totals.usd+=usd;if(source==='unpriced')totals.unpriced+=row.calls;
-        const m=byModel[`${provider}|${model}`]??={provider,model,...blank(),usd:0,costSource:source};
+        const m=byModel[`${provider}|${model}`]??={provider,model,...blank(),usd:0,costSource:source,
+          requestCalls:0,requestFailures:0,usageOrigins:origins(),requestedModels:{}};
         for(const field of Object.keys(blank()))m[field]+=row[field]||0;
+        m.requestCalls+=calls;m.requestFailures+=failures;
+        for(const [origin,count] of Object.entries(row.usageOrigins||{legacy:row.calls}))m.usageOrigins[origin]+=count;
+        for(const [requested,count] of Object.entries(row.requestedModels||{}))m.requestedModels[requested]=(m.requestedModels[requested]||0)+count;
         m.usd+=usd;if(source!=='unpriced')m.costSource=source;
         const p=byPurpose[purpose]??={purpose,calls:0,failures:0,tokens:0,usd:0};
         p.calls+=calls;p.failures+=failures;p.tokens+=row.input+row.output;p.usd+=usd;
@@ -125,7 +143,8 @@ export class UsageLedger{
     for(const row of [totals,...Object.values(byPurpose),...chats,...daily])row.successes=row.calls-row.failures;
     return {days,totals,models,purposes:Object.values(byPurpose).sort((a,b)=>b.calls-a.calls),chats,daily,failureReasons,
       window:{timezone:'Asia/Shanghai',start:`${dates[0]}T00:00:00+08:00`,end:new Date(now).toISOString(),kind:'calendar-days'},
-      counting:{calls:'gateway-attempts',models:'gateway-attempts-with-model-usage',upstreamRequests:'not-recorded',claudeCost:'client-estimate'},
+      counting:{calls:'gateway-attempts',models:'gateway-attempts-with-model-usage-or-unreported-attempt',upstreamRequests:'not-recorded',claudeCost:'client-estimate',
+        usageOrigins:'primary-or-auxiliary-reported-usage; unreported-attempts; legacy-attribution-unknown'},
       cnyPerUsd:this.data.cnyPerUsd};
   }
   // Every model worth a price: the configured ones, any used in the ledger, and any already priced.

@@ -133,13 +133,17 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
   const metered=async(provider,profile,purpose,chat,call)=>{
     await backoff.ready;backoff.check(provider);
     const started=Date.now();
-    try{const result=await call();usage.record({provider,model:result.model||profile.model,purpose,chat,ok:true,ms:Date.now()-started,usage:result.usage});return result;}
+    // 2026-11-21: "Find the root cause". Resolve failed aliases with the request-time catalog, not a guessed version.
+    const requestedModel=profile.model;
+    const resolved=provider==='claude'?settings.value.catalogs.claude?.models?.find(m=>m.id===requestedModel)?.resolvedModel:null;
+    const usageModel=model=>!model||model===requestedModel?resolved||requestedModel:model;
+    try{const result=await call();usage.record({provider,model:usageModel(result.model),requestedModel,purpose,chat,ok:true,ms:Date.now()-started,usage:result.usage});return result;}
     catch(e){
       await backoff.record(provider,e);
       const known=['error_during_execution','error_max_turns','error_max_budget_usd','error_max_structured_output_retries',
         'claude_result_error','claude_missing_structured_output','claude_invalid_reply','rate_limit'];
       const failure=known.includes(e.usageFailure)?e.usageFailure:e.status===429?'rate_limit':e.status===504?'timeout':e.name==='AbortError'?'cancelled':'unknown';
-      usage.record({provider,model:e.model||profile.model,purpose,chat,ok:false,ms:Date.now()-started,usage:e.usage,failure});throw e;
+      usage.record({provider,model:usageModel(e.model),requestedModel,purpose,chat,ok:false,ms:Date.now()-started,usage:e.usage,failure});throw e;
     }
   };
   const publicContent=new PublicContent({runtime,analyze:async(text,images)=>{
@@ -403,8 +407,9 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
           send(200,{content:'你自己的用量（'+(days===1?'今天':'近 '+days+' 天')+'，北京时间）：'+JSON.stringify({
             调用尝试:t.calls,成功:t.successes,失败:t.failures,失败分类:s.failureReasons,统计时段:s.window,输入tokens:t.input,其中缓存命中:t.cached,输出tokens:t.output,
             花费美元:Number(t.usd.toFixed(4)),约合人民币:Number((t.usd*s.cnyPerUsd).toFixed(2)),
-            按模型:s.models.map(m=>({模型:m.model,参与调用:m.calls,成功:m.successes,失败:m.failures,tokens:m.input+m.output,美元:Number(m.usd.toFixed(4))})),
-            说明:'次数是网关调用尝试（含失败），不是上游 HTTP 请求数；一次可涉及多个模型，按模型次数不可相加。时段是北京时间自然日，不是滚动24小时。Claude Code 按各模型自报累计用量的增量记账，金额是客户端估算，不是代理账单，模型名也不证明代理最终路由；旧记录无法还原模型拆分及失败原因。Codex 按 API 列表价折算，实际走的是订阅'}),sources:[]});return;
+            按模型:s.models.map(m=>({模型:m.model,参与调用:m.calls,成功:m.successes,失败:m.failures,主请求尝试:m.requestCalls,主请求失败:m.requestFailures,
+              用量来源:m.usageOrigins,请求模型:m.requestedModels,计费来源:m.costSource,tokens:m.input+m.output,美元:Number(m.usd.toFixed(4))})),
+            说明:'次数是网关调用尝试（含失败），不是上游 HTTP 请求数；一次可涉及多个模型，按模型次数不可相加。用量来源 primary 为主模型、auxiliary 为附带模型、unreported 为未报告用量、legacy 为无法追溯归因的旧记录；旧 Haiku 行可能误记整次请求，不能视为独立 Haiku 调用次数。未返回模型的 Claude 请求按调用时目录解析别名，无目录则保留请求名，不能证明实际上游模型；历史别名不按当前目录强行合并。时段是北京时间自然日，不是滚动24小时。Claude Code 按各模型自报累计用量的增量记账，金额是客户端估算，不是代理账单；旧记录无法还原模型拆分及失败原因。Codex 按 API 列表价折算，实际走的是订阅'}),sources:[]});return;
         }
         const result=await publicContent.execute(data.name,data.arguments,{scope:String(data.scope||'public').slice(0,150),sourceText:String(data.sourceText||'').slice(0,12000)});
         const rows=Array.isArray(result)?result:[result];

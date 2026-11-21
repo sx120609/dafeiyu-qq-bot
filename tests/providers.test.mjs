@@ -9,6 +9,38 @@ import {UsageLedger} from '../bridge/usage.mjs';
 import {runCloud,cloudBase,cloudModels,anthropicBody,useNativeSearch,withCompliance,generateCloudImage} from '../bridge/providers.mjs';
 const request={model:'dafeiyu-active',messages:[{role:'user',content:'hi'}],response_format:{type:'json_object'},thinking:{type:'enabled'}};
 
+test('failed Claude aliases use the request-time catalog and preserve the requested name',async()=>{
+  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-usage-alias-'));
+  const settings=await new Settings(path.join(temp,'providers.json')).load();
+  settings.value.profiles.claude.model='opus';
+  settings.value.catalogs.claude={models:[{id:'opus',resolvedModel:'claude-opus-5-5'}]};
+  const usage=new UsageLedger({runtime:temp});usage.schedule=()=>{};
+  let attempt=0;
+  const invoke=async()=>{
+    settings.value.catalogs.claude.models[0].resolvedModel='claude-opus-future';
+    if(!attempt++)throw new Error('synthetic failure before usage');
+    return {model:'claude-opus-5-5',usage:{prompt_tokens:100,cost_usd:1},choices:[{message:{content:'ok'}}]};
+  };
+  const config={consoleToken:'synthetic-console',token:'synthetic-model'};
+  const server=createGateway(config,settings,{runtime:temp,invoke,usage});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;
+  const call=()=>fetch(base+'/console/api/test',{method:'POST',headers:{Authorization:'Bearer '+config.consoleToken,Origin:base,'Content-Type':'application/json'},body:JSON.stringify({provider:'claude'})});
+  try{
+    assert.equal((await call()).status,400);
+    assert.equal((await call()).status,200);
+    const summary=await (await fetch(base+'/console/api/usage?days=1',{headers:{Authorization:'Bearer '+config.consoleToken}})).json();
+    assert.equal(summary.models.length,1);
+    const row=summary.models[0];
+    assert.equal(row.model,'claude-opus-5-5');
+    assert.deepEqual(row.requestedModels,{opus:2});
+    assert.equal(row.requestCalls,2);
+    assert.equal(row.requestFailures,1);
+    assert.equal(row.usageOrigins.unreported,1);
+    assert.equal(row.usageOrigins.primary,1);
+    assert.equal(summary.totals.successes,1);
+  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
+});
+
 test('gateway meters billed Claude failures and reports request and model counting units',async()=>{
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-claude-usage-'));
   const settings=await new Settings(path.join(temp,'providers.json')).load();

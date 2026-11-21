@@ -5,6 +5,46 @@ import os from 'node:os';
 import path from 'node:path';
 import {UsageLedger,usageDay} from '../bridge/usage.mjs';
 
+test('unreported failures are not list-price estimates and legacy attribution stays unknown',()=>{
+  const ledger=new UsageLedger({runtime:'.runtime/test-temp'});ledger.schedule=()=>{};
+  const now=Date.UTC(2026,10,21,4);
+  const legacy={calls:540,failures:0,ms:100,input:1000,cached:0,output:100,reasoning:0,reportedCost:2};
+  ledger.data.days[usageDay(now)]={'claude|claude-haiku-5-5|director|':legacy};
+  ledger.record({provider:'claude',model:'opus',ok:false,at:now});
+  ledger.record({provider:'claude',model:'claude-opus-5-5',requestedModel:'opus',purpose:'director',at:now,usage:{model_usage:[
+    {model:'claude-haiku-5-5',usage:{prompt_tokens:10,cost_usd:0.01}},
+    {model:'claude-opus-5-5',usage:{prompt_tokens:100,cost_usd:1}}
+  ]}});
+  const summary=ledger.summary({days:1,now});
+  const failed=summary.models.find(m=>m.model==='opus'),haiku=summary.models.find(m=>m.model==='claude-haiku-5-5');
+  assert.equal(failed.costSource,'unpriced');
+  assert.equal(failed.successes,0);
+  assert.deepEqual(failed.usageOrigins,{legacy:0,primary:0,auxiliary:0,unreported:1});
+  assert.deepEqual(haiku.usageOrigins,{legacy:540,primary:0,auxiliary:1,unreported:0});
+  assert.equal(haiku.requestCalls,540);
+  assert.equal(haiku.requestFailures,0);
+  assert.deepEqual(haiku.requestedModels,{opus:1});
+  assert.equal(summary.totals.calls,542);
+  assert.equal(summary.totals.successes,541);
+  assert.equal(summary.totals.failures,1);
+});
+
+test('an auxiliary-only usage delta does not become the primary gateway attempt',()=>{
+  const ledger=new UsageLedger({runtime:'.runtime/test-temp'});ledger.schedule=()=>{};
+  ledger.record({provider:'claude',model:'claude-opus-5-5',requestedModel:'opus',ok:false,usage:{model_usage:[
+    {model:'claude-haiku-5-5',usage:{prompt_tokens:10,cost_usd:0.01}}
+  ]}});
+  const summary=ledger.summary(),opus=summary.models.find(m=>m.model==='claude-opus-5-5'),haiku=summary.models.find(m=>m.model==='claude-haiku-5-5');
+  assert.ok(opus);
+  assert.equal(opus.requestFailures,1);
+  assert.equal(opus.costSource,'unpriced');
+  assert.equal(haiku.requestCalls,0);
+  assert.equal(haiku.usageOrigins.auxiliary,1);
+  assert.equal(summary.totals.calls,1);
+  assert.equal(summary.totals.failures,1);
+  assert.equal(summary.totals.usd,0.01);
+});
+
 test('model contributions keep gateway attempts separate from successes and legacy failures',()=>{
   const ledger=new UsageLedger({runtime:'.runtime/test-temp'});
   ledger.schedule=()=>{};
