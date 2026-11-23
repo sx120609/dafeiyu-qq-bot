@@ -6,6 +6,7 @@ const pages={
   overview:['总览','机器人现在的状态和最近做了什么'],
   activity:['动态','代理在每个会话里看了什么、做了什么、为什么'],
   usage:['用量','这个机器人自己调用模型的次数、tokens 和花费'],
+  wechat:['微信报告','读这台电脑上的微信新消息，定时整理成报告发给你'],
   chats:['会话','在哪些好友和群里说话，各自的权限和性格'],
   persona:['人设与表情','性格、表情包和常用的贴表情'],
   abilities:['能力','它会做的事：每一项的开关和细节都在这里，开关一点就生效'],
@@ -165,7 +166,7 @@ function route(){
   $('page-title').textContent=pages[page][0];$('page-sub').textContent=pages[page][1];
   renderPageActions();
   $('app').querySelector('.main').scrollTop=0;window.scrollTo(0,0);$('app').querySelector('.topbar').classList.remove('scrolled');
-  const enter={overview:refreshOverview,activity:enterActivity,usage:enterUsage,chats:enterChats,persona:enterPersona,abilities:enterAbilities,
+  const enter={overview:refreshOverview,activity:enterActivity,usage:enterUsage,wechat:enterWechat,chats:enterChats,persona:enterPersona,abilities:enterAbilities,
     tools:enterTools,rhythm:enterRhythm,model:enterModel,moderation:enterModeration,qq:enterQQ,settings:enterSettings}[page];
   enter().catch(error=>toast(error.message,true));
   schedulePolling();
@@ -188,7 +189,7 @@ function renderPageActions(){
   if(current==='qq'&&qqBackend==='napcat'){button('重新连接',()=>openEmbed(true),'refresh');button('新窗口打开',async()=>window.open('/console/integrations/napcat','_blank','noopener'),'ext');}
   if(current==='qq'&&qqBackend==='snowluma'){button('刷新',async()=>{$('frame-luma').removeAttribute('src');await enterQQ();},'refresh');
     if(lumaEmbed&&['127.0.0.1','localhost'].includes(location.hostname))button('新窗口打开',async()=>window.open(lumaEmbed,'_blank','noopener'),'ext');}
-  if(['activity','usage','abilities','tools','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,abilities:enterAbilities,tools:enterTools,rhythm:enterRhythm}[current],'refresh');
+  if(['activity','usage','wechat','abilities','tools','rhythm'].includes(current))button('刷新',{activity:enterActivity,usage:enterUsage,wechat:enterWechat,abilities:enterAbilities,tools:enterTools,rhythm:enterRhythm}[current],'refresh');
 }
 
 /* Polling: the overview and activity refresh every 5 s while visible, the sidebar status every 20 s. */
@@ -196,7 +197,7 @@ function stopPolling(){clearTimeout(pollTimer);pollTimer=null;}
 function schedulePolling(){
   stopPolling();
   pollTimer=setTimeout(async()=>{
-    if(!document.hidden){try{if(current==='overview')await refreshOverview();else if(current==='activity')await refreshActivity();else{await refreshBrand();if(current==='tools')await loadRepairs();}}catch{}}
+    if(!document.hidden){try{if(current==='overview')await refreshOverview();else if(current==='activity')await refreshActivity();else{await refreshBrand();if(current==='tools')await loadRepairs();if(current==='wechat')await enterWechat();}}catch{}}
     schedulePolling();
   },['overview','activity'].includes(current)?5000:20000);
 }
@@ -376,7 +377,7 @@ async function loadReading(){
 
 /* Usage and prices */
 let usageTab='stats',usageDays=7,usageMetric='tokens',usageData=null;
-const purposeNames={director:'指挥',operator:'助手',chat:'回复',rewrite:'改口吻（旧）',review:'插话校对（旧）',summary:'群聊摘要',memory:'记忆整理',react:'小动作（旧）',imageplan:'画图判断',outreach:'主动聊天（旧）',poke:'戳一戳（旧）',test:'连接测试',video:'看视频',image:'画图'};
+const purposeNames={wechat:'微信报告',director:'指挥',operator:'助手',chat:'回复',rewrite:'改口吻（旧）',review:'插话校对（旧）',summary:'群聊摘要',memory:'记忆整理',react:'小动作（旧）',imageplan:'画图判断',outreach:'主动聊天（旧）',poke:'戳一戳（旧）',test:'连接测试',video:'看视频',image:'画图'};
 const costSources={reported:'Claude Code 自报',priced:'按你填的单价',reference:'按列表价估算',unpriced:'未计价'};
 const count=n=>n>=1e8?(n/1e8).toFixed(2)+' 亿':n>=1e4?(n/1e4).toFixed(n>=1e6?0:1)+' 万':Math.round(n).toLocaleString('zh-CN');
 const dollars=v=>v===0?'$0':v<0.001?'<$0.001':v<1?'$'+v.toFixed(3):v<1000?'$'+v.toFixed(2):'$'+Math.round(v).toLocaleString('en-US');
@@ -1142,6 +1143,109 @@ $('moderation-reset').onclick=()=>{moderationDraft={admins:[...moderation.admins
 $('moderation-save').onclick=()=>busy($('moderation-save'),async()=>{
   const result=await api('moderation',moderationDraft);
   moderation={...moderation,...result};moderationDraft={admins:[...result.admins],blocked:[...result.blocked]};renderModeration();toast('名单已保存，立即生效');
+});
+
+/* WeChat reports: what the reader has taken in, the reports written from it, and when the next one comes */
+let wechat=null,wechatReport=null,wechatTimer=null;
+const wechatStamp=ms=>ms?shortDate(ms/1000):'—';
+const wechatDelivery={sent:['已发给你','ok'],pending:['等着发送',''],sending:['发送中',''],failed:['没发出去，会再试','bad'],no_recipient:['不知道发给谁','warn'],uncertain:['不确定发没发出去','warn'],preview:['预览，没发','']};
+const wechatReaderStates={ok:['读取中','ok'],down:['没在运行','bad'],missing:['没找到读取器','bad'],credentials:['读不到访问凭据','bad'],error:['出错了','bad'],off:['定时报告关着','' ],unknown:['正在连接','']};
+async function enterWechat(){wechat=await api('wechat');renderWechat();}
+async function wechatAction(body,done){wechat=await api('wechat',body,{timeout:90000});renderWechat();if(done)toast(done);}
+function renderWechat(){
+  const w=wechat,s=w.settings,reader=wechatReaderStates[w.reader.state]||wechatReaderStates.error,media=w.inbox.media;
+  const card=(label,value,sub)=>el('div',{className:'stat'},el('span',{},label),el('strong',{},String(value)),el('small',{},sub||''));
+  const seen=media.image.done+media.voice.done,total=media.image.total+media.voice.total;
+  $('wechat-stats').replaceChildren(
+    card('微信读取器',reader[0],w.reader.state==='ok'?`${w.reader.conversations??'—'} 个会话`:w.reader.error),
+    card('等下一份报告的消息',w.inbox.messages,w.inbox.messages?`${w.inbox.conversations} 个会话 · ${wechatStamp(w.inbox.since)} 起`:(w.inbox.since?wechatStamp(w.inbox.since)+' 起还没有新消息':'还没开始读')),
+    card('图片和语音',total?`${seen}/${total}`:'—',total?(w.inbox.problemCount?`${w.inbox.problemCount} 个还没读到`:'都看过、听过了'):'这段时间没有'),
+    card('下一份报告',w.schedule.running?'正在写':w.schedule.next?wechatStamp(w.schedule.next):'已关闭',w.schedule.running?w.schedule.running.stage:w.schedule.retry?`上次没写成，第 ${w.schedule.retry.attempts+1} 次再试`:s.enabled?'每天 '+s.times.join('、'):''));
+  const warnings=[];
+  if(s.enabled&&!['ok','unknown'].includes(w.reader.state))warnings.push('微信读取器连不上：'+(w.reader.error||reader[0])+'。连上之前读不到新消息。');
+  if(w.recipient.state==='choose')warnings.push('有多个管理员，请在右边选一个收报告的 QQ；选好之前报告只留在这里，不会发出去。');
+  if(w.recipient.state==='none')warnings.push('还没有管理员（「管理员」页），不知道报告发给谁；报告只留在这里。');
+  if(w.recipient.state==='unknown')warnings.push('暂时确认不了收件人：'+w.recipient.error);
+  if(w.schedule.retry)warnings.push('上一份定时报告没写成：'+w.schedule.retry.error+'（'+wechatStamp(w.schedule.retry.next)+' 再试）');
+  else if(w.schedule.lastError)warnings.push('上次生成没成功：'+w.schedule.lastError.message);
+  $('wechat-banner').hidden=!warnings.length;$('wechat-banner').replaceChildren(...warnings.map(text=>el('div',{},text)));
+  // Reports
+  const running=!!w.schedule.running;
+  $('wechat-progress').hidden=!running;$('wechat-progress').textContent=running?'正在生成：'+w.schedule.running.stage+'…（图片多的时候要几分钟）':'';
+  $('wechat-generate').disabled=$('wechat-preview').disabled=running;
+  const triggers={schedule:'定时',manual:'手动',preview:'预览'};
+  const rows=w.reports.map(r=>{
+    const d=wechatDelivery[r.delivery?.state]||['—',''],open=el('button',{type:'button',className:'btn small ghost'},wechatReport?.id===r.id?'收起':'查看');
+    open.onclick=()=>busy(open,async()=>{wechatReport=wechatReport?.id===r.id?null:await api('wechat/report?id='+encodeURIComponent(r.id));renderWechat();if(wechatReport)$('wechat-report-card').scrollIntoView({block:'nearest',behavior:'smooth'});});
+    const state=el('span',{className:'badge '+d[1]},d[0]);if(r.delivery?.error)state.title=r.delivery.error;
+    return el('tr',{},labelled('时间',wechatStamp(r.createdAt),el('small',{},triggers[r.trigger]||r.trigger)),labelled('覆盖',wechatStamp(r.window.from)+' 起'),
+      Object.assign(labelled('消息',String(r.messages)),{className:'num'}),Object.assign(labelled('要点',String(r.items)),{className:'num'}),labelled('发送',state),el('td',{className:'row-actions'},open));
+  });
+  $('wechat-reports').replaceChildren(...(rows.length?rows:[el('tr',{},el('td',{className:'empty',colSpan:6},w.firstWindow?'还没有报告。到点会自动出第一份，也可以现在出一份。':'还没有报告。读取器连上后会先收下最近 24 小时的消息。'))]));
+  $('wechat-report-card').hidden=!wechatReport;
+  if(wechatReport){
+    const meta=w.reports.find(r=>r.id===wechatReport.id);
+    $('wechat-report-title').textContent=wechatStamp(wechatReport.createdAt)+' 的报告';
+    $('wechat-report-text').textContent=wechatReport.text;
+    $('wechat-resend').hidden=wechatReport.trigger==='preview';
+    $('wechat-resend').textContent=meta?.delivery?.state==='sent'?'再发一次给我':'发给我';
+  }
+  // Pictures and voice messages that could not be read
+  $('wechat-retry-all').hidden=!w.inbox.problems.length;
+  $('wechat-problems').replaceChildren(...(w.inbox.problems.length?[el('div',{className:'table-wrap'},el('table',{className:'table wechat-table'},el('tbody',{},...w.inbox.problems.map(p=>{
+    const retry=el('button',{type:'button',className:'btn small ghost'},'重试');
+    retry.onclick=()=>busy(retry,()=>wechatAction({action:'retryMedia',id:p.id},'已重新去读'));
+    return el('tr',{},labelled('会话',p.name,el('small',{},wechatStamp(p.at)+' · '+(p.kind==='image'?'图片':'语音'))),
+      Object.assign(labelled('原因',p.state==='waiting'?'还没同步到这台电脑':p.error||'没读成'),{className:'clip',title:p.error||''}),el('td',{className:'row-actions'},retry));
+  })))),w.inbox.problemCount>w.inbox.problems.length?el('p',{className:'muted small'},`只列出最近 ${w.inbox.problems.length} 个，共 ${w.inbox.problemCount} 个`):null].filter(Boolean):[empty(total?'这段时间的图片和语音都读到了':'这段时间没有图片和语音')]));
+  // Settings
+  $('wechat-enabled').checked=s.enabled;$('wechat-autostart').checked=s.autoStartReader;
+  $('wechat-times').replaceChildren(...s.times.map(time=>{
+    const remove=el('button',{type:'button',title:'移除'},icon('x'));remove.setAttribute('aria-label','移除 '+time);remove.disabled=s.times.length===1;
+    remove.onclick=()=>busy(remove,()=>wechatAction({action:'save',settings:{times:s.times.filter(x=>x!==time)}},'报告时间已保存'));
+    return el('span',{className:'chip'},time,remove);
+  }));
+  const select=$('wechat-recipient'),to=w.recipient;
+  if(document.activeElement!==select){
+    select.replaceChildren(...(to.state==='ok'&&!s.recipient?[]:[el('option',{value:''},to.candidates.length?'请选择':'没有可选的管理员')]),...to.candidates.map(qq=>el('option',{value:qq,selected:qq===to.qq},qq)));
+    select.disabled=to.candidates.length<2;
+  }
+  $('wechat-recipient-hint').textContent=to.state==='ok'?'只发到这个 QQ 的私聊。收件人只能是「管理员」页里的 QQ。':to.state==='choose'?'管理员不止一个，选一个收报告的。':to.error||'先在「管理员」页填上你的 QQ。';
+  // The reader
+  $('wechat-reader-badge').textContent=reader[0];$('wechat-reader-badge').className='badge '+reader[1];
+  const facts=w.reader.state==='ok'?[['会话',w.reader.conversations],['已保存消息',w.reader.messages],['上次读到',w.reader.lastSuccessAt?shortDate(Date.parse(w.reader.lastSuccessAt)/1000):'—'],
+    ...(w.firstWindow?[['第一份报告的范围',`${wechatStamp(w.firstWindow.from)} 起，${w.firstWindow.conversations} 个会话 ${w.firstWindow.messages} 条`]]:[])]:[['状态',w.reader.error||reader[0]]];
+  $('wechat-reader').replaceChildren(...facts.flatMap(([k,v])=>[el('dt',{},k),el('dd',{},String(v??'—'))]));
+  $('wechat-reader-start').hidden=w.reader.state==='ok';$('wechat-reader-stop').hidden=w.reader.state!=='ok';
+  // While a report is being written the page follows it.
+  clearTimeout(wechatTimer);
+  if(running)wechatTimer=setTimeout(()=>{if(current==='wechat')enterWechat().catch(()=>{});},3000);
+}
+$('wechat-enabled').onchange=event=>busy(event.target,()=>wechatAction({action:'save',settings:{enabled:event.target.checked}},event.target.checked?'定时报告已打开':'定时报告已关闭').catch(error=>{event.target.checked=!event.target.checked;throw error;}));
+$('wechat-autostart').onchange=event=>busy(event.target,()=>wechatAction({action:'save',settings:{autoStartReader:event.target.checked}},'已保存'));
+$('wechat-recipient').onchange=event=>busy(event.target,()=>wechatAction({action:'save',settings:{recipient:event.target.value}},'收件人已保存'));
+onSubmit($('wechat-time-form'),async()=>{
+  const time=$('wechat-time').value;if(!time)return;
+  if(wechat.settings.times.includes(time)){toast('已经有这个时间了',true);return;}
+  await wechatAction({action:'save',settings:{times:[...wechat.settings.times,time]}},'报告时间已保存');$('wechat-time').value='';
+});
+$('wechat-generate').onclick=()=>busy($('wechat-generate'),async()=>{
+  if(!await confirmDialog({title:'现在出一份报告',message:'把上一份报告之后的新消息整理成一份，用 QQ 私聊发给你。这些消息不会再进下一份定时报告。',confirmText:'生成并发送'}))return;
+  await wechatAction({action:'generate'},'开始生成了，写好会发给你');
+});
+$('wechat-preview').onclick=()=>busy($('wechat-preview'),()=>wechatAction({action:'preview'},'开始生成预览，写好后在列表里查看'));
+$('wechat-retry-all').onclick=()=>busy($('wechat-retry-all'),()=>wechatAction({action:'retryMedia'},'已重新去读'));
+$('wechat-resend').onclick=()=>busy($('wechat-resend'),async()=>{
+  if(!wechatReport||!await confirmDialog({title:'发给我',message:'把这份报告用 QQ 私聊发给你'+(wechat.recipient.qq?'（'+wechat.recipient.qq+'）':'')+'。',confirmText:'发送'}))return;
+  await wechatAction({action:'resend',id:wechatReport.id});
+  const state=wechat.reports.find(r=>r.id===wechatReport.id)?.delivery;
+  toast(state?.state==='sent'?'已发给你':'没发出去：'+(state?.error||'原因不明'),state?.state!=='sent');
+});
+$('wechat-report-close').onclick=()=>{wechatReport=null;renderWechat();};
+$('wechat-reader-start').onclick=()=>busy($('wechat-reader-start'),()=>wechatAction({action:'reader',command:'start'},'读取器已启动'));
+$('wechat-reader-stop').onclick=()=>busy($('wechat-reader-stop'),async()=>{
+  if(!await confirmDialog({title:'停止微信读取器',message:'停止后读不到新的微信消息，定时报告里也就没有新内容。微信本身不受影响。',confirmText:'停止',danger:true}))return;
+  await wechatAction({action:'reader',command:'stop'},'读取器已停止');
 });
 
 /* QQ login: NapCat embedded full size (WSL), or SnowLuma's state and settings (Windows) */

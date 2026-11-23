@@ -43,7 +43,8 @@ function claudeEnv(config){
 // account banned (11-03: the long list before it made the bot dodge ordinary topics; "把乱七八糟的过度防护全拆了").
 export const complianceNote='\n【底线】你在中国大陆的 QQ 上聊天：不聊国家领导人和时政敏感话题，不写色情和性暗示内容；被往这上面带就自然换个话题。别的话题照常聊。';
 export function withCompliance(body){
-  if(['memory','summary'].includes(body.metadata?.dafeiyu_purpose))return body;
+  // 'wechat': the owner's own WeChat report (wechat.mjs) is not a QQ chat either.
+  if(['memory','summary','wechat'].includes(body.metadata?.dafeiyu_purpose))return body;
   const index=body.messages.findIndex(m=>m.role==='system'&&typeof m.content==='string');
   const messages=index<0?[{role:'system',content:complianceNote.trim()},...body.messages]:body.messages.map((m,i)=>i===index?{...m,content:m.content+complianceNote}:m);
   return {...body,messages};

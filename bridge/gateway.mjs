@@ -27,6 +27,7 @@ import {dshModels} from './dsh.mjs';
 import {grokSearch} from './grok.mjs';
 import {composeMusic} from './music.mjs';
 import {claudeSessions} from './claude-session.mjs';
+import {WeChatReports} from './wechat.mjs';
 import {HotReload} from '../engine/HotReload.mjs';
 import {watch,statSync} from 'node:fs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -120,7 +121,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels,dsh:()=>dshModels()},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels,dsh:()=>dshModels()},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null,wechat=null}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -152,6 +153,19 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     const result=await generations.run(()=>metered(provider,profile,'video','',()=>invoke(body,config,provider,profile)));return result.choices[0].message.content;
   }});
   const featureControl=new FeatureControl({runtimeControl,publicContent});
+  // WeChat reports (wechat.mjs, 2026-11-24: "接进大肥鱼做一个功能，定期向我报告"). The report is written on the model the
+  // owner gave 'summary', pictures are read on the one for 'video'; a routed model that is down hands over to the
+  // active connection, as chat does. Reports go out with send_private_msg only, to the administrator it resolved.
+  wechat?.rewire({
+    model:async(body,kind)=>{
+      const {provider,profile,routed}=settings.route(kind==='image'?'video':'summary');
+      const call=(provider,profile)=>generations.run(()=>metered(provider,profile,'wechat','',()=>withDeadline(signal=>runner({...body,model:profile.model,metadata:{dafeiyu_purpose:'wechat'}},config,provider,profile,signal),undefined,config.wechatTimeoutMs||600000)),{background:true});
+      try{return await call(provider,profile);}
+      catch(e){if(!routed)throw e;return call(settings.value.active,structuredClone(settings.value.profiles[settings.value.active]));}
+    },
+    transcribe:(audio,format)=>voice.transcribe(audio,format),
+    admins:()=>runtimeControl.moderation(),
+    sendPrivate:host?(qq,text)=>host.qqCall('send_private_msg',{user_id:Number(qq),message:[{type:'text',data:{text}}]}):null});
   async function catalog(provider,profile){
     const key=JSON.stringify([provider,profile]);
     if(discoveryTasks.has(key))return discoveryTasks.get(key);
@@ -255,6 +269,8 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
       if(req.url==='/console/api/agent'){try{send(200,await runtimeControl.agent());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/engine'){try{send(200,await runtimeControl.engineState());}catch(e){send(503,{error:e.message});}return;}
       if(req.url==='/console/api/voice'){send(200,voice.view());return;}
+      if(pathname==='/console/api/wechat'){if(!wechat){send(404,{error:'微信报告没开'});return;}try{send(200,await wechat.view());}catch(e){fail(e);}return;}
+      if(pathname==='/console/api/wechat/report'){if(!wechat){send(404,{error:'微信报告没开'});return;}try{send(200,await wechat.report(new URL(req.url,origin).searchParams.get('id')));}catch(e){fail(e);}return;}
       if(req.url==='/console/api/computer'){send(200,{...computer.view(),history:await computer.history()});return;}
       // The engine asks whether super mode is on, and for whom.
       if(req.url==='/v1/computer'){send(200,{enabled:computer.value.enabled,owner:computer.value.owner});return;}
@@ -307,6 +323,18 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(req.url==='/console/api/social'){try{send(200,await runtimeControl.socialPanel(data.platform));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/qq'){if(!host){send(404,{error:'QQ 由 NapCat 管理'});return;}try{send(200,await host.saveSettings(data));}catch(e){fail(e);}return;}
     if(req.url==='/console/api/voice'){try{send(200,await voice.update(data));}catch(e){fail(e);}return;}
+    // The WeChat report page: settings, a report now (sent) or a preview (not sent), retries, the reader's start and stop.
+    if(req.url==='/console/api/wechat'){
+      if(!wechat){send(404,{error:'微信报告没开'});return;}
+      try{
+        if(data.action==='save')send(200,await wechat.save(data.settings||{}));
+        else if(data.action==='generate'||data.action==='preview')send(200,await wechat.generate(data.action==='preview'?'preview':'manual'));
+        else if(data.action==='retryMedia')send(200,await wechat.retryMedia(data.id??null));
+        else if(data.action==='resend'){await wechat.deliver(String(data.id||''),{again:true});send(200,await wechat.view());}
+        else if(data.action==='reader')send(200,await wechat.readerCommand(String(data.command||'')));
+        else throw new Error('不支持的操作');
+      }catch(e){fail(e);}return;
+    }
     if(req.url==='/console/api/computer'){try{send(200,{...await computer.update(data),history:await computer.history()});}catch(e){fail(e);}return;}
     if(req.url==='/v1/agent-tools/create'){
       const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
@@ -553,6 +581,9 @@ export async function composeGateway(config,configFile,{host,auth,reload},previo
     voice:await new VoiceSettings({runtime}).load(),
     computer:await new ComputerControl({runtime}).load(),
     agentTools:await new AgentTools({runtime}).load()};
+  // Added by a hot reload to a gateway that started without it, hence not in the literal above. Its loop runs only
+  // where the gateway runs the bot (Windows, with the QQ host); `wechatReports:false` in the config leaves it off.
+  if(config.wechatReports!==false)state.wechat??=await new WeChatReports({runtime,...(config.wechatReader?{readerDir:config.wechatReader}:{})}).load();
   // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
   // A connection added since these settings were loaded (11-04: dsh; 11-07: the image API) gets its empty profile.
   state.settings.value.profiles.dsh??={model:''};state.settings.value.image??=imageDefaults();
@@ -562,7 +593,8 @@ export async function composeGateway(config,configFile,{host,auth,reload},previo
   // On Windows the bot also repairs its own program errors (repair-host.mjs).
   state.repair=host?await startSelfRepair({root,runtime,config,host,reload,existing:state.repair}):null;
   if(host&&state.repair)host.onCrash=report=>state.repair.report(report);
-  const server=createGateway(config,state.settings,{runtime,auth,usage:state.usage,voice:state.voice,computer:state.computer,agentTools:state.agentTools,host,repair:state.repair,reload});
+  const server=createGateway(config,state.settings,{runtime,auth,usage:state.usage,voice:state.voice,computer:state.computer,agentTools:state.agentTools,host,repair:state.repair,reload,wechat:state.wechat||null});
+  if(host&&state.wechat)state.wechat.start();
   return {server,state};
 }
 

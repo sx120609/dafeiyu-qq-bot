@@ -31,7 +31,7 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 
 | 路径 | 内容 |
 |---|---|
-| `bridge/` | 网关。`main.mjs` 入口；`gateway.mjs` 路由；`providers.mjs` 模型提供方和合规提示；`server.mjs` 本机 Codex 调用和回复格式；`qq-host.mjs` 管 SnowLuma 和引擎；`snowluma-proxy.mjs` 嵌入代理；`agent-tools.mjs`、`tool-sandbox.mjs`、`tool-writer.mjs` 机器人自写工具；`public-content.mjs`、`bilibili-live.mjs` 联网和 B 站；`voice.mjs` 语音；`computer.mjs` 超级模式；`usage.mjs` 用量；`runtime-control.mjs` 控制台的运行操作 |
+| `bridge/` | 网关。`main.mjs` 入口；`gateway.mjs` 路由；`providers.mjs` 模型提供方和合规提示；`server.mjs` 本机 Codex 调用和回复格式；`qq-host.mjs` 管 SnowLuma 和引擎；`snowluma-proxy.mjs` 嵌入代理；`agent-tools.mjs`、`tool-sandbox.mjs`、`tool-writer.mjs` 机器人自写工具；`public-content.mjs`、`bilibili-live.mjs` 联网和 B 站；`voice.mjs` 语音；`computer.mjs` 超级模式；`usage.mjs` 用量；`runtime-control.mjs` 控制台的运行操作；`wechat.mjs` 微信报告 |
 | `engine/` | 引擎，由原作者的 Swift 引擎逐文件改写成 Node。`main.mjs` 入口；`QQEngine.mjs` 核心（收发、存盘、提醒、插画、记忆整理）；`QQEngine.agent.mjs` 代理循环和全部工具的执行；`QQAgent.mjs` 工具定义和指挥模型调用；`QQControlServer.mjs` 控制接口；`OneBotConnection.mjs` QQ 连接；`core/` 纯逻辑（策略、人设、记忆、权限档、消息解析）；`swift.mjs`、`foundation.mjs`、`core/_support.mjs` 改写用的公共函数 |
 | `console/` | 控制台网页（`index.html`、`app.js`、`style.css`），网关直接读文件，改完刷新就生效 |
 | `launcher/` | 托盘程序源码 `Launcher.cs`，`build.ps1` 用 Windows 自带的 C# 编译器编成根目录的 `Dafeiyu.exe` |
@@ -118,6 +118,7 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 | `engine/qq-state.json` | 引擎全部状态：设置（会话名单、人设、权限档、管理员）、记忆、代理记录、发送记录、被踢记录 |
 | `engine/QQStickers/` | 表情库里收进来的图 |
 | `agent-tools.json`、`agent-tool-data/` | 机器人自写的 `my_` 工具和它们各自的存储 |
+| `wechat/` | 微信报告：`state.json`（开关、时间、收件人、进度、报告目录）、`inbox.json`（读取器的事件游标和等下一份报告的微信消息）、`reports/`（每份报告全文）。全是主人的私人聊天内容 |
 | `voice.json`、`computer.json`、`usage.json`、`public-activity.json` | 语音设置（含 OpenAI Key）、超级模式、用量账本、联网记录 |
 | `status.json`、`desired-running.json`、`control-url.txt`、`console-url.txt` | 当前状态、主人上次选的“回复/暂停”、引擎控制地址、控制台地址 |
 | `host.pid`、`engine.pid`、`snowluma.pid` | 三个进程的 pid（Windows 不会随父进程结束子进程，新网关靠这些结束旧进程） |
@@ -149,6 +150,13 @@ SnowLuma（D:\Dev\Projects\SnowLuma，node.exe index.mjs）
 - **画图**：先「生图接口」（控制台「模型」页，独立的 OpenAI 兼容地址、Key、模型，默认 gpt-image-2.6-sunburst；`Settings.imageSource`），没配就用云端 API 的生图模型（那条连接是 OpenAI 协议时），再退到本机 Codex 的生图；多张同时画，不排队。`/v1/images/generations` 收 `prompt`，可选 `images`（参考图 base64，最多 8 张；有就走云端的 `/images/edits`，本机 Codex 用 `--image` 附上）、`size`（square / portrait / landscape）、`quality`（low / medium / high）、`background: 'transparent'`、`n`（1–4），GPT Image 2.6 的动图：`animated`（或 `output_format: "gif"`）、`frame_count`、`frame_duration_ms`，以及 `complexity`。原生 GIF 需要上游开放权限；明确返回 GIF 未启用时，网关用同一接口画连续帧图，再用本机 Python/Pillow 裁帧合成循环 GIF，保留参考图、张数、帧数和帧时长。动图不退给本机 Codex。API 不认某个可选字段回 400 时，只带基本字段再试一次。
 - **写歌**（`compose_music`，`bridge/music.mjs` + `scripts/gpu-music/compose.py`）：在 5090 服务器（本机 `~/.ssh/config` 的 `gpu5090`）上用 MiniMax Music 3 生成，模型和 Python 环境借 `~/liubei-music/model`、`~/liubei-music/venv`（只读用，`bridge-windows.json` 的 `musicModelDir`、`musicPython` 可改），脚本第一次用时拷到 `~/dafeiyu-music`。词、风格、长短全由代理自己写（用户：“让肥鱼多自由发挥”），不套模板；不填词就是纯音乐。生成速度约等于音乐时长，显存要 23 GB，被别人占着就照实说；一次一首。做好后发一条语音（马上能听）和一个 MP3 文件。
 - **搜 X 和全网**（`search_x`，`bridge/grok.mjs`）：用这台电脑上的 Grok Build（`~/.grok/bin/grok.exe`，主人自己的 Grok 登录）无界面模式跑一次，只开 `web_search`（xAI 的搜索覆盖 X 的帖子和全网），命令行、文件、抓网页、子代理都禁掉：它的配置里所有工具自动批准，`--tools` 写错一个名字就会全开。主人配置里 `web_search` 模型是空的（等于关了搜索），调用时用 `GROK_WEB_SEARCH_MODEL` 指定（默认 grok-4.6，`bridge-windows.json` 的 `grokSearchModel` 可改）。一次一到两分钟、约 0.3 美元，Grok 自报的花费记进用量；要换登录就让主人在本机跑 `grok login`。
+- **微信报告**（`bridge/wechat.mjs`，11-24，用户：“接进大肥鱼做一个功能，定期向我报告”）：读本机微信读取器（`D:\Dev\Projects\WeChat-Live-Reader`，127.0.0.1:8769，只读；它的 README 和 `docs/openapi.json` 是接口说明）的全部会话，定时给主人写报告。
+  - 对象 `WeChatReports` 放在网关的长寿状态里（`composeGateway` 的 `state.wechat`），热加载不重启它的循环；每一代网关用 `rewire` 给它模型、转写、管理员名单和发私聊的函数。循环只在 Windows 上带 QQ 宿主的网关里启动，测试里不启动。
+  - 收消息（`pump`）、看图听语音（`enrich`）、写报告和发送（`schedule`）互不等待。游标和收件箱一起原子落盘。读取器没在跑时每五分钟用它自己的 `python -m wechat_live start` 拉一次（页面上可关）。
+  - 读取器的令牌用它自己的 `python -m wechat_live token` 读出来，只放内存；不要打印，也不要写进任何文件。
+  - 报告的模型走 `summary` 的分工，看图走 `video` 的分工；这类调用的 `dafeiyu_purpose` 是 `wechat`，不附加 QQ 聊天的底线提示。聊天内容只放在用户消息里，系统提示是固定的。
+  - 只发给主人：收件人必须在引擎的 `adminIDs` 里（去掉机器人自己），恰好一个就用它，多个要在控制台选，否则不发。只调 `send_private_msg`。改这一块时保持这条：不能发到群、别的好友或历史会话。
+  - 控制台接口 `GET /console/api/wechat`、`GET /console/api/wechat/report?id=`、`POST /console/api/wechat`（`action`：`save`、`generate`、`preview`、`retryMedia`、`resend`、`reader`）。测试在 `tests/wechat.test.mjs`，用假的读取器，不连 8769。
 - **自写工具**：机器人用 `create_tool` 说要求，`tool-writer.mjs` 让本机 Codex（Astra 模型，可联网查文档）写代码，网关用测试参数真跑，跑不通把报错还给它改，最多三稿，跑通才启用。工具可访问任何地址（含内网），有自己的存储，能调 QQ 的 OneBot 接口（只挡踢人、禁言、退群、删好友、删群文件、改机器人资料、拿登录凭证）。
 - **控制台接口**：`/console/api/*`，要登录。
 - **引擎调网关**：`/v1/*`，只认本机地址和 `token`。例如：

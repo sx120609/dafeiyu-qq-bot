@@ -442,6 +442,9 @@ input[type=file]::file-selector-button:hover{background:var(--fill)}
 .chip button svg{width:12px;height:12px}
 .chips .empty{padding:4px 0;text-align:left}
 .chip-add{display:flex;gap:8px}
+.wechat-report{margin:0;padding:12px 14px;max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--fill);font:13px/1.7 var(--font);white-space:pre-wrap;overflow-wrap:anywhere}
+.wechat-table td{white-space:normal}.wechat-table td.clip{max-width:320px;white-space:nowrap}
+#wechat-time{max-width:130px}
 .chip-add input{max-width:220px}
 .save-bar{position:sticky;bottom:16px;z-index:4;display:flex;align-items:center;gap:6px;padding:8px 8px 8px 14px;background:var(--raised);border:1px solid var(--line-strong);border-radius:10px;box-shadow:var(--pop)}
 .save-bar span{flex:1;font-weight:500}

@@ -14,6 +14,7 @@
 <svg class="sprite" aria-hidden="true">
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></symbol>
   <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12L17 12h4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-4M12 16V7M17 16v-6"/></symbol>
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3.5 19c.9-3 3-4.6 5.5-4.6s4.6 1.6 5.5 4.6M15.5 6.2a3 3 0 0 1 0 5.6M17 14.6c1.8.4 3 1.9 3.5 4.4"/></symbol>
   <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8M9 10h.01M15 10h.01"/></symbol>
@@ -56,6 +57,7 @@
       <a href="#overview" data-page="overview"><svg><use href="#i-home"/></svg>总览</a>
       <a href="#activity" data-page="activity"><svg><use href="#i-pulse"/></svg>动态</a>
       <a href="#usage" data-page="usage"><svg><use href="#i-chart"/></svg>用量</a>
+      <a href="#wechat" data-page="wechat"><svg><use href="#i-mail"/></svg>微信报告</a>
       <p class="nav-group">设置</p>
       <a href="#chats" data-page="chats"><svg><use href="#i-people"/></svg>会话</a>
       <a href="#persona" data-page="persona"><svg><use href="#i-smile"/></svg>人设与表情</a>
@@ -237,6 +239,50 @@
     </section>
 
     <!-- 会话 -->
+    <section class="page" data-page="wechat" hidden>
+      <div id="wechat-banner" class="banner warn" hidden></div>
+      <div id="wechat-stats" class="stats"></div>
+      <div class="grid-2 wide-left">
+        <div class="col">
+          <div class="card">
+            <div class="card-head"><h3>报告</h3><div class="actions"><button id="wechat-preview" class="btn small" type="button">预览（不发送）</button><button id="wechat-generate" class="btn small primary" type="button">现在出一份并发给我</button></div></div>
+            <p id="wechat-progress" class="muted small" hidden></p>
+            <div class="table-wrap"><table class="table wechat-table">
+              <thead><tr><th>时间</th><th>覆盖</th><th class="num">消息</th><th class="num">要点</th><th>发送</th><th></th></tr></thead>
+              <tbody id="wechat-reports"></tbody>
+            </table></div>
+          </div>
+          <div id="wechat-report-card" class="card" hidden>
+            <div class="card-head"><h3 id="wechat-report-title"></h3><div class="actions"><button id="wechat-resend" class="btn small" type="button">重新发给我</button><button id="wechat-report-close" class="btn small ghost" type="button">收起</button></div></div>
+            <pre id="wechat-report-text" class="wechat-report"></pre>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>没读到的图片和语音</h3><button id="wechat-retry-all" class="btn small" type="button" hidden>全部重试</button></div>
+            <p class="muted">图片和语音要先同步到这台电脑的微信里才读得到（在微信里点开就会下载）。读到后自动补上，写进下一份报告。</p>
+            <div id="wechat-problems"></div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card col">
+            <label class="switch-row"><span><strong>定时报告</strong><small>到点把上一份报告之后的新消息整理成一份，用 QQ 私聊发给你，这里也留一份。</small></span><input id="wechat-enabled" type="checkbox" class="switch"></label>
+            <div>
+              <p class="field-label">每天几点<small class="muted">按这台电脑的时间，可以加多个</small></p>
+              <div id="wechat-times" class="chips gap-top"></div>
+              <form id="wechat-time-form" class="chip-add" autocomplete="off"><input id="wechat-time" type="time" required aria-label="添加报告时间"><button class="btn small" type="submit">添加</button></form>
+            </div>
+            <label class="field"><span>发给谁</span><select id="wechat-recipient"></select><small id="wechat-recipient-hint"></small></label>
+          </div>
+          <div class="card col">
+            <div class="card-head flush"><h3>微信读取器</h3><span id="wechat-reader-badge" class="badge"></span></div>
+            <dl id="wechat-reader" class="kv"></dl>
+            <label class="switch-row"><span><strong>没在运行时自动启动</strong><small>电脑重启后读取器不会自己起来，打开后由大肥鱼拉起。</small></span><input id="wechat-autostart" type="checkbox" class="switch"></label>
+            <div class="actions"><button id="wechat-reader-start" class="btn small" type="button">启动读取器</button><button id="wechat-reader-stop" class="btn small" type="button">停止读取器</button></div>
+            <p class="muted small">只读这台电脑微信里已经同步的消息，不会在微信里发任何东西，也不替你回复。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" data-page="chats" hidden>
       <div class="split">
       <form autocomplete="off" id="chats-form" class="card section" novalidate>
