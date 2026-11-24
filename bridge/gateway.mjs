@@ -603,7 +603,7 @@ export class Reloader{
       const [fresh]=await this.hot.next([path.join(root,'bridge','gateway.mjs')]);
       const map=new Map();
       for(let generation=0;generation<=from;generation++)for(const [old,next] of await this.hot.classes(generation,this.hot.generation))map.set(old,next);
-      const moved=HotReload.adopt([this.current.state,globalThis.dafeiyuClaudeSessions],map);
+      const moved=HotReload.adopt([this.current.state,globalThis.dafeiyuClaudeSessions,globalThis.dafeiyuAgySessions].filter(Boolean),map);
       const previous=this.current;
       this.current=await fresh.composeGateway(this.config,this.configFile,this.shared,previous);
       previous.server.retire?.();

@@ -23,7 +23,7 @@ const providerHelp={
   claude:'通过官方 Claude Code 调用，登录由官方客户端管理；不读取或转发登录令牌。Claude 没有绘图模型，绘图会自动交给 Codex。',
   cloud:'使用你自己的 API Key，支持 OpenAI 兼容接口和 Anthropic 官方接口。密钥只保存在本机。',
   dsh:'使用这台电脑上 DeepSeek Harness（dsh）里配好的模型和它保存的密钥，不用再填一遍；在 dsh 里加了模型，刷新目录就能选。',
-  antigravity:'通过这台电脑上的 Antigravity CLI（agy）调用，复用它登录的 Google 账号（Gemini 4 等），不需要 API Key。思考强度看模型名里的 low / medium / high。这个连接看不到图片，识图请分给别的模型。'
+  antigravity:'通过这台电脑上的 Antigravity CLI（agy）调用，复用它登录的 Google 账号（Gemini 4 等），不需要 API Key。思考强度看模型名里的 low / medium / high。能看图片；后台一直开着一个 agy，不用每次回复都重新启动。'
 };
 const qqPattern=/^[1-9]\d{4,11}$/;
 

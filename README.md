@@ -194,7 +194,9 @@
 
 ## 本机 Antigravity（11-24）
 
-用户：“加入一个接入本机antigravity的模型选项”。控制台「模型」页多了「本机 Antigravity」：用这台电脑上 Antigravity CLI（`agy`）登录的 Google 账号（Google AI Ultra），能选 `agy models` 列出的 Gemini 4 Neon / Carbon / Argon / Hydrogen、Gemini 3.8 Flash 等，思考强度在模型名里。做法和本机 Codex、Claude Code 一样每次回复跑一次：人设和规则写成一个自定义代理（只给 `finish` 工具，用来按 `--json-schema` 交回回复和工具调用，没有命令行、文件、搜索），请求从 stdin 进（聊天记录长，命令行装不下）。agy 自己的系统提示从每次 1 万多 token 降到约 2 千。这个连接看不到图片。实测：控制台测试 10 秒通过，带工具的请求一轮就正确返回工具调用。
+用户：“加入一个接入本机antigravity的模型选项”。控制台「模型」页多了「本机 Antigravity」：用这台电脑上 Antigravity CLI（`agy`）登录的 Google 账号（Google AI Ultra），能选 `agy models` 列出的 Gemini 4 Neon / Carbon / Argon / Hydrogen、Gemini 3.8 Flash 等，思考强度在模型名里。没有命令行、文件、搜索工具，权限请求一律拒绝。
+
+用户接着问：“为什么不支持图片，以及为什么一直要重启？我不希望这样”。改成网关里常驻一个 `agy acp`（Agent Client Protocol），不再每次回复起一个 `agy -p`：每次调用只开一个会话，人设和规则、模型按会话设；图片作为图片块发过去，能看图；指挥的一批像 Claude Code 那样续用同一个会话，后面几轮只发新消息，命中缓存。实测：带图片的第一轮 12.7 秒认出图里的字和右上角红点，第二轮 17.1 秒、缓存 2261 token，同一进程上的单次调用 6.6 秒，全程没有重启。
 
 ## 写歌（11-13）
 
