@@ -24,6 +24,7 @@ import {QQHost} from './qq-host.mjs';
 import {startSnowLumaProxy} from './snowluma-proxy.mjs';
 import {partOf} from './self-repair.mjs';
 import {dshModels} from './dsh.mjs';
+import {antigravityModels} from './antigravity.mjs';
 import {grokSearch} from './grok.mjs';
 import {composeMusic} from './music.mjs';
 import {claudeSessions} from './claude-session.mjs';
@@ -33,11 +34,12 @@ const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const consoleAssets={'/console/':'index.html','/console/app.js':'app.js','/console/style.css':'style.css','/console/avatar.png':'avatar.png',
   '/console/integration-auth.js':'integration-auth.js','/console/page-nav.js':'page-nav.js','/console/page-nav.css':'page-nav.css','/console/napcat-theme.js':'napcat-theme.js'};
 const assetTypes={'.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.html':'text/html; charset=utf-8','.png':'image/png'};
-export const defaults=()=>({revision:crypto.randomUUID(),active:'codex',profiles:{codex:{model},claude:{model:'sonnet'},cloud:{protocol:'openai',baseUrl:'https://api.openai.com/v1',model:'',apiKey:''},dsh:{model:''}},image:imageDefaults(),catalogs:{},checks:{}});
+export const defaults=()=>({revision:crypto.randomUUID(),active:'codex',profiles:{codex:{model},claude:{model:'sonnet'},cloud:{protocol:'openai',baseUrl:'https://api.openai.com/v1',model:'',apiKey:''},dsh:{model:''},antigravity:{model:'gemini-4-neon-high'}},image:imageDefaults(),catalogs:{},checks:{}});
 // The image API of its own (11-07): drawing need not share the chat connection (that one may be Anthropic).
 export const imageDefaults=()=>({baseUrl:'',apiKey:'',model:'gpt-image-2.6-sunburst'});
 // dsh: the models set up in the DeepSeek Harness on this computer (dsh.mjs), with the keys dsh keeps.
-const known=new Set(['codex','cloud','claude','dsh']);
+// antigravity: the models of the Antigravity CLI on this computer, with the owner's Google login (antigravity.mjs).
+const known=new Set(['codex','cloud','claude','dsh','antigravity']);
 // What a model call is for. The owner can send each to its own connection and model instead of the active one
 // ("模型分工"); a purpose with no route follows the active connection. The rewrite stage (another model's draft
 // put into the bot's own voice) runs only while it has a route.
@@ -60,7 +62,7 @@ export function validRoutes(input,profiles){
 const plain=async file=>{try{return await fs.readFile(file,'utf8');}catch{return '';}};
 export class Settings{
   constructor(file){this.file=file;this.value=null;this.pending=Promise.resolve();}
-  async load(){const data=await plain(this.file);this.value=data?JSON.parse(data):defaults();this.value.profiles.dsh??={model:''};this.value.image??=imageDefaults();if(!data)await this.persist();return this;}
+  async load(){const data=await plain(this.file);this.value=data?JSON.parse(data):defaults();this.value.profiles.dsh??={model:''};this.value.profiles.antigravity??={model:'gemini-4-neon-high'};this.value.image??=imageDefaults();if(!data)await this.persist();return this;}
   async persist(){const snapshot=JSON.stringify(this.value,null,2);this.pending=this.pending.catch(()=>{}).then(async()=>{await fs.writeFile(this.file+'.tmp',snapshot,{mode:0o600});await fs.rename(this.file+'.tmp',this.file);});return this.pending;}
   view(){const v=structuredClone(this.value);v.profiles.cloud.hasApiKey=!!v.profiles.cloud.apiKey;delete v.profiles.cloud.apiKey;v.routes??={};
     v.image={...imageDefaults(),...v.image,hasApiKey:!!v.image?.apiKey,source:this.imageSource()?.label||'本机 Codex'};delete v.image.apiKey;return v;}
@@ -95,7 +97,7 @@ export class Settings{
     const previous=this.value.profiles[provider];
     const p={...previous};
     if(provider==='codex'&&input.serviceTier!==undefined){if(!['default','fast'].includes(input.serviceTier))throw new Error('不支持的速度档位');p.serviceTier=input.serviceTier;}
-    if(!['cloud','dsh'].includes(provider)&&input.effort!==undefined){if(!['low','medium','high'].includes(input.effort))throw new Error('不支持的思考强度');p.effort=input.effort;}
+    if(!['cloud','dsh','antigravity'].includes(provider)&&input.effort!==undefined){if(!['low','medium','high'].includes(input.effort))throw new Error('不支持的思考强度');p.effort=input.effort;}
     if(input.model!==undefined){if(typeof input.model!=='string'||input.model.length>150||/[\x00-\x1f]/.test(input.model))throw new Error('模型 ID 无效');p.model=input.model.trim();}
     if(provider==='cloud'){
       if(input.protocol!==undefined){if(!['openai','anthropic'].includes(input.protocol))throw new Error('未知 API 协议');p.protocol=input.protocol;}
@@ -120,7 +122,7 @@ export function requestOrigin(req,auth){
   return {origin:`${secure?'https':'http'}://${host}`,local};
 }
 
-export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels,dsh:()=>dshModels()},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null}={}){
+export function createGateway(config,settings,{runtime=path.join(root,'.runtime'),invoke:runner=dispatch,discover={codex:codexModels,claude:claudeModels,cloud:cloudModels,dsh:()=>dshModels(),antigravity:antigravityModels},integrationConfig={},runtimeExecute,auth=new ConsoleAuth({runtime,secret:config.consoleToken}),autostart,usage=new UsageLedger({runtime}),voice=new VoiceSettings({runtime}),computer=new ComputerControl({runtime}),agentTools=new AgentTools({runtime}),host=null,repair=null,reload=null}={}){
   const backoff=new ProviderBackoff(path.join(runtime,'provider-backoff.json'));
   const invoke=(body,c,provider,profile,signal)=>withDeadline(s=>runner(body,c,provider,profile,s),signal,body.metadata?.dafeiyu_purpose==='test'?(config.testTimeoutMs||60000):(config.generationTimeoutMs||180000));
   let testing=false,changing=false;const discoveryTasks=new Map();const generations=new GenerationQueue();
@@ -225,7 +227,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
         // 2026-11-04: "Find the root cause"; the agent uses director, which can differ from chat and has no rewrite stage.
         const requested=new URL(req.url,origin).searchParams.get('purpose');
         const purpose=purposes.includes(requested)?requested:'chat';
-        const labels={codex:'本机 Codex',claude:'官方 Claude Code',cloud:'云端 API',dsh:'本机 dsh'};
+        const labels={codex:'本机 Codex',claude:'官方 Claude Code',cloud:'云端 API',dsh:'本机 dsh',antigravity:'本机 Antigravity'};
         const resolve=({provider,profile:p})=>{
           // 2026-11-15: "Find the root cause"; a connection probe can report a helper model, not the routed conversation model.
           const canonical=settings.value.catalogs[provider]?.models?.find(x=>x.id===p.model)?.resolvedModel;
@@ -509,7 +511,7 @@ export function createGateway(config,settings,{runtime=path.join(root,'.runtime'
     if(!site){socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;}
     integrations.upgrade(req,socket,head,site.origin);
   });
-  server.refreshCatalogs=()=>Promise.allSettled(['codex','claude','dsh',...(settings.value.profiles.cloud.apiKey?['cloud']:[])].map(p=>catalog(p,settings.value.profiles[p])));
+  server.refreshCatalogs=()=>Promise.allSettled(['codex','claude','dsh','antigravity',...(settings.value.profiles.cloud.apiKey?['cloud']:[])].map(p=>catalog(p,settings.value.profiles[p])));
   return server;
 }
 
@@ -555,7 +557,7 @@ export async function composeGateway(config,configFile,{host,auth,reload},previo
     agentTools:await new AgentTools({runtime}).load()};
   // On Windows, my_ tools may read from the QQ account through SnowLuma; their code is written by Codex (Astra).
   // A connection added since these settings were loaded (11-04: dsh; 11-07: the image API) gets its empty profile.
-  state.settings.value.profiles.dsh??={model:''};state.settings.value.image??=imageDefaults();
+  state.settings.value.profiles.dsh??={model:''};state.settings.value.profiles.antigravity??={model:'gemini-4-neon-high'};state.settings.value.image??=imageDefaults();
   // The Reloader was made by the first generation; it runs this generation's code too (its watcher calls apply()).
   if(reload)Object.setPrototypeOf(reload,Reloader.prototype);
   state.agentTools.rewire({qq:host?(action,params)=>host.qqCall(action,params):null,writer:(request,options)=>writeToolCode(request,config,options)});

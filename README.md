@@ -192,6 +192,10 @@
 - **动图（11-07，GPT Image 2.6）**：用户：“画图模型换用最新的2.6模型，并加入新模型特性如原生动图”。生图模型改成 `gpt-image-2.6-sunburst`（价格同 2.5，已加进用量单价）。`draw_image` 加 `animated`（`frames` 2–16，默认 9；`frame_ms` 20–2000，默认 200），网关发 `output_format: "gif"`、`frame_count`、`frame_duration_ms`，尺寸交给接口（所有帧共用一份像素额度），GIF 不支持透明背景；参考图加 `animated` 就是让那张图动起来。画图描述整理器知道是动图，会把动作和循环写进描述。发 QQ 时 GIF 用动画表情的格式（`sub_type: 1`），普通图片格式 QQ 只显示第一帧。原生 GIF 还需要接口开放权限；上游明确返回 GIF 未启用时，网关用同一接口画连续帧图，再由本机 Python/Pillow 按帧数和时长合成循环 GIF，参考图和张数保持不变。本机 Codex 只能画静图，动图请求不退给它。2.6 另有 `complexity`（low/medium/high，默认 high）网关可传，未开放给代理。
 - **独立的生图接口（11-07）**：云端 API 那栏改成了 Anthropic 协议跑聊天后，生图就一直退到本机 Codex（只出静图）。控制台「模型」页加了「生图接口」卡片：单独的 OpenAI 兼容地址、Key（只写不回显）、生图模型，画图优先用它；卡片上标出现在实际用哪个（生图接口 / 云端 API / 本机 Codex），“画一张小图试试”用低画质画一张验证。
 
+## 本机 Antigravity（11-24）
+
+用户：“加入一个接入本机antigravity的模型选项”。控制台「模型」页多了「本机 Antigravity」：用这台电脑上 Antigravity CLI（`agy`）登录的 Google 账号（Google AI Ultra），能选 `agy models` 列出的 Gemini 4 Neon / Carbon / Argon / Hydrogen、Gemini 3.8 Flash 等，思考强度在模型名里。做法和本机 Codex、Claude Code 一样每次回复跑一次：人设和规则写成一个自定义代理（只给 `finish` 工具，用来按 `--json-schema` 交回回复和工具调用，没有命令行、文件、搜索），请求从 stdin 进（聊天记录长，命令行装不下）。agy 自己的系统提示从每次 1 万多 token 降到约 2 千。这个连接看不到图片。实测：控制台测试 10 秒通过，带工具的请求一轮就正确返回工具调用。
+
 ## 写歌（11-13）
 
 用户：“加一个创作音乐的功能”“不一定要去人声，不需要写太死，让模型多自由发挥”“让肥鱼多自由发挥”。代理的 `compose_music`：歌词、风格、情绪、乐器、人声、多长都由大肥鱼自己写，网关通过 SSH 在 5090 上跑 MiniMax Music 3（`bridge/music.mjs`、`scripts/gpu-music/compose.py`），MP3 取回后删掉服务器上那份，再发一条语音和一个 MP3 文件。生成时间约等于音乐时长（30 秒的歌 35 秒），超过 5 秒转后台。实测：群里说“给我们班写首歌，期末周快到了”，它自己写了《期末周也要好好吃饭》的词和曲风，两分钟后语音和 MP3 都发出来了。
