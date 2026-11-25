@@ -422,9 +422,11 @@ export const agentMethods = {
           // Whatever came in meanwhile goes along with every result, as it would to someone holding the phone.
           const news = this.agentNews(state, target);
           if (news.length) this.updateTurn(turnID, item => { item.batch.push(...news); });
-          output += !news.length ? (name === 'check_new_messages' || name === 'wait' ? '没有新消息。' : '') : '\n\n这期间新来的消息：\n' + news.join('\n');
-          this.updateTurn(turnID, item => { item.errands.push(new QQAgentTurn.Errand({tool: name, detail: prefix(args, 200), result: prefix(output, 600)})); });
-          return {content: output, attention: !done || news.length > 0};
+          // 2026-11-25: "Find the root cause and fix it in the code"; background reports must not inherit the receiving tool's budget.
+          const updates = news.length ? '\n\n这期间新来的消息：\n' + news.join('\n') : '';
+          if (!news.length && (name === 'check_new_messages' || name === 'wait')) output += '没有新消息。';
+          this.updateTurn(turnID, item => { item.errands.push(new QQAgentTurn.Errand({tool: name, detail: prefix(args, 200), result: prefix(output + updates, 600)})); });
+          return {content: output, news: updates, attention: !done || news.length > 0};
         },
         finish: async () => {
           if (state.ownerAnswered) return undefined;

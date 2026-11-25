@@ -301,9 +301,11 @@ test('aSlowToolCarriesOnInTheBackground', async () => {
   } finally { await r.stop(); }
 });
 
-for (const active of [true, false]) {
-  test(`a long helper result reaches ${active ? 'the running turn' : 'a new turn'} intact`, async () => {
-    const report = Array.from({length: 8}, (_, index) => `## 文献 ${index + 1}\n` + '研究方法、实验结果与参考出处。'.repeat(40)).join('\n\n') + '\n报告结束。';
+for (const active of ['check_new_messages', 'react', 'finish', false]) {
+  test(`a long helper result reaches ${active ? 'the running turn through ' + active : 'a new turn'} intact`, async () => {
+    const report = Array.from({length: 20}, (_, index) => `## 文献 ${index + 1}\n作者：Fixture ${index + 1}\n期刊：Test Journal (2026)\nDOI: 10.0000/test.${index + 1}\n` +
+      '研究方法、实验结果与参考出处。'.repeat(150)).join('\n\n') + '\n报告结束。';
+    assert.ok(report.length > 30000);
     let received = '';
     const r = await rig((purpose, messages) => {
       if (purpose !== 'director') return {hold: true};
@@ -312,7 +314,7 @@ for (const active of [true, false]) {
         received = content;
         return {content: '结果已检查'};
       }
-      if (!results(messages).length) return call('ask_helper', {task: '整理八篇文献'});
+      if (!results(messages).length) return call('ask_helper', {task: '整理二十篇文献'});
       return active ? {hold: true} : {content: '等待结果'};
     });
     try {
@@ -323,7 +325,7 @@ for (const active of [true, false]) {
       engine.config.effectiveOnlineEnabled = true;
       engine.agentPatience.ask_helper = 0;
       engine.start();
-      r.fixture.inject([group(62, 54321, '整理八篇文献')]);
+      r.fixture.inject([group(62, 54321, '整理二十篇文献')]);
       assert.ok(await wait(() => r.model.held.some(item => item.call.purpose !== 'director')));
       assert.ok(await wait(() => active ? r.model.held.some(item => item.call.purpose === 'director')
         : engine.agentTurns[0]?.note.endsWith('等待结果') && !engine.agentThinking.has(target.key)));
@@ -332,7 +334,8 @@ for (const active of [true, false]) {
       if (active) {
         assert.ok(await wait(() => engine.agentJobsDone.get(target.key)?.length === 1));
         assert.equal(engine.agentJobsDone.get(target.key)[0].result, report);
-        r.model.release(() => call('check_new_messages', {}));
+        r.model.release(() => active === 'finish' ? {content: '等待结果'} :
+          call(active, active === 'react' ? {message: '62', emoji: '赞'} : {}));
       }
       assert.ok(await wait(() => engine.agentTurns.at(-1)?.note.endsWith('结果已检查')));
       assert.equal(engine.agentTurns.length, active ? 1 : 2);

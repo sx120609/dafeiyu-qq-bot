@@ -7,7 +7,7 @@ import {QQGroupContext} from '../engine/core/QQGroupContext.mjs';
 import {QQPolicy} from '../engine/core/QQPolicy.mjs';
 import {QQMemoryBook, QQMemoryEvent} from '../engine/core/QQMemoryBook.mjs';
 import {count} from '../engine/swift.mjs';
-import {ModelScript, call, results} from './engine-fixtures.mjs';
+import {ModelScript, call, results, png} from './engine-fixtures.mjs';
 
 const texts = [
   '# 算法题\n\n' + '条件与约束👩🏽‍💻\n'.repeat(1800) + '## 输入格式\n\n输入完整题面结束',
@@ -23,6 +23,30 @@ const engine = {
   config: {expectedSelfID: '12345'}, botMessageIDs: {},
   connection: {async action() { return {data: {messages: rows}}; }}
 };
+
+test('a foreground helper report reaches the director without losing its ending', async () => {
+  const report = texts.join('\n\n');
+  const model = new ModelScript((purpose, messages) => results(messages).length ? {content: 'done'} : call('ask_helper', {task: '查资料'}));
+  await new DeepSeekClient({session: model.session}).operateAgent({key: 'synthetic-key', config: {model: 'test'},
+    rule: {prompt: 'test'}, input: '查资料', images: [], chat: 'fixture', tools: DeepSeekClient.agentTools(true),
+    handler: async () => ({content: report, attention: true}), finish: async () => undefined, reserve: async () => {}});
+  const result = results(JSON.parse(model.calls[1].body).messages)[0];
+  assert.ok(result.endsWith(report), 'The director must receive the entire foreground helper report');
+});
+
+for (const images of [[], [png()]]) {
+  test(`a long completed report survives the initial director input ${images.length ? 'with images' : 'without images'}`, async () => {
+    const input = [...texts, texts[0]].join('\n\n') + '\n后台报告结束';
+    assert.ok(count(input) > 30000);
+    const model = new ModelScript(() => ({content: 'done'}));
+    await new DeepSeekClient({session: model.session}).operateAgent({key: 'synthetic-key', config: {model: 'test'},
+      rule: {prompt: 'test'}, input, images, chat: 'fixture', tools: [],
+      handler: async () => '', finish: async () => undefined, reserve: async () => {}});
+    const content = JSON.parse(model.calls[0].body).messages[1].content;
+    assert.ok((images.length ? content[0].text : content) === input, 'The opening input must retain the complete report');
+    if (images.length) assert.equal(content[1].image_url.url, 'data:image/jpeg;base64,' + images[0].toString('base64'));
+  });
+}
 
 for (const group of [true, false]) {
   test(`read_qq_history returns complete long messages in ${group ? 'groups' : 'private chats'}`, async () => {
