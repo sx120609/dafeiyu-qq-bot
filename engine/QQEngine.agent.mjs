@@ -128,7 +128,8 @@ export const agentMethods = {
       const hello = happened.find(event => event.outreach);
       if (hello) notes.push(hello.text);
       if (finished.length) {
-        notes.push('你之前转到后台的事做完了：\n' + finished.map(job => `- ${job.tool}（${prefix(job.detail, 150)}）：${prefix(job.result, 2000)}`).join('\n') +
+        // 2026-11-25: "Find the root cause and fix it in the code"; completed results are evidence, not log previews.
+        notes.push('你之前转到后台的事做完了：\n' + finished.map(job => `- ${job.tool}（${prefix(job.detail, 150)}）：${job.result}`).join('\n') +
           '\n照结果接着做：查到的、看到的就说出来；画好的图已经直接发出去了，可以补一句；没做成就照实说，能补救就补救。');
       }
       const running = this.agentJobs.get(key);
@@ -753,7 +754,8 @@ export const agentMethods = {
     }
     lines.push(...take(this.agentReacted).map(item => '[表情] ' + item));
     if (target.group) for (const user of take(this.agentReactors)) state.members[QQMemoryBook.subject(account, key, user)] ??= user;
-    lines.push(...take(this.agentJobsDone).map(job => `[后台做完] ${job.tool}（${prefix(job.detail, 100)}）：` + prefix(job.result, 1500)));
+    // 2026-11-25: "Find the root cause and fix it in the code"; consuming a job must not discard its result's tail.
+    lines.push(...take(this.agentJobsDone).map(job => `[后台做完] ${job.tool}（${prefix(job.detail, 100)}）：` + job.result));
     lines.push(...take(this.agentWake).map(reminder => '[到点] 你之前定的事：' + reminder.about + (reminder.say === '' ? '' : `（当时打算说：${reminder.say}）`)));
     const ids = this.agentPending.get(key);
     if (!ids?.length) {

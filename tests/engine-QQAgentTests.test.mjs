@@ -301,6 +301,47 @@ test('aSlowToolCarriesOnInTheBackground', async () => {
   } finally { await r.stop(); }
 });
 
+for (const active of [true, false]) {
+  test(`a long helper result reaches ${active ? 'the running turn' : 'a new turn'} intact`, async () => {
+    const report = Array.from({length: 8}, (_, index) => `## 文献 ${index + 1}\n` + '研究方法、实验结果与参考出处。'.repeat(40)).join('\n\n') + '\n报告结束。';
+    let received = '';
+    const r = await rig((purpose, messages) => {
+      if (purpose !== 'director') return {hold: true};
+      const content = messages.map(message => typeof message.content === 'string' ? message.content : '').join('\n');
+      if (content.includes('[后台做完] ask_helper') || content.includes('你之前转到后台的事做完了')) {
+        received = content;
+        return {content: '结果已检查'};
+      }
+      if (!results(messages).length) return call('ask_helper', {task: '整理八篇文献'});
+      return active ? {hold: true} : {content: '等待结果'};
+    });
+    try {
+      const engine = r.engine;
+      engine.add(engine.contacts.find(contact => contact.number === '99999'));
+      const target = engine.config.targets[0];
+      target.enabled = true;
+      engine.config.effectiveOnlineEnabled = true;
+      engine.agentPatience.ask_helper = 0;
+      engine.start();
+      r.fixture.inject([group(62, 54321, '整理八篇文献')]);
+      assert.ok(await wait(() => r.model.held.some(item => item.call.purpose !== 'director')));
+      assert.ok(await wait(() => active ? r.model.held.some(item => item.call.purpose === 'director')
+        : engine.agentTurns[0]?.note.endsWith('等待结果') && !engine.agentThinking.has(target.key)));
+      const helper = r.model.held.findIndex(item => item.call.purpose !== 'director');
+      r.model.held.splice(helper, 1)[0].resolve({content: report});
+      if (active) {
+        assert.ok(await wait(() => engine.agentJobsDone.get(target.key)?.length === 1));
+        assert.equal(engine.agentJobsDone.get(target.key)[0].result, report);
+        r.model.release(() => call('check_new_messages', {}));
+      }
+      assert.ok(await wait(() => engine.agentTurns.at(-1)?.note.endsWith('结果已检查')));
+      assert.equal(engine.agentTurns.length, active ? 1 : 2);
+      assert.ok(received.includes(report), `the director must receive all ${report.length} characters of the helper report`);
+      assert.ok(!engine.agentJobsDone.has(target.key));
+    } finally { r.model.release(() => ({content: '测试结束'})); await r.stop(); }
+  });
+}
+
 /// A turn that fails before anything went out is tried again by itself with the same batch, and the records
 /// survive a restart.
 test('aFailedTurnIsRetriedAndTurnsAreKept', async () => {
