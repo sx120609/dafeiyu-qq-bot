@@ -1,0 +1,313 @@
+const LIMIT = 15000;
+const input = args || {};
+const deadline = Date.now() + 250000;
+const clean = v => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim();
+const clip = (v, n) => { const s = String(v ?? ''); return s.length <= n ? s : s.slice(0, Math.max(0, n - 1)) + '…'; };
+const errorText = e => clip(clean(e?.message || e || '接口调用失败'), 200);
+const decode = v => String(v ?? '').replace(/&#91;/g, '[').replace(/&#93;/g, ']').replace(/&#44;/g, ',').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+const normalize = v => clean(decode(v)).normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+const apiId = v => { const s = clean(v); const n = Number(s); return Number.isSafeInteger(n) ? n : s; };
+const idKey = v => { const s = clean(v); try { return /^-?\d+$/.test(s) ? BigInt(s).toString() : s; } catch { return s; } };
+async function qq(action, params = {}) {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error('本次读取已达到时间限制');
+  let timer;
+  try {
+    let r = await Promise.race([
+      Promise.resolve().then(() => tools.qq(action, params)),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(action + ' 请求超时')), Math.min(25000, remaining)); })
+    ]);
+    if (r && typeof r === 'object' && !Array.isArray(r)) {
+      if (r.status === 'failed' || (r.retcode != null && Number(r.retcode) !== 0)) throw new Error(r.wording || r.msg || (typeof r.message === 'string' ? r.message : '') || action + ' 调用失败');
+      if ('data' in r && (r.status != null || r.retcode != null || Object.keys(r).length === 1)) r = r.data;
+    }
+    return r;
+  } finally { clearTimeout(timer); }
+}
+function list(v, keys) {
+  if (Array.isArray(v)) return v;
+  for (const k of keys) if (Array.isArray(v?.[k])) return v[k];
+  return [];
+}
+function epoch(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  if (Number.isFinite(n)) return Math.abs(n) >= 1e12 ? n : n * 1000;
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : null;
+}
+const formatter = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+function when(v) { const t = epoch(v); if (t == null) return '时间未知'; try { return formatter.format(t); } catch { return '时间未知'; } }
+function segment(type, d = {}) {
+  d = d || {};
+  switch (type) {
+    case 'text': return String(d.text ?? '');
+    case 'image': return '[图片]';
+    case 'record': return '[语音]';
+    case 'video': return '[视频]';
+    case 'forward': return '[合并转发]';
+    case 'node': return '[转发节点]';
+    case 'at': return String(d.qq) === 'all' ? '@全体成员' : '@' + clean(d.name || d.qq || '成员');
+    case 'reply': return '[回复消息:' + clip(clean(d.id ?? '未知'), 40) + ']';
+    case 'face': case 'mface': case 'bface': return '[表情' + (d.summary ? ':' + clip(d.summary, 40) : '') + ']';
+    case 'file': return '[文件:' + clip(d.name || d.file || '未命名', 100) + ']';
+    case 'json': return '[JSON卡片]';
+    case 'xml': return '[XML卡片]';
+    case 'share': return '[分享:' + clip(d.title || d.url || '', 100) + ']';
+    case 'music': return '[音乐分享]';
+    case 'location': return '[位置:' + clip(d.title || d.content || '', 100) + ']';
+    case 'poke': return '[戳一戳]';
+    case 'markdown': return typeof d.content === 'string' ? d.content : '[Markdown消息]';
+    default: return '[' + clip(type || '非文本消息', 40) + ']';
+  }
+}
+function content(v, depth = 0) {
+  if (depth > 8) return '[嵌套消息]';
+  if (Array.isArray(v)) return clean(v.map(s => content(s, depth + 1)).join(''));
+  if (typeof v === 'string') {
+    const parts = [];
+    const re = /\[CQ:([^,\]]+)((?:,[^\]]*)?)\]/g;
+    let start = 0, match;
+    while ((match = re.exec(v))) {
+      parts.push(decode(v.slice(start, match.index)));
+      const d = {};
+      for (const pair of match[2].replace(/^,/, '').split(',')) {
+        const i = pair.indexOf('=');
+        if (i >= 0) d[pair.slice(0, i)] = decode(pair.slice(i + 1));
+      }
+      parts.push(segment(match[1], d));
+      start = re.lastIndex;
+    }
+    parts.push(decode(v.slice(start)));
+    return clean(parts.join(''));
+  }
+  if (v && typeof v === 'object') {
+    if (v.type) return clean(segment(v.type, v.data || v));
+    if (v.text != null) return content(v.text, depth + 1);
+    if (v.content != null) return content(v.content, depth + 1);
+    if (v.message != null) return content(v.message, depth + 1);
+  }
+  return '';
+}
+const messageId = m => m?.message_id ?? m?.msg_id;
+function sequence(m) {
+  // real_seq 优先：部分实现的 message_seq 是兼容字段，不是真实群序列号。
+  for (const key of ['real_seq', 'message_seq', 'seq', 'msg_seq']) {
+    const v = m?.[key];
+    if (v == null || (typeof v === 'number' && !Number.isSafeInteger(v))) continue;
+    const s = clean(v);
+    if (!/^\d+$/.test(s)) continue;
+    try { const n = BigInt(s); if (n > 0n) return n; } catch {}
+  }
+  return null;
+}
+const messageTime = m => epoch(m?.time ?? m?.timestamp);
+function compare(a, b) {
+  const ta = messageTime(a), tb = messageTime(b);
+  if (ta != null && tb != null && ta !== tb) return ta - tb;
+  const sa = sequence(a), sb = sequence(b);
+  return sa != null && sb != null && sa !== sb ? (sa < sb ? -1 : 1) : 0;
+}
+try {
+  const count = input.count == null ? 30 : Number(input.count);
+  if (!Number.isInteger(count) || count < 1 || count > 80) return '参数错误：count 必须是1—80的整数。';
+  if (input.skip_meta != null && typeof input.skip_meta !== 'boolean') return '参数错误：skip_meta 必须是 boolean。';
+  const skipMeta = input.skip_meta === true;
+  let groupId = clean(input.group_id);
+  const groupName = clean(input.group_name);
+  const beforeId = clean(input.before);
+  if (groupId && !/^\d+$/.test(groupId)) return '参数错误：group_id 必须是纯数字群号。';
+  if (beforeId && !/^-?\d+$/.test(beforeId)) return '参数错误：before 必须是消息编号。';
+  let matched = null;
+  if (!groupId) {
+    if (!groupName) return '请提供 group_name（群名）或 group_id（群号）。';
+    let groups;
+    try { groups = list(await qq('get_group_list'), ['groups', 'group_list', 'list']).filter(g => g && typeof g === 'object'); }
+    catch (e) { return '获取群列表失败：' + errorText(e) + '。可以尝试直接提供 group_id。'; }
+    const q = normalize(groupName);
+    if (!q) return '参数错误：群名不能为空。';
+    let matches = groups.filter(g => clean(g.group_name) === groupName);
+    if (!matches.length) matches = groups.filter(g => normalize(g.group_name) === q);
+    if (!matches.length) matches = groups.filter(g => normalize(g.group_name).includes(q));
+    if (!matches.length && /^\d+$/.test(groupName)) {
+      groupId = groupName;
+      matched = groups.find(g => idKey(g.group_id) === idKey(groupId)) || null;
+    } else if (!matches.length) {
+      return '未找到群名包含“' + clip(groupName, 120) + '”的群。请提供更准确的群名或群号；只能读取当前QQ账号可访问的群。';
+    } else if (matches.length > 1) {
+      const options = matches.slice(0, 50).map(g => '- ' + clip(clean(g.group_name), 120) + '｜群号：' + clean(g.group_id)).join('\n');
+      return clip('匹配到' + matches.length + '个群，请使用 group_id 指定目标群：\n' + options + (matches.length > 50 ? '\n仅列出前50个，请缩小范围。' : ''), LIMIT);
+    } else {
+      matched = matches[0];
+      groupId = clean(matched.group_id);
+    }
+  }
+  if (!/^\d+$/.test(groupId)) return '群列表未返回有效群号，无法读取上下文。';
+  groupId = idKey(groupId);
+  const gid = apiId(groupId);
+  const belongs = m => m && typeof m === 'object' && !Array.isArray(m) && m.message_type !== 'private' && (m.group_id == null || idKey(m.group_id) === groupId);
+  let anchor = null;
+  if (beforeId) {
+    try {
+      anchor = await qq('get_msg', { message_id: apiId(beforeId) });
+      if (!belongs(anchor)) throw new Error('before 消息不可读取或不属于目标群');
+      if (messageId(anchor) != null && idKey(messageId(anchor)) !== idKey(beforeId)) throw new Error('get_msg 返回的消息编号与 before 不一致');
+      if (sequence(anchor) == null) throw new Error('消息缺少有效的 real_seq/message_seq/seq，不能把消息编号当作序列号分页');
+    } catch (e) { return '无法向前翻页：' + errorText(e) + '。请使用目标群中可读取的消息编号作为 before。'; }
+  }
+  async function readHistory() {
+    const collected = new Map();
+    const hydrated = new Set();
+    const visited = new Set();
+    const anchorSeq = sequence(anchor);
+    const anchorTime = messageTime(anchor);
+    let cursor = anchorSeq;
+    let error = null, note = '', calls = 0, nudged = false;
+    const batchSize = Math.min(100, Math.max(50, count + 1));
+    const keyOf = m => {
+      const id = messageId(m);
+      if (id != null && clean(id)) return 'id:' + idKey(id);
+      const seq = sequence(m);
+      if (seq != null) return 'seq:' + seq.toString();
+      return 'fallback:' + JSON.stringify([m.time ?? m.timestamp, m.sender?.user_id ?? m.user_id, m.message ?? m.raw_message]);
+    };
+    while (collected.size < count && calls < 100) {
+      if (Date.now() >= deadline - 1000) { note = '已达到读取时间限制，返回已获取的记录。'; break; }
+      if (cursor != null && cursor <= 0n) break;
+      const cursorKey = cursor == null ? 'latest' : cursor.toString();
+      if (visited.has(cursorKey)) { note = '分页游标重复，已停止以避免循环；不代表没有更早记录。'; break; }
+      visited.add(cursorKey);
+      // [NapCat 分页方向说明](https://github.com/NapNeko/NapCatQQ/issues/987)：true 向过去读取。
+      const params = { group_id: gid, count: batchSize, reverseOrder: true };
+      if (cursor != null) params.message_seq = apiId(cursor.toString());
+      let raw;
+      try { calls++; raw = await qq('get_group_msg_history', params); }
+      catch (e) { error = e; break; }
+      let rows = list(raw, ['messages', 'message_list', 'list']).filter(belongs);
+      if (!rows.length) { note = '接口未返回更早记录；可能已到可读取历史边界。'; break; }
+      // 历史条目没有序列号时，按消息编号补查；限制补查量，避免请求失控。
+      const need = rows.filter(m => sequence(m) == null && messageId(m) != null && !hydrated.has(idKey(messageId(m))));
+      for (let offset = 0; offset < need.length && hydrated.size < 120; offset += 8) {
+        const chunk = need.slice(offset, offset + Math.min(8, 120 - hydrated.size));
+        await Promise.all(chunk.map(async m => {
+          const id = idKey(messageId(m));
+          hydrated.add(id);
+          try {
+            const fetched = await qq('get_msg', { message_id: apiId(id) });
+            if (belongs(fetched) && (messageId(fetched) == null || idKey(messageId(fetched)) === id)) {
+              const seq = sequence(fetched);
+              if (seq != null) m.real_seq = seq.toString();
+              if (messageTime(m) == null && messageTime(fetched) != null) m.time = fetched.time ?? fetched.timestamp;
+            }
+          } catch {}
+        }));
+      }
+      rows.sort(compare);
+      let oldestSeq = null;
+      for (const m of rows) {
+        const id = messageId(m), seq = sequence(m), time = messageTime(m);
+        if (cursor != null && seq != null && seq > cursor) continue;
+        if (seq != null && (oldestSeq == null || seq < oldestSeq)) oldestSeq = seq;
+        if (anchor) {
+          if (id != null && idKey(id) === idKey(beforeId)) continue;
+          if (seq != null) { if (seq >= anchorSeq) continue; }
+          else if (anchorTime == null || time == null || time >= anchorTime) continue;
+        }
+        const key = keyOf(m);
+        if (!collected.has(key)) collected.set(key, m);
+      }
+      if (collected.size >= count) break;
+      if (oldestSeq == null) { note = '历史条目缺少可用序列号，无法继续推进分页；已保留可确认的记录。'; break; }
+      if (cursor == null || oldestSeq < cursor) {
+        // 保留最早条目作为下一次锚点；包容式接口的重复条目由 Map 去重。
+        cursor = oldestSeq;
+        nudged = false;
+        continue;
+      }
+      // 某些接口只返回游标自身；仅在无进展时尝试前一个真实序列号。
+      if (!nudged && cursor > 1n) { cursor -= 1n; nudged = true; continue; }
+      note = '接口重复返回分页边界，未能继续向前读取；不代表没有更早记录。';
+      break;
+    }
+    if (calls >= 100 && collected.size < count && !note && !error) note = '已达到本次分页请求上限，返回已获取的记录。';
+    return { messages: [...collected.values()].sort(compare).slice(-count), error, note };
+  }
+  const jobs = [qq('get_group_info', { group_id: gid }), readHistory()];
+  if (!skipMeta) jobs.push(qq('_get_group_notice', { group_id: gid }), qq('get_essence_msg_list', { group_id: gid }));
+  const results = await Promise.allSettled(jobs);
+  const value = i => results[i]?.status === 'fulfilled' ? results[i].value : null;
+  const details = value(0);
+  const info = { ...(matched || {}), ...(details && typeof details === 'object' && !Array.isArray(details) ? details : {}) };
+  const notes = [];
+  if (results[0].status === 'rejected') notes.push('群详情读取失败：' + errorText(results[0].reason));
+  const history = value(1);
+  const messages = history?.messages || [];
+  const historyError = results[1].status === 'rejected' ? results[1].reason : history?.error;
+  if (historyError) notes.push('聊天记录读取' + (messages.length ? '中途失败，已保留部分记录：' : '失败：') + errorText(historyError));
+  if (history?.note && messages.length < count) notes.push(history.note);
+  const names = new Map();
+  const missing = [...new Set(messages.filter(m => !clean(m.sender?.card) && !clean(m.sender?.nickname)).map(m => m.sender?.user_id ?? m.user_id).filter(v => v != null))].slice(0, 12);
+  await Promise.all(missing.map(async uid => {
+    try {
+      const member = await qq('get_group_member_info', { group_id: gid, user_id: apiId(uid) });
+      const name = clean(member?.card) || clean(member?.nickname);
+      if (name) names.set(String(uid), name);
+    } catch {}
+  }));
+  let noticeText = '接口不支持或暂不可用，已跳过。';
+  if (!skipMeta && results[2]?.status === 'fulfilled' && value(2) != null) {
+    let notices = list(value(2), ['notices', 'notice_list', 'list']).filter(n => n && typeof n === 'object');
+    if (!notices.length && (value(2)?.message != null || value(2)?.content != null || value(2)?.text != null)) notices = [value(2)];
+    notices = [...notices].sort((a, b) => (epoch(b.pub_time ?? b.time) || 0) - (epoch(a.pub_time ?? a.time) || 0));
+    noticeText = notices.length ? notices.slice(0, 5).map((n, i) => {
+      const body = n.message ?? n.content ?? n.text;
+      const images = body?.images ?? n.images;
+      let text = content(body) || clean(n.title) || '[公告正文未提供]';
+      if (Array.isArray(images) && images.length) text += ' [图片×' + images.length + ']';
+      return (i + 1) + '. ' + when(n.pub_time ?? n.time) + (n.sender_id != null ? '｜发布者:' + clip(n.sender_id, 30) : '') + '\n' + clip(text, 650);
+    }).join('\n') + (notices.length > 5 ? '\n另有' + (notices.length - 5) + '条公告未展开。' : '') : '暂无公告（接口未返回条目）。';
+  }
+  let essenceText = '接口不支持或暂不可用，已跳过。';
+  if (!skipMeta && results[3]?.status === 'fulfilled' && value(3) != null) {
+    const essences = [...list(value(3), ['messages', 'essence_list', 'list'])].filter(e => e && typeof e === 'object').sort((a, b) => (epoch(b.operator_time ?? b.sender_time ?? b.time) || 0) - (epoch(a.operator_time ?? a.sender_time ?? a.time) || 0));
+    const selected = essences.slice(0, 8);
+    const rows = await Promise.all(selected.map(async (e, i) => {
+      let m = e;
+      let body = content(e.message ?? e.message_content ?? e.content ?? e.raw_message);
+      if (!body && messageId(e) != null) {
+        try {
+          const fetched = await qq('get_msg', { message_id: apiId(messageId(e)) });
+          if (belongs(fetched)) {
+            m = { ...e, ...fetched };
+            body = content(m.message) || content(m.raw_message);
+          }
+        } catch {}
+      }
+      const name = clean(m.sender?.card) || clean(m.sender?.nickname) || clean(e.sender_nick) || clean(e.sender_id) || '未知成员';
+      return (i + 1) + '. ' + when(m.time ?? e.sender_time) + '｜' + clip(name, 60) + '｜消息编号:' + clip(messageId(e) ?? messageId(m) ?? '未知', 40) + '\n' + clip(body || '[正文不可用]', 320);
+    }));
+    essenceText = rows.length ? rows.join('\n') + (essences.length > selected.length ? '\n本次接口另返回' + (essences.length - selected.length) + '条精华未展开。' : '') : '暂无精华消息（接口未返回条目）。';
+  }
+  let output = '群上下文\n群名：' + clip(clean(info.group_name) || groupName || '未知', 160) + '\n群号：' + groupId + '\n成员数：' + clip(info.member_count ?? '未知', 20) + (info.max_member_count != null ? ' / 上限 ' + clip(info.max_member_count, 20) : '') + '\n时间：北京时间（UTC+8）\n';
+  if (beforeId) output += '分页：消息 ' + clip(beforeId, 40) + ' 之前，不含该消息\n';
+  if (!skipMeta) output += '\n群公告\n' + clip(noticeText, 2000) + '\n\n精华消息\n' + clip(essenceText, 2300);
+  if (notes.length) output += '\n\n读取说明\n' + clip(notes.join('\n'), 850);
+  output += '\n\n聊天记录（旧→新，本次' + messages.length + '条，请求' + count + '条；长内容可能截断）\n';
+  const firstId = messages.length ? messageId(messages[0]) : null;
+  const footer = firstId != null && /^-?\d+$/.test(clean(firstId))
+    ? '\n继续向前翻页可使用 before="' + idKey(firstId) + '"。'
+    : '\n下一页 before：暂不可用（没有记录或最早记录缺少消息编号）。';
+  const available = Math.max(0, LIMIT - output.length - footer.length - 10);
+  const perMessage = messages.length ? Math.floor(available / messages.length) - 2 : 0;
+  if (!messages.length) output += historyError ? '未能获取聊天记录。' : '本次未获取到符合条件的聊天记录。';
+  for (const m of messages) {
+    const uid = m.sender?.user_id ?? m.user_id;
+    const name = clean(m.sender?.card) || clean(m.sender?.nickname) || names.get(String(uid)) || (uid != null ? 'QQ ' + uid : '未知成员');
+    const header = '[' + when(m.time ?? m.timestamp) + '] ' + clip(name, 32) + '｜消息编号:' + clip(messageId(m) ?? '未知', 32) + '\n';
+    const body = content(m.message) || content(m.raw_message) || '[空消息或内容不可用]';
+    output += header + clip(body, Math.max(1, perMessage - header.length)) + '\n\n';
+  }
+  return clip(output, LIMIT - footer.length) + footer;
+} catch (e) {
+  return clip('读取群上下文失败：' + errorText(e) + '。请检查群名或群号，以及当前QQ账号是否能够访问该群。', LIMIT);
+}

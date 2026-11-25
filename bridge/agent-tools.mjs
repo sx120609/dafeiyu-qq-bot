@@ -12,6 +12,7 @@ import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {writeToolCode} from './tool-writer.mjs';
+import {repairToolHistory} from './tool-history-repair.mjs';
 
 const runner=path.join(path.dirname(fileURLToPath(import.meta.url)),'tool-sandbox.mjs');
 const NAME=/^my_[a-z][a-z0-9_]{1,40}$/;
@@ -181,6 +182,7 @@ export class AgentTools{
     return changed?JSON.stringify(referenced,null,1):output;
   }
   async execute(code,args,name='my_test',context){
+    code=repairToolHistory(name,code);
     const started=Date.now();
     const result=await new Promise(resolve=>{
       let child;
